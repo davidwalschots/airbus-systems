@@ -94,6 +94,18 @@ impl EngineGenerator {
     }
 }
 
+struct Engine {
+    n2: Ratio
+}
+
+impl Engine {
+    fn new() -> Engine {
+        Engine {
+            n2: Ratio::new::<percent>(0.)
+        }
+    }
+}
+
 struct ApuGenerator {
     output: Current
 }
@@ -123,18 +135,6 @@ impl AuxiliaryPowerUnit {
     fn new() -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
             speed: Ratio::new::<percent>(0.)
-        }
-    }
-}
-
-struct Engine {
-    n2: Ratio
-}
-
-impl Engine {
-    fn new() -> Engine {
-        Engine {
-            n2: Ratio::new::<percent>(0.)
         }
     }
 }
