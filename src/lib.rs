@@ -52,21 +52,24 @@ impl Contactor {
 }
 
 struct A320ElectricalCircuit {
-    gen1: EngineGenerator,
-    gen2: EngineGenerator
+    engine_gen_1: EngineGenerator,
+    engine_gen_2: EngineGenerator,
+    apu_gen: ApuGenerator
 }
 
 impl A320ElectricalCircuit {
     fn new() -> A320ElectricalCircuit {
         A320ElectricalCircuit {
-            gen1: EngineGenerator::new(),
-            gen2: EngineGenerator::new()
+            engine_gen_1: EngineGenerator::new(),
+            engine_gen_2: EngineGenerator::new(),
+            apu_gen: ApuGenerator::new()
         }
     }
 
-    fn update(&mut self, engine1: &Engine, engine2: &Engine) {
-        self.gen1.update(engine1);
-        self.gen2.update(engine2);
+    fn update(&mut self, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit) {
+        self.engine_gen_1.update(engine1);
+        self.engine_gen_2.update(engine2);
+        self.apu_gen.update(apu);
     }
 }
 
@@ -87,6 +90,39 @@ impl EngineGenerator {
             self.output = Current::Alternating(Frequency::new::<hertz>(400.), ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60));
         } else {
             self.output = Current::None
+        }
+    }
+}
+
+struct ApuGenerator {
+    output: Current
+}
+
+impl ApuGenerator {
+    fn new() -> ApuGenerator {
+        ApuGenerator {
+            output: Current::None
+        }
+    }
+
+    fn update(&mut self, apu: &AuxiliaryPowerUnit) {
+        const POWER_OUTPUT_THRESHOLD: f32 = 57.5;
+        if apu.speed > Ratio::new::<percent>(POWER_OUTPUT_THRESHOLD) {
+            self.output = Current::Alternating(Frequency::new::<hertz>(400.), ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60));
+        } else {
+            self.output = Current::None
+        }
+    }
+}
+
+struct AuxiliaryPowerUnit {
+    speed: Ratio
+}
+
+impl AuxiliaryPowerUnit {
+    fn new() -> AuxiliaryPowerUnit {
+        AuxiliaryPowerUnit {
+            speed: Ratio::new::<percent>(0.)
         }
     }
 }
@@ -274,5 +310,55 @@ mod engine_generator_tests {
     fn update_below_threshold(generator: &mut EngineGenerator) {
         const BELOW_THRESHOLD: f32 = 57.5;
         generator.update(&engine(Ratio::new::<percent>(BELOW_THRESHOLD)));
+    }
+}
+
+#[cfg(test)]
+mod apu_generator_tests {
+    use uom::si::{ratio::percent};
+    use super::*;
+
+    #[test]
+    fn starts_without_output() {
+        assert!(apu_generator().output.is_none());
+    }
+
+    #[test]
+    fn when_apu_speed_above_threshold_provides_output() {
+        let mut generator = apu_generator();
+        update_below_threshold(&mut generator);
+        update_above_threshold(&mut generator);
+
+        assert!(generator.output.is_alternating());
+    }
+
+    #[test]
+    fn when_apu_speed_below_threshold_provides_no_output() {
+        let mut generator = apu_generator();
+        update_above_threshold(&mut generator);
+        update_below_threshold(&mut generator);
+
+        assert!(generator.output.is_none());
+    }
+
+    fn apu_generator() -> ApuGenerator {
+        ApuGenerator::new()
+    }
+
+    fn apu(speed: Ratio) -> AuxiliaryPowerUnit {
+        let mut apu = AuxiliaryPowerUnit::new();
+        apu.speed = speed;
+
+        apu
+    }
+
+    fn update_above_threshold(generator: &mut ApuGenerator) {
+        const ABOVE_THRESHOLD: f32 = 57.6;
+        generator.update(&apu(Ratio::new::<percent>(ABOVE_THRESHOLD)));
+    }
+
+    fn update_below_threshold(generator: &mut ApuGenerator) {
+        const BELOW_THRESHOLD: f32 = 57.5;
+        generator.update(&apu(Ratio::new::<percent>(BELOW_THRESHOLD)));
     }
 }
