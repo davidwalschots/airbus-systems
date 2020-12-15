@@ -52,23 +52,25 @@ impl Contactor {
 }
 
 struct A320ElectricalCircuit {
-    engine_gen_1: EngineGenerator,
-    engine_gen_2: EngineGenerator,
-    apu_gen: ApuGenerator
+    engine_1_gen: EngineGenerator,
+    engine_2_gen: EngineGenerator,
+    apu_gen: ApuGenerator,
+    ext_pwr: ExternalPowerSource,
 }
 
 impl A320ElectricalCircuit {
     fn new() -> A320ElectricalCircuit {
         A320ElectricalCircuit {
-            engine_gen_1: EngineGenerator::new(),
-            engine_gen_2: EngineGenerator::new(),
-            apu_gen: ApuGenerator::new()
+            engine_1_gen: EngineGenerator::new(),
+            engine_2_gen: EngineGenerator::new(),
+            apu_gen: ApuGenerator::new(),
+            ext_pwr: ExternalPowerSource::new()
         }
     }
 
     fn update(&mut self, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit) {
-        self.engine_gen_1.update(engine1);
-        self.engine_gen_2.update(engine2);
+        self.engine_1_gen.update(engine1);
+        self.engine_2_gen.update(engine2);
         self.apu_gen.update(apu);
     }
 }
@@ -135,6 +137,26 @@ impl AuxiliaryPowerUnit {
     fn new() -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
             speed: Ratio::new::<percent>(0.)
+        }
+    }
+}
+
+struct ExternalPowerSource {
+    plugged_in: bool
+}
+
+impl ExternalPowerSource {
+    fn new() -> ExternalPowerSource {
+        ExternalPowerSource {
+            plugged_in: false
+        }
+    }
+
+    fn output(&self) -> Current {
+        if self.plugged_in { 
+            Current::Alternating(Frequency::new::<hertz>(400.), ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60))
+        } else {
+            Current::None
         }
     }
 }
@@ -360,5 +382,35 @@ mod apu_generator_tests {
     fn update_below_threshold(generator: &mut ApuGenerator) {
         const BELOW_THRESHOLD: f32 = 57.5;
         generator.update(&apu(Ratio::new::<percent>(BELOW_THRESHOLD)));
+    }
+}
+
+#[cfg(test)]
+mod external_power_source_tests {
+    use super::*;
+
+    #[test]
+    fn starts_without_output() {
+        assert!(external_power_source().output().is_none());
+    }
+
+    #[test]
+    fn when_plugged_in_provides_output() {
+        let mut ext_pwr = external_power_source();
+        ext_pwr.plugged_in = true;
+
+        assert!(ext_pwr.output().is_alternating());
+    }
+
+    #[test]
+    fn when_not_plugged_in_provides_no_output() {
+        let mut ext_pwr = external_power_source();
+        ext_pwr.plugged_in = false;
+
+        assert!(ext_pwr.output().is_none());
+    }
+
+    fn external_power_source() -> ExternalPowerSource {
+        ExternalPowerSource::new()
     }
 }
