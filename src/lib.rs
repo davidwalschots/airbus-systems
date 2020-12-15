@@ -1,4 +1,4 @@
-use uom::si::f32::{Frequency, ElectricPotential, ElectricCurrent};
+use uom::si::{electric_current::ampere, electric_potential::volt, f32::{Frequency, ElectricPotential, ElectricCurrent, Ratio}, frequency::hertz, ratio::percent};
 
 /// Represents a type of electric current.
 #[derive(Debug)]
@@ -31,7 +31,7 @@ enum ContactorState {
 
 /// Represents a contactor in a electrical power circuit.
 #[derive(Debug)]
-pub struct Contactor {
+struct Contactor {
     state: ContactorState,
 }
 
@@ -48,6 +48,58 @@ impl Contactor {
             ContactorState::Closed if !should_be_closed => ContactorState::Open,
             _ => self.state
         };
+    }
+}
+
+struct A320ElectricalCircuit {
+    gen1: EngineGenerator,
+    gen2: EngineGenerator
+}
+
+impl A320ElectricalCircuit {
+    fn new() -> A320ElectricalCircuit {
+        A320ElectricalCircuit {
+            gen1: EngineGenerator::new(),
+            gen2: EngineGenerator::new()
+        }
+    }
+
+    fn update(&mut self, engine1: &Engine, engine2: &Engine) {
+        self.gen1.update(engine1);
+        self.gen2.update(engine2);
+    }
+}
+
+struct EngineGenerator {
+    output: Current
+}
+
+impl EngineGenerator {
+    fn new() -> EngineGenerator {
+        EngineGenerator {
+            output: Current::None
+        }
+    }
+
+    fn update(&mut self, engine: &Engine) {
+        const POWER_OUTPUT_THRESHOLD: f32 = 57.5;
+        if engine.n2 > Ratio::new::<percent>(POWER_OUTPUT_THRESHOLD) {
+            self.output = Current::Alternating(Frequency::new::<hertz>(400.), ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60));
+        } else {
+            self.output = Current::None
+        }
+    }
+}
+
+struct Engine {
+    n2: Ratio
+}
+
+impl Engine {
+    fn new() -> Engine {
+        Engine {
+            n2: Ratio::new::<percent>(0.)
+        }
     }
 }
 
@@ -172,5 +224,55 @@ mod contactor_tests {
         contactor.state = ContactorState::Closed;
 
         contactor
+    }
+}
+
+#[cfg(test)]
+mod engine_generator_tests {
+    use uom::si::{ratio::percent};
+    use super::*;
+
+    #[test]
+    fn starts_without_output() {
+        assert!(engine_generator().output.is_none());
+    }
+
+    #[test]
+    fn when_engine_n2_above_threshold_provides_output() {
+        let mut generator = engine_generator();
+        update_below_threshold(&mut generator);
+        update_above_threshold(&mut generator);
+
+        assert!(generator.output.is_alternating());
+    }
+
+    #[test]
+    fn when_engine_n2_below_threshold_provides_no_output() {
+        let mut generator = engine_generator();
+        update_above_threshold(&mut generator);
+        update_below_threshold(&mut generator);
+
+        assert!(generator.output.is_none());
+    }
+
+    fn engine_generator() -> EngineGenerator {
+        EngineGenerator::new()
+    }
+
+    fn engine(n2: Ratio) -> Engine {
+        let mut engine = Engine::new();
+        engine.n2 = n2;
+
+        engine
+    }
+
+    fn update_above_threshold(generator: &mut EngineGenerator) {
+        const ABOVE_THRESHOLD: f32 = 57.6;
+        generator.update(&engine(Ratio::new::<percent>(ABOVE_THRESHOLD)));
+    }
+
+    fn update_below_threshold(generator: &mut EngineGenerator) {
+        const BELOW_THRESHOLD: f32 = 57.5;
+        generator.update(&engine(Ratio::new::<percent>(BELOW_THRESHOLD)));
     }
 }
