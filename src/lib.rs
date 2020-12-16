@@ -107,9 +107,11 @@ struct A320ElectricalCircuit {
     engine_1_gen: EngineGenerator,
     engine_1_contactor: Contactor,
     engine_2_gen: EngineGenerator,
+    engine_2_contactor: Contactor,
     apu_gen: ApuGenerator,
     ext_pwr: ExternalPowerSource,
-    ac_bus_1: ElectricalBus
+    ac_bus_1: ElectricalBus,
+    ac_bus_2: ElectricalBus,
 }
 
 impl A320ElectricalCircuit {
@@ -118,9 +120,11 @@ impl A320ElectricalCircuit {
             engine_1_gen: EngineGenerator::new(1),
             engine_1_contactor: Contactor::new(),
             engine_2_gen: EngineGenerator::new(2),
+            engine_2_contactor: Contactor::new(),
             apu_gen: ApuGenerator::new(),
             ext_pwr: ExternalPowerSource::new(),
-            ac_bus_1: ElectricalBus::new()
+            ac_bus_1: ElectricalBus::new(),
+            ac_bus_2: ElectricalBus::new()
         }
     }
 
@@ -130,10 +134,16 @@ impl A320ElectricalCircuit {
         self.engine_1_contactor.toggle(gen_1_has_output);
 
         self.engine_2_gen.update(engine2);
+        let gen_2_has_output = self.engine_2_gen.output().is_alternating();
+        self.engine_2_contactor.toggle(gen_2_has_output);
+
         self.apu_gen.update(apu);
 
         self.engine_1_contactor.powered_by(vec!(&self.engine_1_gen));
         self.ac_bus_1.powered_by(vec!(&self.engine_1_contactor));
+
+        self.engine_2_contactor.powered_by(vec!(&self.engine_2_gen));
+        self.ac_bus_2.powered_by(vec!(&self.engine_2_contactor));
     }
 }
 
@@ -492,6 +502,14 @@ mod tests {
             circuit.update(&running_engine(), &stopped_engine(), &stopped_apu());
 
             assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::EngineGenerator(1));
+        }
+
+        #[test]
+        fn when_available_engine_2_gen_supplies_ac_bus_2() {
+            let mut circuit = electrical_circuit();
+            circuit.update(&stopped_engine(), &running_engine(), &stopped_apu());
+
+            assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::EngineGenerator(2));
         }
     
         fn electrical_circuit() -> A320ElectricalCircuit {
