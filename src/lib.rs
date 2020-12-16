@@ -133,6 +133,7 @@ struct A320ElectricalCircuit {
     bus_tie_1_contactor: Contactor,
     bus_tie_2_contactor: Contactor,
     apu_gen: ApuGenerator,
+    apu_gen_contactor: Contactor,
     ext_pwr: ExternalPowerSource,
     ac_bus_1: ElectricalBus,
     ac_bus_2: ElectricalBus,
@@ -148,6 +149,7 @@ impl A320ElectricalCircuit {
             bus_tie_1_contactor: Contactor::new(),
             bus_tie_2_contactor: Contactor::new(),
             apu_gen: ApuGenerator::new(),
+            apu_gen_contactor: Contactor::new(),
             ext_pwr: ExternalPowerSource::new(),
             ac_bus_1: ElectricalBus::new(),
             ac_bus_2: ElectricalBus::new()
@@ -157,23 +159,30 @@ impl A320ElectricalCircuit {
     fn update(&mut self, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit) {
         self.engine_1_gen.update(engine1);
         let gen_1_has_output = self.engine_1_gen.output().is_alternating();
-        self.engine_1_contactor.toggle(gen_1_has_output);
 
         self.engine_2_gen.update(engine2);
         let gen_2_has_output = self.engine_2_gen.output().is_alternating();
-        self.engine_2_contactor.toggle(gen_2_has_output);
-
-        let only_one_engine_gen_has_output = gen_1_has_output ^ gen_2_has_output;
-        self.bus_tie_1_contactor.toggle(only_one_engine_gen_has_output);
-        self.bus_tie_2_contactor.toggle(only_one_engine_gen_has_output);
 
         self.apu_gen.update(apu);
+        let apu_gen_has_output = self.apu_gen.output().is_alternating();
+
+        let only_one_engine_gen_has_output = gen_1_has_output ^ gen_2_has_output;
+
+        self.engine_1_contactor.toggle(gen_1_has_output);
+        self.engine_2_contactor.toggle(gen_2_has_output);
+
+        self.apu_gen_contactor.toggle(apu_gen_has_output);
+
+        self.bus_tie_1_contactor.toggle((only_one_engine_gen_has_output && !apu_gen_has_output) || (apu_gen_has_output && !gen_1_has_output));
+        self.bus_tie_2_contactor.toggle((only_one_engine_gen_has_output && !apu_gen_has_output) || (apu_gen_has_output && !gen_2_has_output));
+
+        self.apu_gen_contactor.powered_by(vec!(&self.apu_gen));
 
         self.engine_1_contactor.powered_by(vec!(&self.engine_1_gen));
-        self.bus_tie_1_contactor.powered_by(vec!(&self.engine_1_contactor));
+        self.bus_tie_1_contactor.powered_by(vec!(&self.engine_1_contactor, &self.apu_gen_contactor));
 
         self.engine_2_contactor.powered_by(vec!(&self.engine_2_gen));
-        self.bus_tie_2_contactor.powered_by(vec!(&self.engine_2_contactor));
+        self.bus_tie_2_contactor.powered_by(vec!(&self.engine_2_contactor, &self.apu_gen_contactor));
         
         self.bus_tie_1_contactor.or_powered_by(vec!(&self.bus_tie_2_contactor));
         self.bus_tie_2_contactor.or_powered_by(vec!(&self.bus_tie_1_contactor));
@@ -247,6 +256,12 @@ impl ApuGenerator {
         } else {
             self.output = Current::None
         }
+    }
+}
+
+impl PowerConductor for ApuGenerator {
+    fn output(&self) -> Current {
+        self.output
     }
 }
 
@@ -331,6 +346,13 @@ mod tests {
     fn stopped_apu() -> AuxiliaryPowerUnit {
         let mut apu = AuxiliaryPowerUnit::new();
         apu.speed = Ratio::new::<percent>(0.);
+
+        apu
+    }
+
+    fn running_apu() -> AuxiliaryPowerUnit {
+        let mut apu = AuxiliaryPowerUnit::new();
+        apu.speed = Ratio::new::<percent>(ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD + 1.);
 
         apu
     }
@@ -534,6 +556,7 @@ mod tests {
         #[test]
         fn starts_without_output() {
             assert!(electrical_circuit().ac_bus_1.output().is_none());
+            assert!(electrical_circuit().ac_bus_2.output().is_none());
         }
     
         #[test]
@@ -582,6 +605,31 @@ mod tests {
             circuit.update(&stopped_engine(), &stopped_engine(), &stopped_apu());
 
             assert!(circuit.ac_bus_2.output().is_none());
+        }
+
+        #[test]
+        fn when_engine_1_and_apu_running_apu_powers_ac_bus_2() {
+            let mut circuit = electrical_circuit();
+            circuit.update(&running_engine(), &stopped_engine(), &running_apu());
+
+            assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::ApuGenerator);
+        }
+
+        #[test]
+        fn when_engine_2_and_apu_running_apu_powers_ac_bus_1() {
+            let mut circuit = electrical_circuit();
+            circuit.update(&stopped_engine(), &running_engine(), &running_apu());
+
+            assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::ApuGenerator);
+        }        
+
+        #[test]
+        fn when_no_engine_running_and_apu_running_apu_powers_ac_bus_1_and_2() {
+            let mut circuit = electrical_circuit();
+            circuit.update(&stopped_engine(), &stopped_engine(), &running_apu());
+
+            assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::ApuGenerator);
+            assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::ApuGenerator);
         }
     
         fn electrical_circuit() -> A320ElectricalCircuit {
