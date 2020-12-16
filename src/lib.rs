@@ -43,6 +43,8 @@ trait PowerConductor {
 }
 
 trait Powerable {
+    /// Provides input power from any of the given sources. When none of the sources
+    /// has any output, no input is provided.
     fn powered_by<T: PowerConductor + ?Sized>(&mut self, sources: Vec<&T>) {
         self.set_input(sources.iter().find_map(|x| {
             let output = x.output();
@@ -53,7 +55,23 @@ trait Powerable {
         }).unwrap_or(Current::None));
     }
 
+    /// Provides input power from any of the given sources. When none of the sources
+    /// has any output, the already provided input is maintained.
+    /// This function is useful for situations where power can flow bidirectionally between
+    /// conductors, such as from ENG1 to AC BUS 2 and ENG2 to AC BUS 1.
+    fn or_powered_by<T: PowerConductor + ?Sized>(&mut self, sources: Vec<&T>) {
+        if let Current::None = self.get_input() {
+            for source in sources {
+                let output = source.output();
+                if !output.is_none() {
+                    self.set_input(output);
+                }
+            }
+        }
+    }
+
     fn set_input(&mut self, current: Current);
+    fn get_input(&self) -> Current;
 }
 
 /// Represents the state of a contactor.
@@ -91,6 +109,10 @@ impl Powerable for Contactor {
     fn set_input(&mut self, current: Current) {
         self.input = current;
     }
+
+    fn get_input(&self) -> Current {
+        self.input
+    }
 }
 
 impl PowerConductor for Contactor {
@@ -108,6 +130,8 @@ struct A320ElectricalCircuit {
     engine_1_contactor: Contactor,
     engine_2_gen: EngineGenerator,
     engine_2_contactor: Contactor,
+    bus_tie_1_contactor: Contactor,
+    bus_tie_2_contactor: Contactor,
     apu_gen: ApuGenerator,
     ext_pwr: ExternalPowerSource,
     ac_bus_1: ElectricalBus,
@@ -121,6 +145,8 @@ impl A320ElectricalCircuit {
             engine_1_contactor: Contactor::new(),
             engine_2_gen: EngineGenerator::new(2),
             engine_2_contactor: Contactor::new(),
+            bus_tie_1_contactor: Contactor::new(),
+            bus_tie_2_contactor: Contactor::new(),
             apu_gen: ApuGenerator::new(),
             ext_pwr: ExternalPowerSource::new(),
             ac_bus_1: ElectricalBus::new(),
@@ -137,13 +163,23 @@ impl A320ElectricalCircuit {
         let gen_2_has_output = self.engine_2_gen.output().is_alternating();
         self.engine_2_contactor.toggle(gen_2_has_output);
 
+        let only_one_engine_gen_has_output = gen_1_has_output ^ gen_2_has_output;
+        self.bus_tie_1_contactor.toggle(only_one_engine_gen_has_output);
+        self.bus_tie_2_contactor.toggle(only_one_engine_gen_has_output);
+
         self.apu_gen.update(apu);
 
         self.engine_1_contactor.powered_by(vec!(&self.engine_1_gen));
-        self.ac_bus_1.powered_by(vec!(&self.engine_1_contactor));
+        self.bus_tie_1_contactor.powered_by(vec!(&self.engine_1_contactor));
 
         self.engine_2_contactor.powered_by(vec!(&self.engine_2_gen));
-        self.ac_bus_2.powered_by(vec!(&self.engine_2_contactor));
+        self.bus_tie_2_contactor.powered_by(vec!(&self.engine_2_contactor));
+        
+        self.bus_tie_1_contactor.or_powered_by(vec!(&self.bus_tie_2_contactor));
+        self.bus_tie_2_contactor.or_powered_by(vec!(&self.bus_tie_1_contactor));
+
+        self.ac_bus_1.powered_by(vec!(&self.engine_1_contactor, &self.bus_tie_1_contactor));
+        self.ac_bus_2.powered_by(vec!(&self.engine_2_contactor, &self.bus_tie_2_contactor));
     }
 }
 
@@ -262,6 +298,10 @@ impl ElectricalBus {
 impl Powerable for ElectricalBus {
     fn set_input(&mut self, current: Current) {
         self.input = current;
+    }
+
+    fn get_input(&self) -> Current {
+        self.input
     }
 }
 
@@ -510,6 +550,22 @@ mod tests {
             circuit.update(&stopped_engine(), &running_engine(), &stopped_apu());
 
             assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::EngineGenerator(2));
+        }
+
+        #[test]
+        fn when_only_engine_1_is_running_supplies_ac_bus_2() {
+            let mut circuit = electrical_circuit();
+            circuit.update(&running_engine(), &stopped_engine(), &stopped_apu());
+
+            assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::EngineGenerator(1));
+        }
+
+        #[test]
+        fn when_only_engine_2_is_running_supplies_ac_bus_1() {
+            let mut circuit = electrical_circuit();
+            circuit.update(&stopped_engine(), &running_engine(), &stopped_apu());
+
+            assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::EngineGenerator(2));
         }
     
         fn electrical_circuit() -> A320ElectricalCircuit {
