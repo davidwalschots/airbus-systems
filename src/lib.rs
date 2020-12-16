@@ -1,10 +1,17 @@
 use uom::si::{electric_current::ampere, electric_potential::volt, f32::{Frequency, ElectricPotential, ElectricCurrent, Ratio}, frequency::hertz, ratio::percent};
 
+#[derive(Clone, Copy, Debug)]
+enum PowerSource {
+    EngineGenerator(u8),
+    ApuGenerator,
+    External
+}
+
 /// Represents a type of electric current.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 enum Current {
-    Alternating(Frequency, ElectricPotential, ElectricCurrent),
-    Direct(ElectricPotential, ElectricCurrent),
+    Alternating(PowerSource, Frequency, ElectricPotential, ElectricCurrent),
+    Direct(PowerSource, ElectricPotential, ElectricCurrent),
     None
 }
 
@@ -22,6 +29,10 @@ impl Current {
     }
 }
 
+trait PowerConductor {
+    fn output(&self) -> Current;
+}
+
 /// Represents the state of a contactor.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ContactorState {
@@ -33,12 +44,14 @@ enum ContactorState {
 #[derive(Debug)]
 struct Contactor {
     state: ContactorState,
+    input: Current,
 }
 
 impl Contactor {
     fn new() -> Contactor {
         Contactor {
-            state: ContactorState::Open
+            state: ContactorState::Open,
+            input: Current::None,
         }
     }
 
@@ -48,6 +61,26 @@ impl Contactor {
             ContactorState::Closed if !should_be_closed => ContactorState::Open,
             _ => self.state
         };
+    }
+
+    fn powered_by<T: PowerConductor + ?Sized>(&mut self, sources: Vec<&T>) {
+        self.input = sources.iter().find_map(|x| {
+            let output = x.output();
+            match output {
+                Current::None => None,
+                _ => Some(output)
+            }
+        }).unwrap_or(Current::None);
+    }
+}
+
+impl PowerConductor for Contactor {
+    fn output(&self) -> Current {
+        if let ContactorState::Closed = self.state {
+            self.input
+        } else {
+            Current::None
+        }
     }
 }
 
@@ -61,8 +94,8 @@ struct A320ElectricalCircuit {
 impl A320ElectricalCircuit {
     fn new() -> A320ElectricalCircuit {
         A320ElectricalCircuit {
-            engine_1_gen: EngineGenerator::new(),
-            engine_2_gen: EngineGenerator::new(),
+            engine_1_gen: EngineGenerator::new(1),
+            engine_2_gen: EngineGenerator::new(2),
             apu_gen: ApuGenerator::new(),
             ext_pwr: ExternalPowerSource::new()
         }
@@ -76,23 +109,32 @@ impl A320ElectricalCircuit {
 }
 
 struct EngineGenerator {
-    output: Current
+    number: u8,
+    output: Current,
 }
 
 impl EngineGenerator {
-    fn new() -> EngineGenerator {
+    fn new(number: u8) -> EngineGenerator {
         EngineGenerator {
-            output: Current::None
+            number,
+            output: Current::None,
         }
     }
 
     fn update(&mut self, engine: &Engine) {
         const POWER_OUTPUT_THRESHOLD: f32 = 57.5;
         if engine.n2 > Ratio::new::<percent>(POWER_OUTPUT_THRESHOLD) {
-            self.output = Current::Alternating(Frequency::new::<hertz>(400.), ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60));
+            self.output = Current::Alternating(PowerSource::EngineGenerator(self.number), Frequency::new::<hertz>(400.), 
+                ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60));
         } else {
             self.output = Current::None
         }
+    }
+}
+
+impl PowerConductor for EngineGenerator {
+    fn output(&self) -> Current {
+        self.output
     }
 }
 
@@ -122,7 +164,8 @@ impl ApuGenerator {
     fn update(&mut self, apu: &AuxiliaryPowerUnit) {
         const POWER_OUTPUT_THRESHOLD: f32 = 57.5;
         if apu.speed > Ratio::new::<percent>(POWER_OUTPUT_THRESHOLD) {
-            self.output = Current::Alternating(Frequency::new::<hertz>(400.), ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60));
+            self.output = Current::Alternating(PowerSource::ApuGenerator, Frequency::new::<hertz>(400.),
+                ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60));
         } else {
             self.output = Current::None
         }
@@ -154,7 +197,8 @@ impl ExternalPowerSource {
 
     fn output(&self) -> Current {
         if self.plugged_in { 
-            Current::Alternating(Frequency::new::<hertz>(400.), ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60))
+            Current::Alternating(PowerSource::External, Frequency::new::<hertz>(400.), 
+                ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60))
         } else {
             Current::None
         }
@@ -213,11 +257,11 @@ mod current_tests {
     }
 
     fn alternating_current() -> Current {
-        Current::Alternating(Frequency::new::<hertz>(0.), ElectricPotential::new::<volt>(0.), ElectricCurrent::new::<ampere>(0.))
+        Current::Alternating(PowerSource::ApuGenerator, Frequency::new::<hertz>(0.), ElectricPotential::new::<volt>(0.), ElectricCurrent::new::<ampere>(0.))
     }
 
     fn direct_current() -> Current {
-        Current::Direct(ElectricPotential::new::<volt>(0.), ElectricCurrent::new::<ampere>(0.))
+        Current::Direct(PowerSource::ApuGenerator, ElectricPotential::new::<volt>(0.), ElectricCurrent::new::<ampere>(0.))
     }
 
     fn none_current() -> Current {
@@ -266,6 +310,57 @@ mod contactor_tests {
         assert_eq!(contactor.state, ContactorState::Closed);
     }
 
+    #[test]
+    fn open_contactor_has_no_output_when_powered_by_nothing() {
+        contactor_has_no_output_when_powered_by_nothing(open_contactor());
+    }
+
+    #[test]
+    fn closed_contactor_has_no_output_when_powered_by_nothing() {
+        contactor_has_no_output_when_powered_by_nothing(closed_contactor());
+    }
+
+    fn contactor_has_no_output_when_powered_by_nothing(mut contactor: Contactor) {
+        let nothing: Vec<&dyn PowerConductor> = vec![];
+        contactor.powered_by(nothing);
+
+        assert!(contactor.output().is_none());
+    }
+
+    #[test]
+    fn open_contactor_has_no_output_when_powered_by_nothing_which_is_powered() {
+        contactor_has_no_output_when_powered_by_nothing_which_is_powered(open_contactor());
+    }
+
+    #[test]
+    fn closed_contactor_has_no_output_when_powered_by_nothing_which_is_powered() {
+        contactor_has_no_output_when_powered_by_nothing_which_is_powered(closed_contactor());
+    }
+
+    fn contactor_has_no_output_when_powered_by_nothing_which_is_powered(mut contactor: Contactor) {
+        contactor.powered_by(vec![&Powerless{}]);
+
+        assert!(contactor.output().is_none());
+    }
+
+    #[test]
+    fn open_contactor_has_no_output_when_powered_by_something() {
+        let mut contactor = open_contactor();
+        let conductors: Vec<&dyn PowerConductor> = vec![&Powerless{}, &Powered{}];
+        contactor.powered_by(conductors);
+
+        assert!(contactor.output().is_none());
+    }
+
+    #[test]
+    fn closed_contactor_has_output_when_powered_by_something_which_is_powered() {
+        let mut contactor = closed_contactor();
+        let conductors: Vec<&dyn PowerConductor> = vec![&Powerless{}, &Powered{}];
+        contactor.powered_by(conductors);
+
+        assert!(contactor.output().is_alternating());
+    }
+
     fn contactor() -> Contactor {
         Contactor::new()
     }
@@ -282,6 +377,23 @@ mod contactor_tests {
         contactor.state = ContactorState::Closed;
 
         contactor
+    }
+
+    struct Powerless {}
+
+    impl PowerConductor for Powerless {
+        fn output(&self) -> Current {
+            Current::None
+        }
+    }
+
+    struct Powered {}
+
+    impl PowerConductor for Powered {
+        fn output(&self) -> Current {
+            Current::Alternating(PowerSource::ApuGenerator, Frequency::new::<hertz>(400.), 
+                ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60))
+        }
     }
 }
 
@@ -314,7 +426,7 @@ mod engine_generator_tests {
     }
 
     fn engine_generator() -> EngineGenerator {
-        EngineGenerator::new()
+        EngineGenerator::new(1)
     }
 
     fn engine(n2: Ratio) -> Engine {
