@@ -567,6 +567,22 @@ mod tests {
 
             assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::EngineGenerator(2));
         }
+
+        #[test]
+        fn when_no_power_source_ac_bus_1_is_unpowered() {
+            let mut circuit = electrical_circuit();
+            circuit.update(&stopped_engine(), &stopped_engine(), &stopped_apu());
+
+            assert!(circuit.ac_bus_1.output().is_none());
+        }
+
+        #[test]
+        fn when_no_power_source_ac_bus_2_is_unpowered() {
+            let mut circuit = electrical_circuit();
+            circuit.update(&stopped_engine(), &stopped_engine(), &stopped_apu());
+
+            assert!(circuit.ac_bus_2.output().is_none());
+        }
     
         fn electrical_circuit() -> A320ElectricalCircuit {
             A320ElectricalCircuit::new()
