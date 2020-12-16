@@ -137,6 +137,9 @@ struct A320ElectricalCircuit {
     ext_pwr_contactor: Contactor,
     ac_bus_1: ElectricalBus,
     ac_bus_2: ElectricalBus,
+    ac_ess_bus: ElectricalBus,
+    ac_ess_feed_contactor_1: Contactor,
+    ac_ess_feed_contactor_2: Contactor
 }
 
 impl A320ElectricalCircuit {
@@ -152,7 +155,10 @@ impl A320ElectricalCircuit {
             apu_gen_contactor: Contactor::new(),
             ext_pwr_contactor: Contactor::new(),
             ac_bus_1: ElectricalBus::new(),
-            ac_bus_2: ElectricalBus::new()
+            ac_bus_2: ElectricalBus::new(),
+            ac_ess_bus: ElectricalBus::new(),
+            ac_ess_feed_contactor_1: Contactor::new(),
+            ac_ess_feed_contactor_2: Contactor::new()
         }
     }
 
@@ -182,6 +188,10 @@ impl A320ElectricalCircuit {
         let apu_or_ext_pwr_has_output = ext_pwr_has_output || apu_gen_has_output;
         self.bus_tie_1_contactor.toggle((only_one_engine_gen_has_output && !apu_or_ext_pwr_has_output) || (apu_or_ext_pwr_has_output && !gen_1_has_output));
         self.bus_tie_2_contactor.toggle((only_one_engine_gen_has_output && !apu_or_ext_pwr_has_output) || (apu_or_ext_pwr_has_output && !gen_2_has_output));
+
+        // Simulate failure of ac bus 1 or any contactors before it...
+        self.ac_ess_feed_contactor_1.toggle(!self.ac_bus_1.failed);
+        self.ac_ess_feed_contactor_2.toggle(self.ac_bus_1.failed && !self.ac_bus_2.failed);
     }
 
     fn power_circuit(&mut self, ext_pwr: &ExternalPowerSource) {
@@ -199,6 +209,11 @@ impl A320ElectricalCircuit {
 
         self.ac_bus_1.powered_by(vec!(&self.engine_1_contactor, &self.bus_tie_1_contactor));
         self.ac_bus_2.powered_by(vec!(&self.engine_2_contactor, &self.bus_tie_2_contactor));
+
+        self.ac_ess_feed_contactor_1.powered_by(vec!(&self.ac_bus_1));
+        self.ac_ess_feed_contactor_2.powered_by(vec!(&self.ac_bus_2));
+
+        self.ac_ess_bus.powered_by(vec!(&self.ac_ess_feed_contactor_1, &self.ac_ess_feed_contactor_2));
     }
 }
 
@@ -311,14 +326,20 @@ impl PowerConductor for ExternalPowerSource {
 }
 
 struct ElectricalBus {
-    input: Current
+    input: Current,
+    failed: bool
 }
 
 impl ElectricalBus {
     fn new() -> ElectricalBus {
         ElectricalBus {
-            input: Current::None
+            input: Current::None,
+            failed: false
         }
+    }
+
+    fn fail(&mut self) {
+        self.failed = true;
     }
 }
 
@@ -334,7 +355,11 @@ impl Powerable for ElectricalBus {
 
 impl PowerConductor for ElectricalBus {
     fn output(&self) -> Current {
-        self.input
+        if !self.failed {
+            self.input
+        } else {
+            Current::None
+        }
     }
 }
 
@@ -582,6 +607,7 @@ mod tests {
         fn starts_without_output() {
             assert!(electrical_circuit().ac_bus_1.output().is_none());
             assert!(electrical_circuit().ac_bus_2.output().is_none());
+            assert!(electrical_circuit().ac_ess_bus.output().is_none());
         }
     
         #[test]
@@ -708,9 +734,41 @@ mod tests {
             assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::EngineGenerator(1));
             assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::EngineGenerator(2));
         }
+
+        #[test]
+        fn ac_bus_1_powers_ac_ess_bus_whenever_it_is_powered() {
+            let mut circuit = electrical_circuit();
+            update_with_running_engines(&mut circuit);
+            
+            assert_eq!(circuit.ac_ess_bus.output().get_source(), PowerSource::EngineGenerator(1));
+        }
+
+        #[test]
+        fn ac_bus_2_powers_ac_ess_bus_when_ac_bus_1_failed() {
+            let mut circuit = electrical_circuit();
+            circuit.ac_bus_1.fail();
+            update_with_running_engines(&mut circuit);
+            
+            assert_eq!(circuit.ac_ess_bus.output().get_source(), PowerSource::EngineGenerator(2));
+        }
+
+        #[test]
+        // For now...
+        fn nothing_powers_ac_ess_bus_when_ac_bus_1_and_2_failed() {
+            let mut circuit = electrical_circuit();
+            circuit.ac_bus_1.fail();
+            circuit.ac_bus_2.fail();
+            update_with_running_engines(&mut circuit);
+
+            assert!(circuit.ac_ess_bus.output().is_none());
+        }
     
         fn electrical_circuit() -> A320ElectricalCircuit {
             A320ElectricalCircuit::new()
+        }
+
+        fn update_with_running_engines(circuit: &mut A320ElectricalCircuit) {
+            circuit.update(&running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
         }
     }
     
