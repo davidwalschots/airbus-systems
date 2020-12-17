@@ -1,4 +1,52 @@
-use uom::si::{electric_current::ampere, electric_potential::volt, f32::{Frequency, ElectricPotential, ElectricCurrent, Ratio}, frequency::hertz, ratio::percent};
+use uom::si::{electric_current::ampere, electric_potential::volt, f32::{Frequency, ElectricPotential, ElectricCurrent, Ratio, Time}, frequency::hertz, ratio::percent, time::second};
+
+struct UpdateContext {
+    delta: Time
+}
+
+impl UpdateContext {
+    fn new(delta: Time) -> UpdateContext {
+        UpdateContext {
+            delta
+        }
+    }
+}
+
+/// The delay logic gate delays the result of a given expression by the given amount of time.
+struct DelayedTrueLogicGate {
+    delay: Time,
+    expression_result: bool,
+    true_duration: Time
+}
+
+impl DelayedTrueLogicGate {
+    fn new(delay: Time) -> DelayedTrueLogicGate {
+        DelayedTrueLogicGate {
+            delay,
+            expression_result: false,
+            true_duration: Time::new::<second>(0.)
+        }
+    }
+
+    fn update(&mut self, context: &UpdateContext, expression_result: bool) {
+        self.expression_result = expression_result;
+        if expression_result {
+            // TODO: Currently we include the time since the last calculation as time the expression was already true.
+            // We have not decided if this is really a good idea.
+            self.true_duration += context.delta;
+        } else {
+            self.true_duration = Time::new::<second>(0.);
+        }
+    }
+
+    fn output(&self) -> bool {
+        if self.expression_result && self.delay <= self.true_duration {
+            true
+        } else {
+            false
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum PowerSource {
@@ -139,10 +187,13 @@ struct A320ElectricalCircuit {
     ac_bus_2: ElectricalBus,
     ac_ess_bus: ElectricalBus,
     ac_ess_feed_contactor_1: Contactor,
-    ac_ess_feed_contactor_2: Contactor
+    ac_ess_feed_contactor_2: Contactor,
+    ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate
 }
 
 impl A320ElectricalCircuit {
+    const AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS: f32 = 3.;
+
     fn new() -> A320ElectricalCircuit {
         A320ElectricalCircuit {
             engine_1_gen: EngineGenerator::new(1),
@@ -158,20 +209,16 @@ impl A320ElectricalCircuit {
             ac_bus_2: ElectricalBus::new(),
             ac_ess_bus: ElectricalBus::new(),
             ac_ess_feed_contactor_1: Contactor::new(),
-            ac_ess_feed_contactor_2: Contactor::new()
+            ac_ess_feed_contactor_2: Contactor::new(),
+            ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate::new(Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS)),
         }
     }
 
-    fn update(&mut self, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {
+    fn update(&mut self, context: &UpdateContext, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {
         self.engine_1_gen.update(engine1);
         self.engine_2_gen.update(engine2);
         self.apu_gen.update(apu);
 
-        self.toggle_contactors(ext_pwr);        
-        self.power_circuit(ext_pwr);
-    }
-
-    fn toggle_contactors(&mut self, ext_pwr: &ExternalPowerSource) {
         let gen_1_has_output = self.engine_1_gen.output().is_alternating();
         let gen_2_has_output = self.engine_2_gen.output().is_alternating();
         let apu_gen_has_output = self.apu_gen.output().is_alternating();
@@ -188,13 +235,7 @@ impl A320ElectricalCircuit {
         let apu_or_ext_pwr_has_output = ext_pwr_has_output || apu_gen_has_output;
         self.bus_tie_1_contactor.toggle((only_one_engine_gen_has_output && !apu_or_ext_pwr_has_output) || (apu_or_ext_pwr_has_output && !gen_1_has_output));
         self.bus_tie_2_contactor.toggle((only_one_engine_gen_has_output && !apu_or_ext_pwr_has_output) || (apu_or_ext_pwr_has_output && !gen_2_has_output));
-
-        // Simulate failure of ac bus 1 or any contactors before it...
-        self.ac_ess_feed_contactor_1.toggle(!self.ac_bus_1.failed);
-        self.ac_ess_feed_contactor_2.toggle(self.ac_bus_1.failed && !self.ac_bus_2.failed);
-    }
-
-    fn power_circuit(&mut self, ext_pwr: &ExternalPowerSource) {
+        
         self.apu_gen_contactor.powered_by(vec!(&self.apu_gen));
         self.ext_pwr_contactor.powered_by(vec!(ext_pwr));
 
@@ -209,6 +250,11 @@ impl A320ElectricalCircuit {
 
         self.ac_bus_1.powered_by(vec!(&self.engine_1_contactor, &self.bus_tie_1_contactor));
         self.ac_bus_2.powered_by(vec!(&self.engine_2_contactor, &self.bus_tie_2_contactor));
+
+        self.ac_ess_feed_contactor_delay_logic_gate.update(context, self.ac_bus_1.output().is_none());
+
+        self.ac_ess_feed_contactor_1.toggle(!self.ac_ess_feed_contactor_delay_logic_gate.output());
+        self.ac_ess_feed_contactor_2.toggle(self.ac_ess_feed_contactor_delay_logic_gate.output());
 
         self.ac_ess_feed_contactor_1.powered_by(vec!(&self.ac_bus_1));
         self.ac_ess_feed_contactor_2.powered_by(vec!(&self.ac_bus_2));
@@ -341,6 +387,10 @@ impl ElectricalBus {
     fn fail(&mut self) {
         self.failed = true;
     }
+
+    fn normal(&mut self) {
+        self.failed = false;
+    }
 }
 
 impl Powerable for ElectricalBus {
@@ -363,6 +413,7 @@ impl PowerConductor for ElectricalBus {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -405,6 +456,53 @@ mod tests {
         ext_pwr.plugged_in = true;
         
         ext_pwr
+    }
+
+    #[cfg(test)]
+    mod delay_logic_gate_tests {
+        use super::*;
+
+        #[test]
+        fn when_the_expression_is_false_returns_false() {
+            let mut gate = delay_logic_gate(Time::new::<second>(0.1));
+            gate.update(&update_context(Time::new::<second>(1.0)), false);
+
+            assert_eq!(gate.output(), false);
+        }
+
+        #[test]
+        fn when_the_expression_is_true_and_delay_hasnt_passed_returns_false() {
+            let mut gate = delay_logic_gate(Time::new::<second>(10.));
+            gate.update(&update_context(Time::new::<second>(1.0)), false);
+
+            assert_eq!(gate.output(), false);
+        }
+
+        #[test]
+        fn when_the_expression_is_true_and_delay_has_passed_returns_true() {
+            let mut gate = delay_logic_gate(Time::new::<second>(0.1));
+            gate.update(&update_context(Time::new::<second>(1.0)), true);
+
+            assert_eq!(gate.output(), true);
+        }
+
+        #[test]
+        fn when_the_expression_is_true_and_becomes_false_before_delay_has_passed_returns_false_once_delay_passed() {
+            let mut gate = delay_logic_gate(Time::new::<second>(1.0));
+            gate.update(&update_context(Time::new::<second>(0.8)), true);
+            gate.update(&update_context(Time::new::<second>(0.1)), false);
+            gate.update(&update_context(Time::new::<second>(0.2)), false);
+
+            assert_eq!(gate.output(), false);
+        }
+
+        fn update_context(delta: Time) -> UpdateContext {
+            UpdateContext::new(delta)
+        }
+
+        fn delay_logic_gate(delay: Time) -> DelayedTrueLogicGate {
+            DelayedTrueLogicGate::new(delay)
+        }
     }
 
     #[cfg(test)]
@@ -613,7 +711,7 @@ mod tests {
         #[test]
         fn when_available_engine_1_gen_supplies_ac_bus_1() {
             let mut circuit = electrical_circuit();
-            circuit.update(&running_engine(), &stopped_engine(), &stopped_apu(), &disconnected_external_power());
+            update_circuit(&mut circuit, &running_engine(), &stopped_engine(), &stopped_apu(), &disconnected_external_power());
 
             assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::EngineGenerator(1));
         }
@@ -621,7 +719,7 @@ mod tests {
         #[test]
         fn when_available_engine_2_gen_supplies_ac_bus_2() {
             let mut circuit = electrical_circuit();
-            circuit.update(&stopped_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+            update_circuit(&mut circuit, &stopped_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
 
             assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::EngineGenerator(2));
         }
@@ -629,7 +727,7 @@ mod tests {
         #[test]
         fn when_only_engine_1_is_running_supplies_ac_bus_2() {
             let mut circuit = electrical_circuit();
-            circuit.update(&running_engine(), &stopped_engine(), &stopped_apu(), &disconnected_external_power());
+            update_circuit(&mut circuit, &running_engine(), &stopped_engine(), &stopped_apu(), &disconnected_external_power());
 
             assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::EngineGenerator(1));
         }
@@ -637,7 +735,7 @@ mod tests {
         #[test]
         fn when_only_engine_2_is_running_supplies_ac_bus_1() {
             let mut circuit = electrical_circuit();
-            circuit.update(&stopped_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+            update_circuit(&mut circuit, &stopped_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
 
             assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::EngineGenerator(2));
         }
@@ -645,7 +743,7 @@ mod tests {
         #[test]
         fn when_no_power_source_ac_bus_1_is_unpowered() {
             let mut circuit = electrical_circuit();
-            circuit.update(&stopped_engine(), &stopped_engine(), &stopped_apu(), &disconnected_external_power());
+            update_circuit(&mut circuit, &stopped_engine(), &stopped_engine(), &stopped_apu(), &disconnected_external_power());
 
             assert!(circuit.ac_bus_1.output().is_none());
         }
@@ -653,7 +751,7 @@ mod tests {
         #[test]
         fn when_no_power_source_ac_bus_2_is_unpowered() {
             let mut circuit = electrical_circuit();
-            circuit.update(&stopped_engine(), &stopped_engine(), &stopped_apu(), &disconnected_external_power());
+            update_circuit(&mut circuit, &stopped_engine(), &stopped_engine(), &stopped_apu(), &disconnected_external_power());
 
             assert!(circuit.ac_bus_2.output().is_none());
         }
@@ -661,7 +759,7 @@ mod tests {
         #[test]
         fn when_engine_1_and_apu_running_apu_powers_ac_bus_2() {
             let mut circuit = electrical_circuit();
-            circuit.update(&running_engine(), &stopped_engine(), &running_apu(), &disconnected_external_power());
+            update_circuit(&mut circuit, &running_engine(), &stopped_engine(), &running_apu(), &disconnected_external_power());
 
             assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::ApuGenerator);
         }
@@ -669,7 +767,7 @@ mod tests {
         #[test]
         fn when_engine_2_and_apu_running_apu_powers_ac_bus_1() {
             let mut circuit = electrical_circuit();
-            circuit.update(&stopped_engine(), &running_engine(), &running_apu(), &disconnected_external_power());
+            update_circuit(&mut circuit, &stopped_engine(), &running_engine(), &running_apu(), &disconnected_external_power());
 
             assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::ApuGenerator);
         }        
@@ -677,7 +775,7 @@ mod tests {
         #[test]
         fn when_only_apu_running_apu_powers_ac_bus_1_and_2() {
             let mut circuit = electrical_circuit();
-            circuit.update(&stopped_engine(), &stopped_engine(), &running_apu(), &disconnected_external_power());
+            update_circuit(&mut circuit, &stopped_engine(), &stopped_engine(), &running_apu(), &disconnected_external_power());
 
             assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::ApuGenerator);
             assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::ApuGenerator);
@@ -686,7 +784,7 @@ mod tests {
         #[test]
         fn when_engine_1_running_and_external_power_connected_ext_pwr_powers_ac_bus_2() {
             let mut circuit = electrical_circuit();
-            circuit.update(&running_engine(), &stopped_engine(), &stopped_apu(), &connected_external_power());
+            update_circuit(&mut circuit, &running_engine(), &stopped_engine(), &stopped_apu(), &connected_external_power());
 
             assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::External);
         }
@@ -694,7 +792,7 @@ mod tests {
         #[test]
         fn when_engine_2_running_and_external_power_connected_ext_pwr_powers_ac_bus_1() {
             let mut circuit = electrical_circuit();
-            circuit.update(&stopped_engine(), &running_engine(), &stopped_apu(), &connected_external_power());
+            update_circuit(&mut circuit, &stopped_engine(), &running_engine(), &stopped_apu(), &connected_external_power());
 
             assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::External);
         }
@@ -702,7 +800,7 @@ mod tests {
         #[test]
         fn when_only_external_power_connected_ext_pwr_powers_ac_bus_1_and_2() {
             let mut circuit = electrical_circuit();
-            circuit.update(&stopped_engine(), &stopped_engine(), &stopped_apu(), &connected_external_power());
+            update_circuit(&mut circuit, &stopped_engine(), &stopped_engine(), &stopped_apu(), &connected_external_power());
 
             assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::External);
             assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::External);
@@ -711,7 +809,7 @@ mod tests {
         #[test]
         fn when_external_power_connected_and_apu_running_external_power_has_priority() {
             let mut circuit = electrical_circuit();
-            circuit.update(&stopped_engine(), &stopped_engine(), &running_apu(), &connected_external_power());
+            update_circuit(&mut circuit, &stopped_engine(), &stopped_engine(), &running_apu(), &connected_external_power());
 
             assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::External);
             assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::External);
@@ -720,7 +818,7 @@ mod tests {
         #[test]
         fn when_both_engines_running_and_external_power_connected_engines_power_ac_buses() {
             let mut circuit = electrical_circuit();
-            circuit.update(&running_engine(), &running_engine(), &stopped_apu(), &connected_external_power());
+            update_circuit(&mut circuit, &running_engine(), &running_engine(), &stopped_apu(), &connected_external_power());
 
             assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::EngineGenerator(1));
             assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::EngineGenerator(2));
@@ -729,7 +827,7 @@ mod tests {
         #[test]
         fn when_both_engines_running_and_apu_running_engines_power_ac_buses() {
             let mut circuit = electrical_circuit();
-            circuit.update(&running_engine(), &running_engine(), &running_apu(), &disconnected_external_power());
+            update_circuit(&mut circuit, &running_engine(), &running_engine(), &running_apu(), &disconnected_external_power());
 
             assert_eq!(circuit.ac_bus_1.output().get_source(), PowerSource::EngineGenerator(1));
             assert_eq!(circuit.ac_bus_2.output().get_source(), PowerSource::EngineGenerator(2));
@@ -738,27 +836,51 @@ mod tests {
         #[test]
         fn ac_bus_1_powers_ac_ess_bus_whenever_it_is_powered() {
             let mut circuit = electrical_circuit();
-            update_with_running_engines(&mut circuit);
+            update_circuit(&mut circuit, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
             
             assert_eq!(circuit.ac_ess_bus.output().get_source(), PowerSource::EngineGenerator(1));
         }
 
         #[test]
-        fn ac_bus_2_powers_ac_ess_bus_when_ac_bus_1_failed() {
+        fn when_ac_bus_1_becomes_unpowered_nothing_powers_ac_ess_bus_for_three_seconds() {
             let mut circuit = electrical_circuit();
             circuit.ac_bus_1.fail();
-            update_with_running_engines(&mut circuit);
-            
+            timed_update_circuit(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS - 0.01),
+                &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+            assert!(circuit.ac_ess_bus.output().is_none());
+        }
+
+        #[test]
+        fn after_three_seconds_of_ac_bus_1_being_unpowered_ac_bus_2_powers_ac_ess_bus() {
+            let mut circuit = electrical_circuit();
+            circuit.ac_bus_1.fail();
+            timed_update_circuit(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS), 
+                &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
             assert_eq!(circuit.ac_ess_bus.output().get_source(), PowerSource::EngineGenerator(2));
         }
 
         #[test]
+        fn ac_bus_1_powers_ac_ess_bus_immediately_when_ac_bus_1_becomes_powered_after_ac_bus_2_was_powering_ac_ess_bus() {
+            let mut circuit = electrical_circuit();
+            circuit.ac_bus_1.fail();
+            timed_update_circuit(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS), 
+                &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+            circuit.ac_bus_1.normal();
+            timed_update_circuit(&mut circuit, Time::new::<second>(0.01), 
+                &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+            assert_eq!(circuit.ac_ess_bus.output().get_source(), PowerSource::EngineGenerator(1));
+        }
+
+        #[test]
         // For now...
-        fn nothing_powers_ac_ess_bus_when_ac_bus_1_and_2_failed() {
+        fn nothing_powers_ac_ess_bus_when_ac_bus_1_and_2_unpowered() {
             let mut circuit = electrical_circuit();
             circuit.ac_bus_1.fail();
             circuit.ac_bus_2.fail();
-            update_with_running_engines(&mut circuit);
+            update_circuit(&mut circuit, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
 
             assert!(circuit.ac_ess_bus.output().is_none());
         }
@@ -767,8 +889,13 @@ mod tests {
             A320ElectricalCircuit::new()
         }
 
-        fn update_with_running_engines(circuit: &mut A320ElectricalCircuit) {
-            circuit.update(&running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+        fn timed_update_circuit(circuit: &mut A320ElectricalCircuit, delta: Time, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {
+            let context = UpdateContext::new(delta);
+            circuit.update(&context, &engine1, &engine2, &apu, &ext_pwr);
+        }
+
+        fn update_circuit(circuit: &mut A320ElectricalCircuit, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {
+            timed_update_circuit(circuit, Time::new::<second>(1.), engine1, engine2, apu, ext_pwr);
         }
     }
     
