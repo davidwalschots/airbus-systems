@@ -48,22 +48,22 @@ impl A320ElectricalCircuit {
         self.engine_2_gen.update(engine2);
         self.apu_gen.update(apu);
 
-        let gen_1_has_output = self.engine_1_gen.output().is_alternating();
-        let gen_2_has_output = self.engine_2_gen.output().is_alternating();
-        let apu_gen_has_output = self.apu_gen.output().is_alternating();
+        let gen_1_is_powered = self.engine_1_gen.output().is_powered();
+        let gen_2_is_powered = self.engine_2_gen.output().is_powered();
+        let apu_gen_is_powered = self.apu_gen.output().is_powered();
 
-        self.engine_1_contactor.toggle(gen_1_has_output);
-        self.engine_2_contactor.toggle(gen_2_has_output);
+        self.engine_1_contactor.toggle(gen_1_is_powered);
+        self.engine_2_contactor.toggle(gen_2_is_powered);
 
-        let no_engine_gen_has_output = !gen_1_has_output && !gen_2_has_output;
-        let only_one_engine_gen_has_output = gen_1_has_output ^ gen_2_has_output;
-        let ext_pwr_has_output = ext_pwr.output().is_alternating();
-        self.apu_gen_contactor.toggle(apu_gen_has_output && !ext_pwr_has_output && (no_engine_gen_has_output || only_one_engine_gen_has_output));
-        self.ext_pwr_contactor.toggle(ext_pwr_has_output && (no_engine_gen_has_output || only_one_engine_gen_has_output));
+        let no_engine_gen_is_powered = !gen_1_is_powered && !gen_2_is_powered;
+        let only_one_engine_gen_is_powered = gen_1_is_powered ^ gen_2_is_powered;
+        let ext_pwr_is_powered = ext_pwr.output().is_powered();
+        self.apu_gen_contactor.toggle(apu_gen_is_powered && !ext_pwr_is_powered && (no_engine_gen_is_powered || only_one_engine_gen_is_powered));
+        self.ext_pwr_contactor.toggle(ext_pwr_is_powered && (no_engine_gen_is_powered || only_one_engine_gen_is_powered));
 
-        let apu_or_ext_pwr_has_output = ext_pwr_has_output || apu_gen_has_output;
-        self.bus_tie_1_contactor.toggle((only_one_engine_gen_has_output && !apu_or_ext_pwr_has_output) || (apu_or_ext_pwr_has_output && !gen_1_has_output));
-        self.bus_tie_2_contactor.toggle((only_one_engine_gen_has_output && !apu_or_ext_pwr_has_output) || (apu_or_ext_pwr_has_output && !gen_2_has_output));
+        let apu_or_ext_pwr_is_powered = ext_pwr_is_powered || apu_gen_is_powered;
+        self.bus_tie_1_contactor.toggle((only_one_engine_gen_is_powered && !apu_or_ext_pwr_is_powered) || (apu_or_ext_pwr_is_powered && !gen_1_is_powered));
+        self.bus_tie_2_contactor.toggle((only_one_engine_gen_is_powered && !apu_or_ext_pwr_is_powered) || (apu_or_ext_pwr_is_powered && !gen_2_is_powered));
         
         self.apu_gen_contactor.powered_by(vec!(&self.apu_gen));
         self.ext_pwr_contactor.powered_by(vec!(ext_pwr));
@@ -80,7 +80,7 @@ impl A320ElectricalCircuit {
         self.ac_bus_1.powered_by(vec!(&self.engine_1_contactor, &self.bus_tie_1_contactor));
         self.ac_bus_2.powered_by(vec!(&self.engine_2_contactor, &self.bus_tie_2_contactor));
 
-        self.ac_ess_feed_contactor_delay_logic_gate.update(context, self.ac_bus_1.output().is_none());
+        self.ac_ess_feed_contactor_delay_logic_gate.update(context, self.ac_bus_1.output().is_unpowered());
 
         self.ac_ess_feed_contactor_1.toggle(!self.ac_ess_feed_contactor_delay_logic_gate.output());
         self.ac_ess_feed_contactor_2.toggle(self.ac_ess_feed_contactor_delay_logic_gate.output());
@@ -100,9 +100,9 @@ mod a320_electrical_circuit_tests {
 
     #[test]
     fn starts_without_output() {
-        assert!(electrical_circuit().ac_bus_1.output().is_none());
-        assert!(electrical_circuit().ac_bus_2.output().is_none());
-        assert!(electrical_circuit().ac_ess_bus.output().is_none());
+        assert!(electrical_circuit().ac_bus_1.output().is_unpowered());
+        assert!(electrical_circuit().ac_bus_2.output().is_unpowered());
+        assert!(electrical_circuit().ac_ess_bus.output().is_unpowered());
     }
 
     #[test]
@@ -142,7 +142,7 @@ mod a320_electrical_circuit_tests {
         let mut circuit = electrical_circuit();
         update_circuit(&mut circuit, &stopped_engine(), &stopped_engine(), &stopped_apu(), &disconnected_external_power());
 
-        assert!(circuit.ac_bus_1.output().is_none());
+        assert!(circuit.ac_bus_1.output().is_unpowered());
     }
 
     #[test]
@@ -150,7 +150,7 @@ mod a320_electrical_circuit_tests {
         let mut circuit = electrical_circuit();
         update_circuit(&mut circuit, &stopped_engine(), &stopped_engine(), &stopped_apu(), &disconnected_external_power());
 
-        assert!(circuit.ac_bus_2.output().is_none());
+        assert!(circuit.ac_bus_2.output().is_unpowered());
     }
 
     #[test]
@@ -245,7 +245,7 @@ mod a320_electrical_circuit_tests {
         timed_update_circuit(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS - 0.01),
             &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
 
-        assert!(circuit.ac_ess_bus.output().is_none());
+        assert!(circuit.ac_ess_bus.output().is_unpowered());
     }
 
     #[test]
@@ -279,7 +279,7 @@ mod a320_electrical_circuit_tests {
         circuit.ac_bus_2.fail();
         update_circuit(&mut circuit, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
 
-        assert!(circuit.ac_ess_bus.output().is_none());
+        assert!(circuit.ac_ess_bus.output().is_unpowered());
     }
 
     fn electrical_circuit() -> A320ElectricalCircuit {

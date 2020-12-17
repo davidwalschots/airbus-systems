@@ -19,15 +19,15 @@ pub enum Current {
 }
 
 impl Current {
-    pub fn is_alternating(self) -> bool {
-        if let Current::Alternating(..) = self { true } else { false }
+    pub fn is_powered(self) -> bool {
+        match self { 
+            Current::Alternating(..) => true,
+            Current::Direct(..) => true,
+            _ => false
+        }
     }
 
-    pub fn is_direct(self) -> bool {
-        if let Current::Direct(..) = self { true } else { false }
-    }
-
-    pub fn is_none(self) -> bool {
+    pub fn is_unpowered(self) -> bool {
         if let Current::None = self { true } else { false }
     }
 
@@ -65,7 +65,7 @@ pub trait Powerable {
         if let Current::None = self.get_input() {
             for source in sources {
                 let output = source.output();
-                if !output.is_none() {
+                if !output.is_unpowered() {
                     self.set_input(output);
                 }
             }
@@ -272,48 +272,33 @@ mod current_tests {
     use super::*;
 
     #[test]
-    fn alternating_current_is_alternating() {
-        assert_eq!(alternating_current().is_alternating(), true);
+    fn alternating_current_is_powered() {
+        assert_eq!(alternating_current().is_powered(), true);
     }
 
     #[test]
-    fn alternating_current_is_not_direct() {
-        assert_eq!(alternating_current().is_direct(), false);
+    fn alternating_current_is_not_unpowered() {
+        assert_eq!(alternating_current().is_unpowered(), false);
     }
 
     #[test]
-    fn alternating_current_is_not_none() {
-        assert_eq!(alternating_current().is_none(), false);
+    fn direct_current_is_powered() {
+        assert_eq!(direct_current().is_powered(), true);
     }
 
     #[test]
-    fn direct_current_is_not_alternating() {
-        assert_eq!(direct_current().is_alternating(), false);
-    }
-
-    #[test]
-    fn direct_current_is_direct() {
-        assert_eq!(direct_current().is_direct(), true);
-    }
-
-    #[test]
-    fn direct_current_is_not_none() {
-        assert_eq!(direct_current().is_none(), false);
+    fn direct_current_is_not_unpowered() {
+        assert_eq!(direct_current().is_unpowered(), false);
     }
     
     #[test]
-    fn none_current_is_not_alternating() {
-        assert_eq!(none_current().is_alternating(), false);
+    fn none_current_is_not_powered() {
+        assert_eq!(none_current().is_powered(), false);
     }
 
     #[test]
-    fn none_current_is_not_direct() {
-        assert_eq!(none_current().is_direct(), false);
-    }
-
-    #[test]
-    fn none_current_is_none() {
-        assert_eq!(none_current().is_none(), true);
+    fn none_current_is_unpowered() {
+        assert_eq!(none_current().is_unpowered(), true);
     }
 
     fn alternating_current() -> Current {
@@ -384,7 +369,7 @@ mod contactor_tests {
         let nothing: Vec<&dyn PowerConductor> = vec![];
         contactor.powered_by(nothing);
 
-        assert!(contactor.output().is_none());
+        assert!(contactor.output().is_unpowered());
     }
 
     #[test]
@@ -400,7 +385,7 @@ mod contactor_tests {
     fn contactor_has_no_output_when_powered_by_nothing_which_is_powered(mut contactor: Contactor) {
         contactor.powered_by(vec![&Powerless{}]);
 
-        assert!(contactor.output().is_none());
+        assert!(contactor.output().is_unpowered());
     }
 
     #[test]
@@ -409,7 +394,7 @@ mod contactor_tests {
         let conductors: Vec<&dyn PowerConductor> = vec![&Powerless{}, &Powered{}];
         contactor.powered_by(conductors);
 
-        assert!(contactor.output().is_none());
+        assert!(contactor.output().is_unpowered());
     }
 
     #[test]
@@ -418,7 +403,7 @@ mod contactor_tests {
         let conductors: Vec<&dyn PowerConductor> = vec![&Powerless{}, &Powered{}];
         contactor.powered_by(conductors);
 
-        assert!(contactor.output().is_alternating());
+        assert!(contactor.output().is_powered());
     }
 
     fn contactor() -> Contactor {
@@ -464,7 +449,7 @@ mod engine_generator_tests {
 
     #[test]
     fn starts_without_output() {
-        assert!(engine_generator().output.is_none());
+        assert!(engine_generator().output.is_unpowered());
     }
 
     #[test]
@@ -473,7 +458,7 @@ mod engine_generator_tests {
         update_below_threshold(&mut generator);
         update_above_threshold(&mut generator);
 
-        assert!(generator.output.is_alternating());
+        assert!(generator.output.is_powered());
     }
 
     #[test]
@@ -482,7 +467,7 @@ mod engine_generator_tests {
         update_above_threshold(&mut generator);
         update_below_threshold(&mut generator);
 
-        assert!(generator.output.is_none());
+        assert!(generator.output.is_unpowered());
     }
 
     fn engine_generator() -> EngineGenerator {
@@ -512,7 +497,7 @@ mod apu_generator_tests {
 
     #[test]
     fn starts_without_output() {
-        assert!(apu_generator().output.is_none());
+        assert!(apu_generator().output.is_unpowered());
     }
 
     #[test]
@@ -521,7 +506,7 @@ mod apu_generator_tests {
         update_below_threshold(&mut generator);
         update_above_threshold(&mut generator);
 
-        assert!(generator.output.is_alternating());
+        assert!(generator.output.is_powered());
     }
 
     #[test]
@@ -530,7 +515,7 @@ mod apu_generator_tests {
         update_above_threshold(&mut generator);
         update_below_threshold(&mut generator);
 
-        assert!(generator.output.is_none());
+        assert!(generator.output.is_unpowered());
     }
 
     fn apu_generator() -> ApuGenerator {
@@ -559,7 +544,7 @@ mod external_power_source_tests {
 
     #[test]
     fn starts_without_output() {
-        assert!(external_power_source().output().is_none());
+        assert!(external_power_source().output().is_unpowered());
     }
 
     #[test]
@@ -567,7 +552,7 @@ mod external_power_source_tests {
         let mut ext_pwr = external_power_source();
         ext_pwr.plugged_in = true;
 
-        assert!(ext_pwr.output().is_alternating());
+        assert!(ext_pwr.output().is_powered());
     }
 
     #[test]
@@ -575,7 +560,7 @@ mod external_power_source_tests {
         let mut ext_pwr = external_power_source();
         ext_pwr.plugged_in = false;
 
-        assert!(ext_pwr.output().is_none());
+        assert!(ext_pwr.output().is_unpowered());
     }
 
     fn external_power_source() -> ExternalPowerSource {
