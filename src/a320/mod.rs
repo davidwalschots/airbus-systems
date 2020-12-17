@@ -1,6 +1,6 @@
 use uom::si::{f32::{Ratio, Time}, ratio::percent, time::second};
 
-use crate::{electrical::{ApuGenerator, AuxiliaryPowerUnit, Contactor, ElectricalBus, EngineGenerator, ExternalPowerSource, PowerConductor, Powerable}, shared::{DelayedTrueLogicGate, Engine, UpdateContext}};
+use crate::{electrical::{ApuGenerator, AuxiliaryPowerUnit, Contactor, ElectricalBus, EngineGenerator, ExternalPowerSource, PowerConductor, Powerable}, overhead::OnOffPushButton, shared::{DelayedTrueLogicGate, Engine, UpdateContext}};
 
 pub struct A320ElectricalCircuit {
     engine_1_gen: EngineGenerator,
@@ -43,7 +43,8 @@ impl A320ElectricalCircuit {
         }
     }
 
-    pub fn update(&mut self, context: &UpdateContext, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {
+    pub fn update(&mut self, context: &UpdateContext, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit,
+        ext_pwr: &ExternalPowerSource, elec_overhead: &A320ElectricalOverheadPanel) {
         self.engine_1_gen.update(engine1);
         self.engine_2_gen.update(engine2);
         self.apu_gen.update(apu);
@@ -89,6 +90,40 @@ impl A320ElectricalCircuit {
         self.ac_ess_feed_contactor_2.powered_by(vec!(&self.ac_bus_2));
 
         self.ac_ess_bus.powered_by(vec!(&self.ac_ess_feed_contactor_1, &self.ac_ess_feed_contactor_2));
+    }
+}
+
+pub struct A320ElectricalOverheadPanel {
+    bat_1: OnOffPushButton,
+    bat_2: OnOffPushButton,
+    idg_1: OnOffPushButton,
+    idg_2: OnOffPushButton,
+    gen_1: OnOffPushButton,
+    gen_2: OnOffPushButton,
+    apu_gen: OnOffPushButton,
+    bus_tie: OnOffPushButton,
+    ac_ess_feed: OnOffPushButton,
+    galy_and_cab: OnOffPushButton,
+    ext_pwr: OnOffPushButton,
+    commercial: OnOffPushButton    
+}
+
+impl A320ElectricalOverheadPanel {
+    pub fn new() -> A320ElectricalOverheadPanel {
+        A320ElectricalOverheadPanel {
+            bat_1: OnOffPushButton::new(),
+            bat_2: OnOffPushButton::new(),
+            idg_1: OnOffPushButton::new(),
+            idg_2: OnOffPushButton::new(),
+            gen_1: OnOffPushButton::new(),
+            gen_2: OnOffPushButton::new(),
+            apu_gen: OnOffPushButton::new(),
+            bus_tie: OnOffPushButton::new(),
+            ac_ess_feed: OnOffPushButton::new(),
+            galy_and_cab: OnOffPushButton::new(),
+            ext_pwr: OnOffPushButton::new(),
+            commercial: OnOffPushButton::new()
+        }
     }
 }
 
@@ -288,7 +323,7 @@ mod a320_electrical_circuit_tests {
 
     fn timed_update_circuit(circuit: &mut A320ElectricalCircuit, delta: Time, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {
         let context = UpdateContext::new(delta);
-        circuit.update(&context, &engine1, &engine2, &apu, &ext_pwr);
+        circuit.update(&context, &engine1, &engine2, &apu, &ext_pwr, &A320ElectricalOverheadPanel::new());
     }
 
     fn update_circuit(circuit: &mut A320ElectricalCircuit, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {
