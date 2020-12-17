@@ -45,8 +45,8 @@ impl A320ElectricalCircuit {
 
     pub fn update(&mut self, context: &UpdateContext, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit,
         ext_pwr: &ExternalPowerSource, elec_overhead: &A320ElectricalOverheadPanel) {
-        self.engine_1_gen.update(engine1);
-        self.engine_2_gen.update(engine2);
+        self.engine_1_gen.update(engine1, &elec_overhead.idg_1, &elec_overhead.gen_1);
+        self.engine_2_gen.update(engine2, &elec_overhead.idg_2, &elec_overhead.gen_2);
         self.apu_gen.update(apu);
 
         let gen_1_is_powered = self.engine_1_gen.output().is_powered();
@@ -111,18 +111,18 @@ pub struct A320ElectricalOverheadPanel {
 impl A320ElectricalOverheadPanel {
     pub fn new() -> A320ElectricalOverheadPanel {
         A320ElectricalOverheadPanel {
-            bat_1: OnOffPushButton::new(),
-            bat_2: OnOffPushButton::new(),
-            idg_1: OnOffPushButton::new(),
-            idg_2: OnOffPushButton::new(),
-            gen_1: OnOffPushButton::new(),
-            gen_2: OnOffPushButton::new(),
-            apu_gen: OnOffPushButton::new(),
-            bus_tie: OnOffPushButton::new(),
-            ac_ess_feed: OnOffPushButton::new(),
-            galy_and_cab: OnOffPushButton::new(),
-            ext_pwr: OnOffPushButton::new(),
-            commercial: OnOffPushButton::new()
+            bat_1: OnOffPushButton::new_on(),
+            bat_2: OnOffPushButton::new_on(),
+            idg_1: OnOffPushButton::new_on(),
+            idg_2: OnOffPushButton::new_on(),
+            gen_1: OnOffPushButton::new_on(),
+            gen_2: OnOffPushButton::new_on(),
+            apu_gen: OnOffPushButton::new_on(),
+            bus_tie: OnOffPushButton::new_on(),
+            ac_ess_feed: OnOffPushButton::new_on(),
+            galy_and_cab: OnOffPushButton::new_on(),
+            ext_pwr: OnOffPushButton::new_on(),
+            commercial: OnOffPushButton::new_on()
         }
     }
 }

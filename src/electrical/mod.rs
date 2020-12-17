@@ -1,6 +1,6 @@
 use uom::si::{electric_current::ampere, electric_potential::volt, f32::{Frequency, ElectricPotential, ElectricCurrent, Ratio}, frequency::hertz, ratio::percent};
 
-use crate::shared::Engine;
+use crate::{overhead::OnOffPushButton, shared::Engine};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PowerSource {
@@ -142,13 +142,20 @@ impl EngineGenerator {
         }
     }
 
-    pub fn update(&mut self, engine: &Engine) {
-        if engine.n2 > Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD) {
+    pub fn update(&mut self, engine: &Engine, idg_push_button: &OnOffPushButton, gen_push_button: &OnOffPushButton) {
+        // TODO: The push buttons being on or off is still a simplification. Of course we should later simulate the
+        // IDG itself. It would be disconnected the moment the push button is in the off state. Then the logic below would
+        // consider the IDG state itself, instead of the button state.
+        if EngineGenerator::engine_above_threshold(engine) && idg_push_button.is_on() && gen_push_button.is_on() {
             self.output = Current::Alternating(PowerSource::EngineGenerator(self.number), Frequency::new::<hertz>(400.), 
                 ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60));
         } else {
             self.output = Current::None
         }
+    }
+
+    fn engine_above_threshold(engine: &Engine) -> bool {
+        engine.n2 > Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD)
     }
 }
 
@@ -470,6 +477,22 @@ mod engine_generator_tests {
         assert!(generator.output.is_unpowered());
     }
 
+    #[test]
+    fn when_idg_disconnected_provides_no_output() {
+        let mut generator = engine_generator();
+        generator.update(&engine_above_threshold(), &OnOffPushButton::new_off(), &OnOffPushButton::new_on());
+
+        assert!(generator.output.is_unpowered());
+    }
+
+    #[test]
+    fn when_gen_off_provides_no_output() {
+        let mut generator = engine_generator();
+        generator.update(&engine_above_threshold(), &OnOffPushButton::new_on(), &OnOffPushButton::new_off());
+
+        assert!(generator.output.is_unpowered());
+    }
+
     fn engine_generator() -> EngineGenerator {
         EngineGenerator::new(1)
     }
@@ -482,11 +505,19 @@ mod engine_generator_tests {
     }
 
     fn update_above_threshold(generator: &mut EngineGenerator) {
-        generator.update(&engine(Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD + 1.)));
+        generator.update(&engine_above_threshold(), &OnOffPushButton::new_on(), &OnOffPushButton::new_on());
     }
 
     fn update_below_threshold(generator: &mut EngineGenerator) {
-        generator.update(&engine(Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD - 1.)));
+        generator.update(&engine_below_threshold(), &OnOffPushButton::new_on(), &OnOffPushButton::new_on());
+    }
+
+    fn engine_above_threshold() -> Engine {
+        engine(Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD + 1.))
+    }
+
+    fn engine_below_threshold() -> Engine {
+        engine(Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD - 1.))
     }
 }
 
