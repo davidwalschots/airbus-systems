@@ -59,7 +59,7 @@ impl A320ElectricalCircuit {
         let no_engine_gen_is_powered = !gen_1_is_powered && !gen_2_is_powered;
         let only_one_engine_gen_is_powered = gen_1_is_powered ^ gen_2_is_powered;
         let ext_pwr_is_powered = ext_pwr.output().is_powered();
-        self.apu_gen_contactor.toggle(apu_gen_is_powered && !ext_pwr_is_powered && (no_engine_gen_is_powered || only_one_engine_gen_is_powered));
+        self.apu_gen_contactor.toggle(elec_overhead.apu_gen.is_on() && apu_gen_is_powered && !ext_pwr_is_powered && (no_engine_gen_is_powered || only_one_engine_gen_is_powered));
         self.ext_pwr_contactor.toggle(ext_pwr_is_powered && (no_engine_gen_is_powered || only_one_engine_gen_is_powered));
 
         let apu_or_ext_pwr_is_powered = ext_pwr_is_powered || apu_gen_is_powered;
@@ -350,6 +350,17 @@ mod a320_electrical_circuit_tests {
         update_circuit_with_overhead(&mut circuit, &overhead, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
 
         assert_eq!(circuit.ac_ess_bus.output().get_source(), PowerSource::EngineGenerator(2));
+    }
+
+    #[test]
+    fn when_only_apu_running_but_apu_gen_push_button_off_nothing_powers_ac_bus_1_and_2() {
+        let mut circuit = electrical_circuit();
+        let mut overhead = overhead_panel();
+        overhead.apu_gen.push_off();
+        update_circuit_with_overhead(&mut circuit, &overhead, &stopped_engine(), &stopped_engine(), &running_apu(), &disconnected_external_power());
+
+        assert!(circuit.ac_bus_1.output().is_unpowered());
+        assert!(circuit.ac_bus_2.output().is_unpowered());
     }
 
     fn electrical_circuit() -> A320ElectricalCircuit {
