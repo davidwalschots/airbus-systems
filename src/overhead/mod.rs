@@ -26,6 +26,14 @@ impl OnOffPushButton {
         }
     }
 
+    pub fn push_on(&mut self) {
+        self.state = OnOffPushButtonState::On;
+    }
+
+    pub fn push_off(&mut self) {
+        self.state = OnOffPushButtonState::Off;
+    }
+
     pub fn is_on(&self) -> bool {
         if let OnOffPushButtonState::On = self.state { true } else { false }
     }

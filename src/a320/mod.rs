@@ -4,9 +4,9 @@ use crate::{electrical::{ApuGenerator, AuxiliaryPowerUnit, Contactor, Electrical
 
 pub struct A320ElectricalCircuit {
     engine_1_gen: EngineGenerator,
-    engine_1_contactor: Contactor,
+    engine_1_gen_contactor: Contactor,
     engine_2_gen: EngineGenerator,
-    engine_2_contactor: Contactor,
+    engine_2_gen_contactor: Contactor,
     bus_tie_1_contactor: Contactor,
     bus_tie_2_contactor: Contactor,
     apu_gen: ApuGenerator,
@@ -26,9 +26,9 @@ impl A320ElectricalCircuit {
     pub fn new() -> A320ElectricalCircuit {
         A320ElectricalCircuit {
             engine_1_gen: EngineGenerator::new(1),
-            engine_1_contactor: Contactor::new(),
+            engine_1_gen_contactor: Contactor::new(),
             engine_2_gen: EngineGenerator::new(2),
-            engine_2_contactor: Contactor::new(),
+            engine_2_gen_contactor: Contactor::new(),
             bus_tie_1_contactor: Contactor::new(),
             bus_tie_2_contactor: Contactor::new(),
             apu_gen: ApuGenerator::new(),
@@ -45,16 +45,16 @@ impl A320ElectricalCircuit {
 
     pub fn update(&mut self, context: &UpdateContext, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit,
         ext_pwr: &ExternalPowerSource, elec_overhead: &A320ElectricalOverheadPanel) {
-        self.engine_1_gen.update(engine1, &elec_overhead.idg_1, &elec_overhead.gen_1);
-        self.engine_2_gen.update(engine2, &elec_overhead.idg_2, &elec_overhead.gen_2);
+        self.engine_1_gen.update(engine1, &elec_overhead.idg_1);
+        self.engine_2_gen.update(engine2, &elec_overhead.idg_2);
         self.apu_gen.update(apu);
 
         let gen_1_is_powered = self.engine_1_gen.output().is_powered();
         let gen_2_is_powered = self.engine_2_gen.output().is_powered();
         let apu_gen_is_powered = self.apu_gen.output().is_powered();
 
-        self.engine_1_contactor.toggle(gen_1_is_powered);
-        self.engine_2_contactor.toggle(gen_2_is_powered);
+        self.engine_1_gen_contactor.toggle(elec_overhead.gen_1.is_on() && gen_1_is_powered);
+        self.engine_2_gen_contactor.toggle(elec_overhead.gen_2.is_on() && gen_2_is_powered);
 
         let no_engine_gen_is_powered = !gen_1_is_powered && !gen_2_is_powered;
         let only_one_engine_gen_is_powered = gen_1_is_powered ^ gen_2_is_powered;
@@ -69,17 +69,17 @@ impl A320ElectricalCircuit {
         self.apu_gen_contactor.powered_by(vec!(&self.apu_gen));
         self.ext_pwr_contactor.powered_by(vec!(ext_pwr));
 
-        self.engine_1_contactor.powered_by(vec!(&self.engine_1_gen));
-        self.bus_tie_1_contactor.powered_by(vec!(&self.engine_1_contactor, &self.apu_gen_contactor, &self.ext_pwr_contactor));
+        self.engine_1_gen_contactor.powered_by(vec!(&self.engine_1_gen));
+        self.bus_tie_1_contactor.powered_by(vec!(&self.engine_1_gen_contactor, &self.apu_gen_contactor, &self.ext_pwr_contactor));
 
-        self.engine_2_contactor.powered_by(vec!(&self.engine_2_gen));
-        self.bus_tie_2_contactor.powered_by(vec!(&self.engine_2_contactor, &self.apu_gen_contactor, &self.ext_pwr_contactor));
+        self.engine_2_gen_contactor.powered_by(vec!(&self.engine_2_gen));
+        self.bus_tie_2_contactor.powered_by(vec!(&self.engine_2_gen_contactor, &self.apu_gen_contactor, &self.ext_pwr_contactor));
         
         self.bus_tie_1_contactor.or_powered_by(vec!(&self.bus_tie_2_contactor));
         self.bus_tie_2_contactor.or_powered_by(vec!(&self.bus_tie_1_contactor));
 
-        self.ac_bus_1.powered_by(vec!(&self.engine_1_contactor, &self.bus_tie_1_contactor));
-        self.ac_bus_2.powered_by(vec!(&self.engine_2_contactor, &self.bus_tie_2_contactor));
+        self.ac_bus_1.powered_by(vec!(&self.engine_1_gen_contactor, &self.bus_tie_1_contactor));
+        self.ac_bus_2.powered_by(vec!(&self.engine_2_gen_contactor, &self.bus_tie_2_contactor));
 
         self.ac_ess_feed_contactor_delay_logic_gate.update(context, self.ac_bus_1.output().is_unpowered());
 
@@ -283,6 +283,9 @@ mod a320_electrical_circuit_tests {
         assert!(circuit.ac_ess_bus.output().is_unpowered());
     }
 
+    /// # Source
+    /// Discord (komp#1821):
+    /// > The fault light will extinguish after 3 seconds. That's the time delay before automatic switching is activated in case of AC BUS 1 loss.
     #[test]
     fn after_three_seconds_of_ac_bus_1_being_unpowered_ac_bus_2_powers_ac_ess_bus() {
         let mut circuit = electrical_circuit();
@@ -293,6 +296,9 @@ mod a320_electrical_circuit_tests {
         assert_eq!(circuit.ac_ess_bus.output().get_source(), PowerSource::EngineGenerator(2));
     }
 
+    /// # Source
+    /// Discord (komp#1821):
+    /// > When AC BUS 1 is available again, it will switch back automatically without delay, unless the AC ESS FEED button is on ALTN.
     #[test]
     fn ac_bus_1_powers_ac_ess_bus_immediately_when_ac_bus_1_becomes_powered_after_ac_bus_2_was_powering_ac_ess_bus() {
         let mut circuit = electrical_circuit();
@@ -317,8 +323,32 @@ mod a320_electrical_circuit_tests {
         assert!(circuit.ac_ess_bus.output().is_unpowered());
     }
 
+    #[test]
+    fn when_gen_1_push_button_off_and_engine_running_gen_1_contactor_is_open() {
+        let mut circuit = electrical_circuit();
+        let mut overhead = overhead_panel();
+        overhead.gen_1.push_off();
+        update_circuit_with_overhead(&mut circuit, &overhead, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert!(circuit.engine_1_gen_contactor.is_open());
+    }
+
+    #[test]
+    fn when_gen_2_push_button_off_and_engine_running_gen_2_contactor_is_open() {
+        let mut circuit = electrical_circuit();
+        let mut overhead = overhead_panel();
+        overhead.gen_2.push_off();
+        update_circuit_with_overhead(&mut circuit, &overhead, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert!(circuit.engine_2_gen_contactor.is_open());
+    }
+
     fn electrical_circuit() -> A320ElectricalCircuit {
         A320ElectricalCircuit::new()
+    }
+
+    fn overhead_panel() -> A320ElectricalOverheadPanel {
+        A320ElectricalOverheadPanel::new()
     }
 
     fn timed_update_circuit(circuit: &mut A320ElectricalCircuit, delta: Time, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {
@@ -328,6 +358,11 @@ mod a320_electrical_circuit_tests {
 
     fn update_circuit(circuit: &mut A320ElectricalCircuit, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {
         timed_update_circuit(circuit, Time::new::<second>(1.), engine1, engine2, apu, ext_pwr);
+    }
+
+    fn update_circuit_with_overhead(circuit: &mut A320ElectricalCircuit, overhead: &A320ElectricalOverheadPanel, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {
+        let context = UpdateContext::new(Time::new::<second>(1.));
+        circuit.update(&context, engine1, engine2, apu, ext_pwr, overhead);
     }
 
     fn running_engine() -> Engine {

@@ -105,6 +105,14 @@ impl Contactor {
             _ => self.state
         };
     }
+
+    pub fn is_open(&self) -> bool {
+        if let ContactorState::Open = self.state {
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl Powerable for Contactor {
@@ -142,11 +150,11 @@ impl EngineGenerator {
         }
     }
 
-    pub fn update(&mut self, engine: &Engine, idg_push_button: &OnOffPushButton, gen_push_button: &OnOffPushButton) {
-        // TODO: The push buttons being on or off is still a simplification. Of course we should later simulate the
+    pub fn update(&mut self, engine: &Engine, idg_push_button: &OnOffPushButton) {
+        // TODO: The push button being on or off is still a simplification. Of course we should later simulate the
         // IDG itself. It would be disconnected the moment the push button is in the off state. Then the logic below would
         // consider the IDG state itself, instead of the button state.
-        if EngineGenerator::engine_above_threshold(engine) && idg_push_button.is_on() && gen_push_button.is_on() {
+        if EngineGenerator::engine_above_threshold(engine) && idg_push_button.is_on() {
             self.output = Current::Alternating(PowerSource::EngineGenerator(self.number), Frequency::new::<hertz>(400.), 
                 ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60));
         } else {
@@ -480,15 +488,7 @@ mod engine_generator_tests {
     #[test]
     fn when_idg_disconnected_provides_no_output() {
         let mut generator = engine_generator();
-        generator.update(&engine_above_threshold(), &OnOffPushButton::new_off(), &OnOffPushButton::new_on());
-
-        assert!(generator.output.is_unpowered());
-    }
-
-    #[test]
-    fn when_gen_off_provides_no_output() {
-        let mut generator = engine_generator();
-        generator.update(&engine_above_threshold(), &OnOffPushButton::new_on(), &OnOffPushButton::new_off());
+        generator.update(&engine_above_threshold(), &OnOffPushButton::new_off());
 
         assert!(generator.output.is_unpowered());
     }
@@ -505,11 +505,11 @@ mod engine_generator_tests {
     }
 
     fn update_above_threshold(generator: &mut EngineGenerator) {
-        generator.update(&engine_above_threshold(), &OnOffPushButton::new_on(), &OnOffPushButton::new_on());
+        generator.update(&engine_above_threshold(), &OnOffPushButton::new_on());
     }
 
     fn update_below_threshold(generator: &mut EngineGenerator) {
-        generator.update(&engine_below_threshold(), &OnOffPushButton::new_on(), &OnOffPushButton::new_on());
+        generator.update(&engine_below_threshold(), &OnOffPushButton::new_on());
     }
 
     fn engine_above_threshold() -> Engine {
