@@ -7,7 +7,8 @@ pub enum PowerSource {
     None,
     EngineGenerator(u8),
     ApuGenerator,
-    External
+    External,
+    EmergencyGenerator
 }
 
 /// Represents a type of electric current.
@@ -325,6 +326,43 @@ impl PowerConductor for TransformerRectifier {
                 Current::Alternating(source, ..) => Current::Direct(source, ElectricPotential::new::<volt>(28.5), ElectricCurrent::new::<ampere>(35.)),
                 _ => Current::None
             }
+        }
+    }
+}
+
+pub struct EmergencyGenerator {
+    running: bool,
+    is_blue_pressurised: bool
+}
+
+impl EmergencyGenerator {
+    pub fn new() -> EmergencyGenerator {
+        EmergencyGenerator {
+            running: false,
+            is_blue_pressurised: false
+        }
+    }
+
+    pub fn update(&mut self, is_blue_pressurised: bool) {
+        // TODO: The emergency generator is driven by the blue hydraulic circuit. Still to be implemented.
+        self.is_blue_pressurised = is_blue_pressurised;
+    }
+
+    pub fn attempt_start(&mut self) {
+        self.running = true;
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.is_blue_pressurised && self.running
+    }
+}
+
+impl PowerConductor for EmergencyGenerator {
+    fn output(&self) -> Current {
+        if self.is_running() {
+            Current::Alternating(PowerSource::EmergencyGenerator, Frequency::new::<hertz>(400.), ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(43.47)) // 5 kVA.
+        } else {
+            Current::None
         }
     }
 }
@@ -692,6 +730,38 @@ mod tests {
 
         fn transformer_rectifier() -> TransformerRectifier {
             TransformerRectifier::new()
+        }
+    }
+
+    #[cfg(test)]
+    mod emergency_generator_tests {
+        use super::*;
+
+        #[test]
+        fn starts_without_output() {
+            assert!(emergency_generator().output().is_unpowered());
+        }
+
+        #[test]
+        fn when_started_provides_output() {
+            let mut emer_gen = emergency_generator();
+            emer_gen.attempt_start();
+            emer_gen.update(true);
+
+            assert!(emer_gen.output().is_powered());
+        }
+
+        #[test]
+        fn when_started_without_hydraulic_pressure_is_unpowered() {
+            let mut emer_gen = emergency_generator();
+            emer_gen.attempt_start();
+            emer_gen.update(false);
+
+            assert!(emer_gen.output().is_unpowered());
+        }
+
+        fn emergency_generator() -> EmergencyGenerator {
+            EmergencyGenerator::new()
         }
     }
 

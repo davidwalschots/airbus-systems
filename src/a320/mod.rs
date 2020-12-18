@@ -1,6 +1,6 @@
 use uom::si::{f32::{Ratio, Time}, ratio::percent, time::second};
 
-use crate::{electrical::{ApuGenerator, AuxiliaryPowerUnit, Contactor, ElectricalBus, EngineGenerator, ExternalPowerSource, PowerConductor, Powerable, TransformerRectifier}, overhead::{self, NormalAltnPushButton, OnOffPushButton}, shared::{DelayedTrueLogicGate, Engine, UpdateContext}};
+use crate::{electrical::{ApuGenerator, AuxiliaryPowerUnit, Contactor, ElectricalBus, EngineGenerator, EmergencyGenerator, ExternalPowerSource, PowerConductor, Powerable, TransformerRectifier}, overhead::{self, NormalAltnPushButton, OnOffPushButton}, shared::{DelayedTrueLogicGate, Engine, UpdateContext}};
 
 pub struct A320ElectricalCircuit {
     engine_1_gen: EngineGenerator,
@@ -25,6 +25,8 @@ pub struct A320ElectricalCircuit {
     tr_2: TransformerRectifier,
     tr_ess: TransformerRectifier,
     ac_ess_to_tr_ess_contactor: Contactor,
+    emergency_gen: EmergencyGenerator,
+    emergency_gen_contactor: Contactor,
 }
 
 impl A320ElectricalCircuit {
@@ -50,15 +52,18 @@ impl A320ElectricalCircuit {
             tr_1: TransformerRectifier::new(),
             tr_2: TransformerRectifier::new(),
             tr_ess: TransformerRectifier::new(),
-            ac_ess_to_tr_ess_contactor: Contactor::new()
+            ac_ess_to_tr_ess_contactor: Contactor::new(),
+            emergency_gen: EmergencyGenerator::new(),
+            emergency_gen_contactor: Contactor::new(),
         }
     }
 
     pub fn update(&mut self, context: &UpdateContext, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit,
-        ext_pwr: &ExternalPowerSource, elec_overhead: &A320ElectricalOverheadPanel) {
+        ext_pwr: &ExternalPowerSource, hydraulic: &A320HydraulicCircuit, elec_overhead: &A320ElectricalOverheadPanel) {
         self.engine_1_gen.update(engine1, &elec_overhead.idg_1);
         self.engine_2_gen.update(engine2, &elec_overhead.idg_2);
         self.apu_gen.update(apu);
+        self.emergency_gen.update(hydraulic.is_blue_pressurised());
 
         let gen_1_is_powered = self.engine_1_gen.output().is_powered();
         let gen_2_is_powered = self.engine_2_gen.output().is_powered();
@@ -97,17 +102,24 @@ impl A320ElectricalCircuit {
 
         self.ac_ess_feed_contactor_delay_logic_gate.update(context, self.ac_bus_1.output().is_unpowered());
 
-        self.ac_ess_feed_contactor_1.toggle(!self.ac_ess_feed_contactor_delay_logic_gate.output() && elec_overhead.ac_ess_feed.is_normal());
-        self.ac_ess_feed_contactor_2.toggle(self.ac_ess_feed_contactor_delay_logic_gate.output() || elec_overhead.ac_ess_feed.is_altn());
+        self.ac_ess_feed_contactor_1.toggle(self.ac_bus_1.output().is_powered() && (!self.ac_ess_feed_contactor_delay_logic_gate.output() && elec_overhead.ac_ess_feed.is_normal()));
+        self.ac_ess_feed_contactor_2.toggle(self.ac_bus_2.output().is_powered() && (self.ac_ess_feed_contactor_delay_logic_gate.output() || elec_overhead.ac_ess_feed.is_altn()));
 
         self.ac_ess_feed_contactor_1.powered_by(vec!(&self.ac_bus_1));
         self.ac_ess_feed_contactor_2.powered_by(vec!(&self.ac_bus_2));
 
         self.ac_ess_bus.powered_by(vec!(&self.ac_ess_feed_contactor_1, &self.ac_ess_feed_contactor_2));
 
-        self.ac_ess_to_tr_ess_contactor.powered_by(vec!(&self.ac_ess_bus));
+        self.emergency_gen_contactor.toggle(self.ac_bus_1.output().is_unpowered() && self.ac_bus_2.output().is_unpowered());
+        self.emergency_gen_contactor.powered_by(vec!(&self.emergency_gen));
+        
+        let ac_ess_to_tr_ess_contactor_power_sources: Vec<&dyn PowerConductor> = vec!(&self.ac_ess_bus, &self.emergency_gen_contactor);
+        self.ac_ess_to_tr_ess_contactor.powered_by(ac_ess_to_tr_ess_contactor_power_sources);
         self.ac_ess_to_tr_ess_contactor.toggle(A320ElectricalCircuit::has_failed_or_is_unpowered(&self.tr_1) || A320ElectricalCircuit::has_failed_or_is_unpowered(&self.tr_2));
-        self.tr_ess.powered_by(vec!(&self.ac_ess_to_tr_ess_contactor));
+
+        self.ac_ess_bus.or_powered_by(vec!(&self.ac_ess_to_tr_ess_contactor));
+
+        self.tr_ess.powered_by(vec!(&self.ac_ess_to_tr_ess_contactor, &self.emergency_gen_contactor));
     }
 
     fn has_failed_or_is_unpowered(tr: &TransformerRectifier) -> bool {
@@ -146,6 +158,23 @@ impl A320ElectricalOverheadPanel {
             ext_pwr: OnOffPushButton::new_on(),
             commercial: OnOffPushButton::new_on()
         }
+    }
+}
+
+pub struct A320HydraulicCircuit {
+    // Until hydraulic is implemented, we'll fake it with this boolean.
+    blue_pressurised: bool,
+}
+
+impl A320HydraulicCircuit {
+    pub fn new() -> A320HydraulicCircuit {
+        A320HydraulicCircuit {
+            blue_pressurised: true
+        }
+    }
+
+    fn is_blue_pressurised(&self) -> bool {
+        self.blue_pressurised
     }
 }
 
@@ -314,10 +343,8 @@ mod a320_electrical_circuit_tests {
     fn after_three_seconds_of_ac_bus_1_being_unpowered_ac_bus_2_powers_ac_ess_bus() {
         let mut circuit = electrical_circuit();
         circuit.ac_bus_1.fail();
-        // As the DelayedTrueLogicGate doesn't include the time before the expression (AC bus not providing power) becomes true,
-        // we have to execute one update beforehand which already sets the expression to true.
-        timed_update_with_running_engines(&mut circuit, Time::new::<second>(0.));
-        timed_update_with_running_engines(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS));
+        // AC ESS BUS is powered by AC BUS 2 only after a delay.
+        update_circuit_waiting_for_ac_ess_feed_transition(&mut circuit);
 
         assert_eq!(circuit.ac_ess_bus.output().get_source(), PowerSource::EngineGenerator(2));
     }
@@ -329,10 +356,8 @@ mod a320_electrical_circuit_tests {
     fn ac_bus_1_powers_ac_ess_bus_immediately_when_ac_bus_1_becomes_powered_after_ac_bus_2_was_powering_ac_ess_bus() {
         let mut circuit = electrical_circuit();
         circuit.ac_bus_1.fail();
-        // As the DelayedTrueLogicGate doesn't include the time before the expression (AC bus not providing power) becomes true,
-        // we have to execute one update beforehand which already sets the expression to true.
-        timed_update_with_running_engines(&mut circuit, Time::new::<second>(0.));
-        timed_update_with_running_engines(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS));
+        // AC ESS BUS is powered by AC BUS 2 only after a delay.
+        update_circuit_waiting_for_ac_ess_feed_transition(&mut circuit);
         circuit.ac_bus_1.normal();
         timed_update_with_running_engines(&mut circuit, Time::new::<second>(0.01));
 
@@ -447,11 +472,8 @@ mod a320_electrical_circuit_tests {
     fn when_tr_1_unpowered_ess_tr_powered() {
         let mut circuit = electrical_circuit();
         circuit.ac_bus_1.fail();
-        // As the DelayedTrueLogicGate doesn't include the time before the expression (AC bus not providing power) becomes true,
-        // we have to execute one update beforehand which already sets the expression to true.
-        timed_update_with_running_engines(&mut circuit, Time::new::<second>(0.));
         // AC ESS BUS which powers TR1 is only supplied with power after the delay.
-        timed_update_with_running_engines(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS));
+        update_circuit_waiting_for_ac_ess_feed_transition(&mut circuit);
 
         assert!(circuit.tr_ess.output().is_powered())
     }
@@ -482,6 +504,44 @@ mod a320_electrical_circuit_tests {
         assert!(circuit.tr_ess.output().is_unpowered())
     }
 
+    #[test]
+    fn when_ac_bus_1_and_ac_bus_2_are_lost_a_running_emergency_gen_powers_tr_ess() {
+        let mut circuit = electrical_circuit();
+        circuit.emergency_gen.attempt_start();
+        circuit.ac_bus_1.fail();
+        circuit.ac_bus_2.fail();
+
+        update_circuit(&mut circuit, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert!(circuit.tr_ess.output().is_powered());
+        assert_eq!(circuit.tr_ess.output().get_source(), PowerSource::EmergencyGenerator);
+    }
+
+    #[test]
+    fn when_ac_bus_1_and_ac_bus_2_are_lost_a_running_emergency_gen_powers_ac_ess_bus() {
+        let mut circuit = electrical_circuit();
+        circuit.emergency_gen.attempt_start();
+        circuit.ac_bus_1.fail();
+        circuit.ac_bus_2.fail();
+
+        update_circuit(&mut circuit, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert!(circuit.ac_ess_bus.output().is_powered());
+        assert_eq!(circuit.ac_ess_bus.output().get_source(), PowerSource::EmergencyGenerator);
+    }
+
+    #[test]
+    fn when_ac_bus_1_and_ac_bus_2_are_lost_neither_ac_ess_feed_contactor_is_closed() {
+        let mut circuit = electrical_circuit();
+        circuit.ac_bus_1.fail();
+        circuit.ac_bus_2.fail();
+        
+        update_circuit(&mut circuit, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert!(circuit.ac_ess_feed_contactor_1.is_open());
+        assert!(circuit.ac_ess_feed_contactor_2.is_open());
+    }
+
     fn electrical_circuit() -> A320ElectricalCircuit {
         A320ElectricalCircuit::new()
     }
@@ -490,13 +550,20 @@ mod a320_electrical_circuit_tests {
         A320ElectricalOverheadPanel::new()
     }
 
+    fn update_circuit_waiting_for_ac_ess_feed_transition(circuit: &mut A320ElectricalCircuit) {
+        // As the DelayedTrueLogicGate doesn't include the time before the expression (AC bus not providing power) becomes true,
+        // we have to execute one update beforehand which already sets the expression to true.
+        timed_update_with_running_engines(circuit, Time::new::<second>(0.));
+        timed_update_with_running_engines(circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS));
+    }
+
     fn timed_update_with_running_engines(circuit: &mut A320ElectricalCircuit, delta: Time) {
         timed_update_circuit(circuit, delta, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
     }
 
     fn timed_update_circuit(circuit: &mut A320ElectricalCircuit, delta: Time, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {
         let context = UpdateContext::new(delta);
-        circuit.update(&context, &engine1, &engine2, &apu, &ext_pwr, &A320ElectricalOverheadPanel::new());
+        circuit.update(&context, &engine1, &engine2, &apu, &ext_pwr, &A320HydraulicCircuit::new(), &A320ElectricalOverheadPanel::new());
     }
 
     fn update_circuit(circuit: &mut A320ElectricalCircuit, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {
@@ -505,7 +572,7 @@ mod a320_electrical_circuit_tests {
 
     fn update_circuit_with_overhead(circuit: &mut A320ElectricalCircuit, overhead: &A320ElectricalOverheadPanel, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {
         let context = UpdateContext::new(Time::new::<second>(1.));
-        circuit.update(&context, engine1, engine2, apu, ext_pwr, overhead);
+        circuit.update(&context, engine1, engine2, apu, ext_pwr, &A320HydraulicCircuit::new(), overhead);
     }
 
     fn running_engine() -> Engine {
