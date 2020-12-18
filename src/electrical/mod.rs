@@ -280,165 +280,40 @@ impl PowerConductor for ElectricalBus {
     }
 }
 
-#[cfg(test)]
-mod current_tests {
-    use uom::si::{electric_current::ampere, electric_potential::volt, frequency::hertz};
+pub struct TransformerRectifier {
+    input: Current
+}
 
-    use super::*;
+impl TransformerRectifier {
+    pub fn new() -> TransformerRectifier {
+        TransformerRectifier {
+            input: Current::None
+        }
+    }
+}
 
-    #[test]
-    fn alternating_current_is_powered() {
-        assert_eq!(alternating_current().is_powered(), true);
+impl Powerable for TransformerRectifier {
+    fn set_input(&mut self, current: Current) {
+        self.input = current;
     }
 
-    #[test]
-    fn alternating_current_is_not_unpowered() {
-        assert_eq!(alternating_current().is_unpowered(), false);
+    fn get_input(&self) -> Current {
+        self.input
     }
+}
 
-    #[test]
-    fn direct_current_is_powered() {
-        assert_eq!(direct_current().is_powered(), true);
-    }
-
-    #[test]
-    fn direct_current_is_not_unpowered() {
-        assert_eq!(direct_current().is_unpowered(), false);
-    }
-    
-    #[test]
-    fn none_current_is_not_powered() {
-        assert_eq!(none_current().is_powered(), false);
-    }
-
-    #[test]
-    fn none_current_is_unpowered() {
-        assert_eq!(none_current().is_unpowered(), true);
-    }
-
-    fn alternating_current() -> Current {
-        Current::Alternating(PowerSource::ApuGenerator, Frequency::new::<hertz>(0.), ElectricPotential::new::<volt>(0.), ElectricCurrent::new::<ampere>(0.))
-    }
-
-    fn direct_current() -> Current {
-        Current::Direct(PowerSource::ApuGenerator, ElectricPotential::new::<volt>(0.), ElectricCurrent::new::<ampere>(0.))
-    }
-
-    fn none_current() -> Current {
-        Current::None
+impl PowerConductor for TransformerRectifier {
+    fn output(&self) -> Current {
+        match self.input {
+            Current::Alternating(source, ..) => Current::Direct(source, ElectricPotential::new::<volt>(28.5), ElectricCurrent::new::<ampere>(35.)),
+            _ => Current::None
+        }
     }
 }
 
 #[cfg(test)]
-mod contactor_tests {
+mod tests {
     use super::*;
-
-    #[test]
-    fn contactor_starts_open() {
-        assert_eq!(contactor().state, ContactorState::Open);
-    }
-
-    #[test]
-    fn open_contactor_when_toggled_open_stays_open() {
-        let mut contactor = open_contactor();
-        contactor.toggle(false);
-
-        assert_eq!(contactor.state, ContactorState::Open);
-    }
-
-    #[test]
-    fn open_contactor_when_toggled_closed_closes() {
-        let mut contactor = open_contactor();
-        contactor.toggle(true);
-
-        assert_eq!(contactor.state, ContactorState::Closed);
-    }
-
-    #[test]
-    fn closed_contactor_when_toggled_open_opens() {
-        let mut contactor = closed_contactor();
-        contactor.toggle(false);
-
-        assert_eq!(contactor.state, ContactorState::Open);
-    }
-
-    #[test]
-    fn closed_contactor_when_toggled_closed_stays_closed() {
-        let mut contactor = closed_contactor();
-        contactor.toggle(true);
-
-        assert_eq!(contactor.state, ContactorState::Closed);
-    }
-
-    #[test]
-    fn open_contactor_has_no_output_when_powered_by_nothing() {
-        contactor_has_no_output_when_powered_by_nothing(open_contactor());
-    }
-
-    #[test]
-    fn closed_contactor_has_no_output_when_powered_by_nothing() {
-        contactor_has_no_output_when_powered_by_nothing(closed_contactor());
-    }
-
-    fn contactor_has_no_output_when_powered_by_nothing(mut contactor: Contactor) {
-        let nothing: Vec<&dyn PowerConductor> = vec![];
-        contactor.powered_by(nothing);
-
-        assert!(contactor.output().is_unpowered());
-    }
-
-    #[test]
-    fn open_contactor_has_no_output_when_powered_by_nothing_which_is_powered() {
-        contactor_has_no_output_when_powered_by_nothing_which_is_powered(open_contactor());
-    }
-
-    #[test]
-    fn closed_contactor_has_no_output_when_powered_by_nothing_which_is_powered() {
-        contactor_has_no_output_when_powered_by_nothing_which_is_powered(closed_contactor());
-    }
-
-    fn contactor_has_no_output_when_powered_by_nothing_which_is_powered(mut contactor: Contactor) {
-        contactor.powered_by(vec![&Powerless{}]);
-
-        assert!(contactor.output().is_unpowered());
-    }
-
-    #[test]
-    fn open_contactor_has_no_output_when_powered_by_something() {
-        let mut contactor = open_contactor();
-        let conductors: Vec<&dyn PowerConductor> = vec![&Powerless{}, &Powered{}];
-        contactor.powered_by(conductors);
-
-        assert!(contactor.output().is_unpowered());
-    }
-
-    #[test]
-    fn closed_contactor_has_output_when_powered_by_something_which_is_powered() {
-        let mut contactor = closed_contactor();
-        let conductors: Vec<&dyn PowerConductor> = vec![&Powerless{}, &Powered{}];
-        contactor.powered_by(conductors);
-
-        assert!(contactor.output().is_powered());
-    }
-
-    fn contactor() -> Contactor {
-        Contactor::new()
-    }
-
-    fn open_contactor() -> Contactor {
-        let mut contactor = contactor();
-        contactor.state = ContactorState::Open;
-
-        contactor
-    }
-
-    fn closed_contactor() -> Contactor {
-        let mut contactor = contactor();
-        contactor.state = ContactorState::Closed;
-
-        contactor
-    }
-
     struct Powerless {}
 
     impl PowerConductor for Powerless {
@@ -447,154 +322,350 @@ mod contactor_tests {
         }
     }
 
-    struct Powered {}
+    struct StubApuGenerator {}
 
-    impl PowerConductor for Powered {
+    impl PowerConductor for StubApuGenerator {
         fn output(&self) -> Current {
             Current::Alternating(PowerSource::ApuGenerator, Frequency::new::<hertz>(400.), 
                 ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60))
         }
     }
-}
 
-#[cfg(test)]
-mod engine_generator_tests {
-    use uom::si::{ratio::percent};
-    use super::*;
-
-    #[test]
-    fn starts_without_output() {
-        assert!(engine_generator().output.is_unpowered());
+    fn apu_generator() -> StubApuGenerator {
+        StubApuGenerator {}
     }
 
-    #[test]
-    fn when_engine_n2_above_threshold_provides_output() {
-        let mut generator = engine_generator();
-        update_below_threshold(&mut generator);
-        update_above_threshold(&mut generator);
+    #[cfg(test)]
+    mod current_tests {
+        use uom::si::{electric_current::ampere, electric_potential::volt, frequency::hertz};
 
-        assert!(generator.output.is_powered());
+        use super::*;
+
+        #[test]
+        fn alternating_current_is_powered() {
+            assert_eq!(alternating_current().is_powered(), true);
+        }
+
+        #[test]
+        fn alternating_current_is_not_unpowered() {
+            assert_eq!(alternating_current().is_unpowered(), false);
+        }
+
+        #[test]
+        fn direct_current_is_powered() {
+            assert_eq!(direct_current().is_powered(), true);
+        }
+
+        #[test]
+        fn direct_current_is_not_unpowered() {
+            assert_eq!(direct_current().is_unpowered(), false);
+        }
+        
+        #[test]
+        fn none_current_is_not_powered() {
+            assert_eq!(none_current().is_powered(), false);
+        }
+
+        #[test]
+        fn none_current_is_unpowered() {
+            assert_eq!(none_current().is_unpowered(), true);
+        }
+
+        fn alternating_current() -> Current {
+            Current::Alternating(PowerSource::ApuGenerator, Frequency::new::<hertz>(0.), ElectricPotential::new::<volt>(0.), ElectricCurrent::new::<ampere>(0.))
+        }
+
+        fn direct_current() -> Current {
+            Current::Direct(PowerSource::ApuGenerator, ElectricPotential::new::<volt>(0.), ElectricCurrent::new::<ampere>(0.))
+        }
+
+        fn none_current() -> Current {
+            Current::None
+        }
     }
 
-    #[test]
-    fn when_engine_n2_below_threshold_provides_no_output() {
-        let mut generator = engine_generator();
-        update_above_threshold(&mut generator);
-        update_below_threshold(&mut generator);
+    #[cfg(test)]
+    mod contactor_tests {
+        use super::*;
 
-        assert!(generator.output.is_unpowered());
+        #[test]
+        fn contactor_starts_open() {
+            assert_eq!(contactor().state, ContactorState::Open);
+        }
+
+        #[test]
+        fn open_contactor_when_toggled_open_stays_open() {
+            let mut contactor = open_contactor();
+            contactor.toggle(false);
+
+            assert_eq!(contactor.state, ContactorState::Open);
+        }
+
+        #[test]
+        fn open_contactor_when_toggled_closed_closes() {
+            let mut contactor = open_contactor();
+            contactor.toggle(true);
+
+            assert_eq!(contactor.state, ContactorState::Closed);
+        }
+
+        #[test]
+        fn closed_contactor_when_toggled_open_opens() {
+            let mut contactor = closed_contactor();
+            contactor.toggle(false);
+
+            assert_eq!(contactor.state, ContactorState::Open);
+        }
+
+        #[test]
+        fn closed_contactor_when_toggled_closed_stays_closed() {
+            let mut contactor = closed_contactor();
+            contactor.toggle(true);
+
+            assert_eq!(contactor.state, ContactorState::Closed);
+        }
+
+        #[test]
+        fn open_contactor_has_no_output_when_powered_by_nothing() {
+            contactor_has_no_output_when_powered_by_nothing(open_contactor());
+        }
+
+        #[test]
+        fn closed_contactor_has_no_output_when_powered_by_nothing() {
+            contactor_has_no_output_when_powered_by_nothing(closed_contactor());
+        }
+
+        fn contactor_has_no_output_when_powered_by_nothing(mut contactor: Contactor) {
+            let nothing: Vec<&dyn PowerConductor> = vec![];
+            contactor.powered_by(nothing);
+
+            assert!(contactor.output().is_unpowered());
+        }
+
+        #[test]
+        fn open_contactor_has_no_output_when_powered_by_nothing_which_is_powered() {
+            contactor_has_no_output_when_powered_by_nothing_which_is_powered(open_contactor());
+        }
+
+        #[test]
+        fn closed_contactor_has_no_output_when_powered_by_nothing_which_is_powered() {
+            contactor_has_no_output_when_powered_by_nothing_which_is_powered(closed_contactor());
+        }
+
+        fn contactor_has_no_output_when_powered_by_nothing_which_is_powered(mut contactor: Contactor) {
+            contactor.powered_by(vec![&Powerless{}]);
+
+            assert!(contactor.output().is_unpowered());
+        }
+
+        #[test]
+        fn open_contactor_has_no_output_when_powered_by_something() {
+            let mut contactor = open_contactor();
+            let conductors: Vec<&dyn PowerConductor> = vec![&Powerless{}, &StubApuGenerator{}];
+            contactor.powered_by(conductors);
+
+            assert!(contactor.output().is_unpowered());
+        }
+
+        #[test]
+        fn closed_contactor_has_output_when_powered_by_something_which_is_powered() {
+            let mut contactor = closed_contactor();
+            let conductors: Vec<&dyn PowerConductor> = vec![&Powerless{}, &StubApuGenerator{}];
+            contactor.powered_by(conductors);
+
+            assert!(contactor.output().is_powered());
+        }
+
+        fn contactor() -> Contactor {
+            Contactor::new()
+        }
+
+        fn open_contactor() -> Contactor {
+            let mut contactor = contactor();
+            contactor.state = ContactorState::Open;
+
+            contactor
+        }
+
+        fn closed_contactor() -> Contactor {
+            let mut contactor = contactor();
+            contactor.state = ContactorState::Closed;
+
+            contactor
+        }
     }
 
-    #[test]
-    fn when_idg_disconnected_provides_no_output() {
-        let mut generator = engine_generator();
-        generator.update(&engine_above_threshold(), &OnOffPushButton::new_off());
+    #[cfg(test)]
+    mod engine_generator_tests {
+        use uom::si::{ratio::percent};
+        use super::*;
 
-        assert!(generator.output.is_unpowered());
+        #[test]
+        fn starts_without_output() {
+            assert!(engine_generator().output.is_unpowered());
+        }
+
+        #[test]
+        fn when_engine_n2_above_threshold_provides_output() {
+            let mut generator = engine_generator();
+            update_below_threshold(&mut generator);
+            update_above_threshold(&mut generator);
+
+            assert!(generator.output.is_powered());
+        }
+
+        #[test]
+        fn when_engine_n2_below_threshold_provides_no_output() {
+            let mut generator = engine_generator();
+            update_above_threshold(&mut generator);
+            update_below_threshold(&mut generator);
+
+            assert!(generator.output.is_unpowered());
+        }
+
+        #[test]
+        fn when_idg_disconnected_provides_no_output() {
+            let mut generator = engine_generator();
+            generator.update(&engine_above_threshold(), &OnOffPushButton::new_off());
+
+            assert!(generator.output.is_unpowered());
+        }
+
+        fn engine_generator() -> EngineGenerator {
+            EngineGenerator::new(1)
+        }
+
+        fn engine(n2: Ratio) -> Engine {
+            let mut engine = Engine::new();
+            engine.n2 = n2;
+
+            engine
+        }
+
+        fn update_above_threshold(generator: &mut EngineGenerator) {
+            generator.update(&engine_above_threshold(), &OnOffPushButton::new_on());
+        }
+
+        fn update_below_threshold(generator: &mut EngineGenerator) {
+            generator.update(&engine_below_threshold(), &OnOffPushButton::new_on());
+        }
+
+        fn engine_above_threshold() -> Engine {
+            engine(Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD + 1.))
+        }
+
+        fn engine_below_threshold() -> Engine {
+            engine(Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD - 1.))
+        }
     }
 
-    fn engine_generator() -> EngineGenerator {
-        EngineGenerator::new(1)
+    #[cfg(test)]
+    mod apu_generator_tests {
+        use uom::si::{ratio::percent};
+        use super::*;
+
+        #[test]
+        fn starts_without_output() {
+            assert!(apu_generator().output.is_unpowered());
+        }
+
+        #[test]
+        fn when_apu_speed_above_threshold_provides_output() {
+            let mut generator = apu_generator();
+            update_below_threshold(&mut generator);
+            update_above_threshold(&mut generator);
+
+            assert!(generator.output.is_powered());
+        }
+
+        #[test]
+        fn when_apu_speed_below_threshold_provides_no_output() {
+            let mut generator = apu_generator();
+            update_above_threshold(&mut generator);
+            update_below_threshold(&mut generator);
+
+            assert!(generator.output.is_unpowered());
+        }
+
+        fn apu_generator() -> ApuGenerator {
+            ApuGenerator::new()
+        }
+
+        fn apu(speed: Ratio) -> AuxiliaryPowerUnit {
+            let mut apu = AuxiliaryPowerUnit::new();
+            apu.speed = speed;
+
+            apu
+        }
+
+        fn update_above_threshold(generator: &mut ApuGenerator) {
+            generator.update(&apu(Ratio::new::<percent>(ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD + 1.)));
+        }
+
+        fn update_below_threshold(generator: &mut ApuGenerator) {
+            generator.update(&apu(Ratio::new::<percent>(ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD - 1.)));
+        }
     }
 
-    fn engine(n2: Ratio) -> Engine {
-        let mut engine = Engine::new();
-        engine.n2 = n2;
+    #[cfg(test)]
+    mod external_power_source_tests {
+        use super::*;
 
-        engine
+        #[test]
+        fn starts_without_output() {
+            assert!(external_power_source().output().is_unpowered());
+        }
+
+        #[test]
+        fn when_plugged_in_provides_output() {
+            let mut ext_pwr = external_power_source();
+            ext_pwr.plugged_in = true;
+
+            assert!(ext_pwr.output().is_powered());
+        }
+
+        #[test]
+        fn when_not_plugged_in_provides_no_output() {
+            let mut ext_pwr = external_power_source();
+            ext_pwr.plugged_in = false;
+
+            assert!(ext_pwr.output().is_unpowered());
+        }
+
+        fn external_power_source() -> ExternalPowerSource {
+            ExternalPowerSource::new()
+        }
     }
 
-    fn update_above_threshold(generator: &mut EngineGenerator) {
-        generator.update(&engine_above_threshold(), &OnOffPushButton::new_on());
+    #[cfg(test)]
+    mod transformer_rectifier_tests {
+        use super::*;
+
+        #[test]
+        fn starts_without_output() {
+            assert!(transformer_rectifier().output().is_unpowered());
+        }
+
+        #[test]
+        fn when_powered_with_alternating_current_outputs_direct_current() {
+            let mut tr = transformer_rectifier();
+            tr.powered_by(vec!(&apu_generator()));
+
+            assert!(tr.output().is_powered());
+            assert!(if let Current::Direct(PowerSource::ApuGenerator, ..) = tr.output() { true } else { false });
+        }
+
+        #[test]
+        fn when_unpowered_has_no_output() {
+            let mut tr = transformer_rectifier();
+            tr.powered_by(vec!(&Powerless {}));
+
+            tr.output().is_unpowered();
+        }
+
+        fn transformer_rectifier() -> TransformerRectifier {
+            TransformerRectifier::new()
+        }
     }
 
-    fn update_below_threshold(generator: &mut EngineGenerator) {
-        generator.update(&engine_below_threshold(), &OnOffPushButton::new_on());
-    }
-
-    fn engine_above_threshold() -> Engine {
-        engine(Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD + 1.))
-    }
-
-    fn engine_below_threshold() -> Engine {
-        engine(Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD - 1.))
-    }
-}
-
-#[cfg(test)]
-mod apu_generator_tests {
-    use uom::si::{ratio::percent};
-    use super::*;
-
-    #[test]
-    fn starts_without_output() {
-        assert!(apu_generator().output.is_unpowered());
-    }
-
-    #[test]
-    fn when_apu_speed_above_threshold_provides_output() {
-        let mut generator = apu_generator();
-        update_below_threshold(&mut generator);
-        update_above_threshold(&mut generator);
-
-        assert!(generator.output.is_powered());
-    }
-
-    #[test]
-    fn when_apu_speed_below_threshold_provides_no_output() {
-        let mut generator = apu_generator();
-        update_above_threshold(&mut generator);
-        update_below_threshold(&mut generator);
-
-        assert!(generator.output.is_unpowered());
-    }
-
-    fn apu_generator() -> ApuGenerator {
-        ApuGenerator::new()
-    }
-
-    fn apu(speed: Ratio) -> AuxiliaryPowerUnit {
-        let mut apu = AuxiliaryPowerUnit::new();
-        apu.speed = speed;
-
-        apu
-    }
-
-    fn update_above_threshold(generator: &mut ApuGenerator) {
-        generator.update(&apu(Ratio::new::<percent>(ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD + 1.)));
-    }
-
-    fn update_below_threshold(generator: &mut ApuGenerator) {
-        generator.update(&apu(Ratio::new::<percent>(ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD - 1.)));
-    }
-}
-
-#[cfg(test)]
-mod external_power_source_tests {
-    use super::*;
-
-    #[test]
-    fn starts_without_output() {
-        assert!(external_power_source().output().is_unpowered());
-    }
-
-    #[test]
-    fn when_plugged_in_provides_output() {
-        let mut ext_pwr = external_power_source();
-        ext_pwr.plugged_in = true;
-
-        assert!(ext_pwr.output().is_powered());
-    }
-
-    #[test]
-    fn when_not_plugged_in_provides_no_output() {
-        let mut ext_pwr = external_power_source();
-        ext_pwr.plugged_in = false;
-
-        assert!(ext_pwr.output().is_unpowered());
-    }
-
-    fn external_power_source() -> ExternalPowerSource {
-        ExternalPowerSource::new()
-    }
 }

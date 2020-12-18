@@ -1,6 +1,6 @@
 use uom::si::{f32::{Ratio, Time}, ratio::percent, time::second};
 
-use crate::{electrical::{ApuGenerator, AuxiliaryPowerUnit, Contactor, ElectricalBus, EngineGenerator, ExternalPowerSource, PowerConductor, Powerable}, overhead::{self, NormalAltnPushButton, OnOffPushButton}, shared::{DelayedTrueLogicGate, Engine, UpdateContext}};
+use crate::{electrical::{ApuGenerator, AuxiliaryPowerUnit, Contactor, ElectricalBus, EngineGenerator, ExternalPowerSource, PowerConductor, Powerable, TransformerRectifier}, overhead::{self, NormalAltnPushButton, OnOffPushButton}, shared::{DelayedTrueLogicGate, Engine, UpdateContext}};
 
 pub struct A320ElectricalCircuit {
     engine_1_gen: EngineGenerator,
@@ -17,7 +17,12 @@ pub struct A320ElectricalCircuit {
     ac_ess_bus: ElectricalBus,
     ac_ess_feed_contactor_1: Contactor,
     ac_ess_feed_contactor_2: Contactor,
-    ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate
+    ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate,
+    // The electrical diagram lists separate contactors for each transformer rectifier.
+    // As there is no button affecting the contactor, nor any logic that we know of, for now
+    // the contactors are just assumed to be part of the transformer rectifiers.
+    tr_1: TransformerRectifier,
+    tr_2: TransformerRectifier
 }
 
 impl A320ElectricalCircuit {
@@ -40,6 +45,8 @@ impl A320ElectricalCircuit {
             ac_ess_feed_contactor_1: Contactor::new(),
             ac_ess_feed_contactor_2: Contactor::new(),
             ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate::new(Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS)),
+            tr_1: TransformerRectifier::new(),
+            tr_2: TransformerRectifier::new()
         }
     }
 
@@ -80,6 +87,9 @@ impl A320ElectricalCircuit {
 
         self.ac_bus_1.powered_by(vec!(&self.engine_1_gen_contactor, &self.bus_tie_1_contactor));
         self.ac_bus_2.powered_by(vec!(&self.engine_2_gen_contactor, &self.bus_tie_2_contactor));
+
+        self.tr_1.powered_by(vec!(&self.ac_bus_1));
+        self.tr_2.powered_by(vec!(&self.ac_bus_2));
 
         self.ac_ess_feed_contactor_delay_logic_gate.update(context, self.ac_bus_1.output().is_unpowered());
 
@@ -372,6 +382,38 @@ mod a320_electrical_circuit_tests {
 
         assert!(circuit.ac_bus_1.output().is_unpowered());
         assert!(circuit.ac_bus_2.output().is_unpowered());
+    }
+
+    #[test]
+    fn when_ac_bus_1_powered_tr_1_is_powered() {
+        let mut circuit = electrical_circuit();
+        update_circuit(&mut circuit, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert!(circuit.tr_1.output().is_powered());
+    }
+
+    #[test]
+    fn when_ac_bus_1_unpowered_tr_1_is_unpowered() {
+        let mut circuit = electrical_circuit();
+        update_circuit(&mut circuit, &stopped_engine(), &stopped_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert!(circuit.tr_1.output().is_unpowered());
+    }
+
+    #[test]
+    fn when_ac_bus_2_powered_tr_2_is_powered() {
+        let mut circuit = electrical_circuit();
+        update_circuit(&mut circuit, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert!(circuit.tr_2.output().is_powered());
+    }
+
+    #[test]
+    fn when_ac_bus_2_unpowered_tr_2_is_unpowered() {
+        let mut circuit = electrical_circuit();
+        update_circuit(&mut circuit, &stopped_engine(), &stopped_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert!(circuit.tr_2.output().is_unpowered());
     }
 
     fn electrical_circuit() -> A320ElectricalCircuit {
