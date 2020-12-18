@@ -277,8 +277,7 @@ mod a320_electrical_circuit_tests {
     fn when_ac_bus_1_becomes_unpowered_nothing_powers_ac_ess_bus_for_three_seconds() {
         let mut circuit = electrical_circuit();
         circuit.ac_bus_1.fail();
-        timed_update_circuit(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS - 0.01),
-            &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+        timed_update_with_running_engines(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS - 0.01));
 
         assert!(circuit.ac_ess_bus.output().is_unpowered());
     }
@@ -290,8 +289,10 @@ mod a320_electrical_circuit_tests {
     fn after_three_seconds_of_ac_bus_1_being_unpowered_ac_bus_2_powers_ac_ess_bus() {
         let mut circuit = electrical_circuit();
         circuit.ac_bus_1.fail();
-        timed_update_circuit(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS), 
-            &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+        // As the DelayedTrueLogicGate doesn't include the time before the expression (AC bus not providing power) becomes true,
+        // we have to execute one update beforehand which already sets the expression to true.
+        timed_update_with_running_engines(&mut circuit, Time::new::<second>(0.));
+        timed_update_with_running_engines(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS));
 
         assert_eq!(circuit.ac_ess_bus.output().get_source(), PowerSource::EngineGenerator(2));
     }
@@ -303,11 +304,9 @@ mod a320_electrical_circuit_tests {
     fn ac_bus_1_powers_ac_ess_bus_immediately_when_ac_bus_1_becomes_powered_after_ac_bus_2_was_powering_ac_ess_bus() {
         let mut circuit = electrical_circuit();
         circuit.ac_bus_1.fail();
-        timed_update_circuit(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS), 
-            &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+        timed_update_with_running_engines(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS));
         circuit.ac_bus_1.normal();
-        timed_update_circuit(&mut circuit, Time::new::<second>(0.01), 
-            &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+        timed_update_with_running_engines(&mut circuit, Time::new::<second>(0.01));
 
         assert_eq!(circuit.ac_ess_bus.output().get_source(), PowerSource::EngineGenerator(1));
     }
@@ -349,6 +348,10 @@ mod a320_electrical_circuit_tests {
 
     fn overhead_panel() -> A320ElectricalOverheadPanel {
         A320ElectricalOverheadPanel::new()
+    }
+
+    fn timed_update_with_running_engines(circuit: &mut A320ElectricalCircuit, delta: Time) {
+        timed_update_circuit(circuit, delta, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
     }
 
     fn timed_update_circuit(circuit: &mut A320ElectricalCircuit, delta: Time, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit, ext_pwr: &ExternalPowerSource) {

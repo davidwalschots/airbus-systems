@@ -12,7 +12,8 @@ impl UpdateContext {
     }
 }
 
-/// The delay logic gate delays the result of a given expression by the given amount of time.
+/// The delay logic gate delays the true result of a given expression by the given amount of time.
+/// False results are output immediately.
 pub struct DelayedTrueLogicGate {
     delay: Time,
     expression_result: bool,
@@ -29,14 +30,14 @@ impl DelayedTrueLogicGate {
     }
 
     pub fn update(&mut self, context: &UpdateContext, expression_result: bool) {
-        self.expression_result = expression_result;
-        if expression_result {
-            // TODO: Currently we include the time since the last calculation as time the expression was already true.
-            // We have not decided if this is really a good idea.
+        // We do not include the delta representing the moment before the expression_result became true.
+        if self.expression_result && expression_result {
             self.true_duration += context.delta;
         } else {
             self.true_duration = Time::new::<second>(0.);
         }
+
+        self.expression_result = expression_result;
     }
 
     pub fn output(&self) -> bool {
@@ -61,12 +62,13 @@ impl Engine {
 }
 
 #[cfg(test)]
-mod delay_logic_gate_tests {
+mod delayed_true_logic_gate_tests {
     use super::*;
 
     #[test]
     fn when_the_expression_is_false_returns_false() {
         let mut gate = delay_logic_gate(Time::new::<second>(0.1));
+        gate.update(&update_context(Time::new::<second>(0.)), false);
         gate.update(&update_context(Time::new::<second>(1.0)), false);
 
         assert_eq!(gate.output(), false);
@@ -75,6 +77,7 @@ mod delay_logic_gate_tests {
     #[test]
     fn when_the_expression_is_true_and_delay_hasnt_passed_returns_false() {
         let mut gate = delay_logic_gate(Time::new::<second>(10.));
+        gate.update(&update_context(Time::new::<second>(0.)), false);
         gate.update(&update_context(Time::new::<second>(1.0)), false);
 
         assert_eq!(gate.output(), false);
@@ -83,6 +86,7 @@ mod delay_logic_gate_tests {
     #[test]
     fn when_the_expression_is_true_and_delay_has_passed_returns_true() {
         let mut gate = delay_logic_gate(Time::new::<second>(0.1));
+        gate.update(&update_context(Time::new::<second>(0.)), true);
         gate.update(&update_context(Time::new::<second>(1.0)), true);
 
         assert_eq!(gate.output(), true);
@@ -91,9 +95,19 @@ mod delay_logic_gate_tests {
     #[test]
     fn when_the_expression_is_true_and_becomes_false_before_delay_has_passed_returns_false_once_delay_passed() {
         let mut gate = delay_logic_gate(Time::new::<second>(1.0));
+        gate.update(&update_context(Time::new::<second>(0.)), true);
         gate.update(&update_context(Time::new::<second>(0.8)), true);
         gate.update(&update_context(Time::new::<second>(0.1)), false);
         gate.update(&update_context(Time::new::<second>(0.2)), false);
+
+        assert_eq!(gate.output(), false);
+    }
+
+    #[test]
+    fn does_not_include_delta_at_the_moment_of_expression_becoming_true() {
+        let mut gate = delay_logic_gate(Time::new::<second>(1.0));
+        gate.update(&update_context(Time::new::<second>(0.9)), true);
+        gate.update(&update_context(Time::new::<second>(0.2)), true);
 
         assert_eq!(gate.output(), false);
     }
