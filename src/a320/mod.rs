@@ -1,6 +1,6 @@
 use uom::si::{f32::{Ratio, Time}, ratio::percent, time::second};
 
-use crate::{electrical::{ApuGenerator, AuxiliaryPowerUnit, Contactor, ElectricalBus, EngineGenerator, ExternalPowerSource, PowerConductor, Powerable}, overhead::OnOffPushButton, shared::{DelayedTrueLogicGate, Engine, UpdateContext}};
+use crate::{electrical::{ApuGenerator, AuxiliaryPowerUnit, Contactor, ElectricalBus, EngineGenerator, ExternalPowerSource, PowerConductor, Powerable}, overhead::{self, NormalAltnPushButton, OnOffPushButton}, shared::{DelayedTrueLogicGate, Engine, UpdateContext}};
 
 pub struct A320ElectricalCircuit {
     engine_1_gen: EngineGenerator,
@@ -83,8 +83,8 @@ impl A320ElectricalCircuit {
 
         self.ac_ess_feed_contactor_delay_logic_gate.update(context, self.ac_bus_1.output().is_unpowered());
 
-        self.ac_ess_feed_contactor_1.toggle(!self.ac_ess_feed_contactor_delay_logic_gate.output());
-        self.ac_ess_feed_contactor_2.toggle(self.ac_ess_feed_contactor_delay_logic_gate.output());
+        self.ac_ess_feed_contactor_1.toggle(!self.ac_ess_feed_contactor_delay_logic_gate.output() && elec_overhead.ac_ess_feed.is_normal());
+        self.ac_ess_feed_contactor_2.toggle(self.ac_ess_feed_contactor_delay_logic_gate.output() || elec_overhead.ac_ess_feed.is_altn());
 
         self.ac_ess_feed_contactor_1.powered_by(vec!(&self.ac_bus_1));
         self.ac_ess_feed_contactor_2.powered_by(vec!(&self.ac_bus_2));
@@ -102,7 +102,7 @@ pub struct A320ElectricalOverheadPanel {
     gen_2: OnOffPushButton,
     apu_gen: OnOffPushButton,
     bus_tie: OnOffPushButton,
-    ac_ess_feed: OnOffPushButton,
+    ac_ess_feed: NormalAltnPushButton,
     galy_and_cab: OnOffPushButton,
     ext_pwr: OnOffPushButton,
     commercial: OnOffPushButton    
@@ -119,7 +119,7 @@ impl A320ElectricalOverheadPanel {
             gen_2: OnOffPushButton::new_on(),
             apu_gen: OnOffPushButton::new_on(),
             bus_tie: OnOffPushButton::new_on(),
-            ac_ess_feed: OnOffPushButton::new_on(),
+            ac_ess_feed: NormalAltnPushButton::new_normal(),
             galy_and_cab: OnOffPushButton::new_on(),
             ext_pwr: OnOffPushButton::new_on(),
             commercial: OnOffPushButton::new_on()
@@ -340,6 +340,16 @@ mod a320_electrical_circuit_tests {
         update_circuit_with_overhead(&mut circuit, &overhead, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
 
         assert!(circuit.engine_2_gen_contactor.is_open());
+    }
+
+    #[test]
+    fn when_ac_ess_feed_push_button_altn_ac_bus_2_powers_ac_ess_bus() {
+        let mut circuit = electrical_circuit();
+        let mut overhead = overhead_panel();
+        overhead.ac_ess_feed.push_altn();
+        update_circuit_with_overhead(&mut circuit, &overhead, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert_eq!(circuit.ac_ess_bus.output().get_source(), PowerSource::EngineGenerator(2));
     }
 
     fn electrical_circuit() -> A320ElectricalCircuit {

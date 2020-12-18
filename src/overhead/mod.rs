@@ -43,6 +43,48 @@ impl OnOffPushButton {
     }
 }
 
+pub enum NormalAltnPushButtonState {
+    Normal,
+    Altn
+}
+
+pub struct NormalAltnPushButton {
+    state: NormalAltnPushButtonState,
+    fault: bool
+}
+
+impl NormalAltnPushButton {
+    pub fn new_normal() -> NormalAltnPushButton {
+        NormalAltnPushButton {
+            state: NormalAltnPushButtonState::Normal,
+            fault: false
+        }
+    }
+
+    pub fn new_altn() -> NormalAltnPushButton {
+        NormalAltnPushButton {
+            state: NormalAltnPushButtonState::Altn,
+            fault: false
+        }
+    }
+
+    pub fn push_normal(&mut self) {
+        self.state = NormalAltnPushButtonState::Normal;
+    }
+
+    pub fn push_altn(&mut self) {
+        self.state = NormalAltnPushButtonState::Altn;
+    }
+
+    pub fn is_normal(&self) -> bool {
+        if let NormalAltnPushButtonState::Normal = self.state { true } else { false }
+    }
+
+    pub fn is_altn(&self) -> bool {
+        if let NormalAltnPushButtonState::Altn = self.state { true } else { false }
+    }
+}
+
 #[cfg(test)]
 mod on_off_push_button_tests {
     use super::OnOffPushButton;
@@ -55,5 +97,20 @@ mod on_off_push_button_tests {
     #[test]
     fn new_off_push_button_is_off() {
         assert!(OnOffPushButton::new_off().is_off());
+    }
+}
+
+#[cfg(test)]
+mod normal_altn_push_button_tests {
+    use super::NormalAltnPushButton;
+
+    #[test]
+    fn new_normal_push_button_is_normal() {
+        assert!(NormalAltnPushButton::new_normal().is_normal());
+    }
+
+    #[test]
+    fn new_altn_push_button_is_altn() {
+        assert!(NormalAltnPushButton::new_altn().is_altn());
     }
 }
