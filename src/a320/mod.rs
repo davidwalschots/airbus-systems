@@ -22,7 +22,9 @@ pub struct A320ElectricalCircuit {
     // As there is no button affecting the contactor, nor any logic that we know of, for now
     // the contactors are just assumed to be part of the transformer rectifiers.
     tr_1: TransformerRectifier,
-    tr_2: TransformerRectifier
+    tr_2: TransformerRectifier,
+    tr_ess: TransformerRectifier,
+    ac_ess_to_tr_ess_contactor: Contactor,
 }
 
 impl A320ElectricalCircuit {
@@ -46,7 +48,9 @@ impl A320ElectricalCircuit {
             ac_ess_feed_contactor_2: Contactor::new(),
             ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate::new(Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS)),
             tr_1: TransformerRectifier::new(),
-            tr_2: TransformerRectifier::new()
+            tr_2: TransformerRectifier::new(),
+            tr_ess: TransformerRectifier::new(),
+            ac_ess_to_tr_ess_contactor: Contactor::new()
         }
     }
 
@@ -100,6 +104,14 @@ impl A320ElectricalCircuit {
         self.ac_ess_feed_contactor_2.powered_by(vec!(&self.ac_bus_2));
 
         self.ac_ess_bus.powered_by(vec!(&self.ac_ess_feed_contactor_1, &self.ac_ess_feed_contactor_2));
+
+        self.ac_ess_to_tr_ess_contactor.powered_by(vec!(&self.ac_ess_bus));
+        self.ac_ess_to_tr_ess_contactor.toggle(A320ElectricalCircuit::has_failed_or_is_unpowered(&self.tr_1) || A320ElectricalCircuit::has_failed_or_is_unpowered(&self.tr_2));
+        self.tr_ess.powered_by(vec!(&self.ac_ess_to_tr_ess_contactor));
+    }
+
+    fn has_failed_or_is_unpowered(tr: &TransformerRectifier) -> bool {
+        tr.has_failed() || tr.output().is_unpowered()
     }
 }
 
@@ -287,6 +299,9 @@ mod a320_electrical_circuit_tests {
     fn when_ac_bus_1_becomes_unpowered_nothing_powers_ac_ess_bus_for_three_seconds() {
         let mut circuit = electrical_circuit();
         circuit.ac_bus_1.fail();
+        // As the DelayedTrueLogicGate doesn't include the time before the expression (AC bus not providing power) becomes true,
+        // we have to execute one update beforehand which already sets the expression to true.
+        timed_update_with_running_engines(&mut circuit, Time::new::<second>(0.));
         timed_update_with_running_engines(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS - 0.01));
 
         assert!(circuit.ac_ess_bus.output().is_unpowered());
@@ -314,6 +329,9 @@ mod a320_electrical_circuit_tests {
     fn ac_bus_1_powers_ac_ess_bus_immediately_when_ac_bus_1_becomes_powered_after_ac_bus_2_was_powering_ac_ess_bus() {
         let mut circuit = electrical_circuit();
         circuit.ac_bus_1.fail();
+        // As the DelayedTrueLogicGate doesn't include the time before the expression (AC bus not providing power) becomes true,
+        // we have to execute one update beforehand which already sets the expression to true.
+        timed_update_with_running_engines(&mut circuit, Time::new::<second>(0.));
         timed_update_with_running_engines(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS));
         circuit.ac_bus_1.normal();
         timed_update_with_running_engines(&mut circuit, Time::new::<second>(0.01));
@@ -414,6 +432,54 @@ mod a320_electrical_circuit_tests {
         update_circuit(&mut circuit, &stopped_engine(), &stopped_engine(), &stopped_apu(), &disconnected_external_power());
 
         assert!(circuit.tr_2.output().is_unpowered());
+    }
+
+    #[test]
+    fn when_tr_1_failed_ess_tr_powered() {
+        let mut circuit = electrical_circuit();
+        circuit.tr_1.fail();
+        update_circuit(&mut circuit, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert!(circuit.tr_ess.output().is_powered())
+    }
+
+    #[test]
+    fn when_tr_1_unpowered_ess_tr_powered() {
+        let mut circuit = electrical_circuit();
+        circuit.ac_bus_1.fail();
+        // As the DelayedTrueLogicGate doesn't include the time before the expression (AC bus not providing power) becomes true,
+        // we have to execute one update beforehand which already sets the expression to true.
+        timed_update_with_running_engines(&mut circuit, Time::new::<second>(0.));
+        // AC ESS BUS which powers TR1 is only supplied with power after the delay.
+        timed_update_with_running_engines(&mut circuit, Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS));
+
+        assert!(circuit.tr_ess.output().is_powered())
+    }
+
+    #[test]
+    fn when_tr_2_failed_ess_tr_powered() {
+        let mut circuit = electrical_circuit();
+        circuit.tr_2.fail();
+        update_circuit(&mut circuit, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert!(circuit.tr_ess.output().is_powered())
+    }
+
+    #[test]
+    fn when_tr_2_unpowered_ess_tr_powered() {
+        let mut circuit = electrical_circuit();
+        circuit.ac_bus_2.fail();
+        update_circuit(&mut circuit, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert!(circuit.tr_ess.output().is_powered())
+    }
+
+    #[test]
+    fn when_tr_1_and_2_normal_ess_tr_unpowered() {
+        let mut circuit = electrical_circuit();
+        update_circuit(&mut circuit, &running_engine(), &running_engine(), &stopped_apu(), &disconnected_external_power());
+
+        assert!(circuit.tr_ess.output().is_unpowered())
     }
 
     fn electrical_circuit() -> A320ElectricalCircuit {

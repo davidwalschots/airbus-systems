@@ -281,14 +281,28 @@ impl PowerConductor for ElectricalBus {
 }
 
 pub struct TransformerRectifier {
-    input: Current
+    input: Current,
+    failed: bool
 }
 
 impl TransformerRectifier {
     pub fn new() -> TransformerRectifier {
         TransformerRectifier {
-            input: Current::None
+            input: Current::None,
+            failed: false
         }
+    }
+
+    pub fn fail(&mut self) {
+        self.failed = true;
+    }
+
+    pub fn normal(&mut self) {
+        self.failed = false;
+    }
+
+    pub fn has_failed(&self) -> bool {
+        self.failed
     }
 }
 
@@ -304,9 +318,13 @@ impl Powerable for TransformerRectifier {
 
 impl PowerConductor for TransformerRectifier {
     fn output(&self) -> Current {
-        match self.input {
-            Current::Alternating(source, ..) => Current::Direct(source, ElectricPotential::new::<volt>(28.5), ElectricCurrent::new::<ampere>(35.)),
-            _ => Current::None
+        if self.failed {
+            Current::None
+        } else {
+            match self.input {
+                Current::Alternating(source, ..) => Current::Direct(source, ElectricPotential::new::<volt>(28.5), ElectricCurrent::new::<ampere>(35.)),
+                _ => Current::None
+            }
         }
     }
 }
@@ -653,6 +671,15 @@ mod tests {
 
             assert!(tr.output().is_powered());
             assert!(if let Current::Direct(PowerSource::ApuGenerator, ..) = tr.output() { true } else { false });
+        }
+
+        #[test]
+        fn when_powered_with_alternating_current_but_failed_has_no_output() {
+            let mut tr = transformer_rectifier();
+            tr.powered_by(vec!(&apu_generator()));
+            tr.fail();
+
+            assert!(tr.output().is_unpowered());
         }
 
         #[test]
