@@ -1,7 +1,7 @@
 use uom::si::{f32::{Ratio}, ratio::percent};
 use std::time::Duration;
 
-use crate::{electrical::{ApuGenerator, AuxiliaryPowerUnit, Contactor, ElectricalBus, EngineGenerator, EmergencyGenerator, ExternalPowerSource, PowerConductor, Powerable, TransformerRectifier}, overhead::{self, NormalAltnPushButton, OnOffPushButton}, shared::{DelayedTrueLogicGate, Engine, UpdateContext}};
+use crate::{electrical::{ApuGenerator, AuxiliaryPowerUnit, Battery, Contactor, ElectricalBus, EmergencyGenerator, EngineGenerator, ExternalPowerSource, PowerConductor, Powerable, TransformerRectifier}, overhead::{self, NormalAltnPushButton, OnOffPushButton}, shared::{DelayedTrueLogicGate, Engine, UpdateContext}};
 
 pub struct A320ElectricalCircuit {
     engine_1_gen: EngineGenerator,
@@ -32,7 +32,11 @@ pub struct A320ElectricalCircuit {
     dc_bus_2: ElectricalBus,
     dc_bus_1_tie_contactor: Contactor,
     dc_bus_2_tie_contactor: Contactor,
-    dc_bat_bus: ElectricalBus
+    dc_bat_bus: ElectricalBus,
+    battery_1: Battery,
+    battery_1_contactor: Contactor,
+    battery_2: Battery,
+    battery_2_contactor: Contactor
 }
 
 impl A320ElectricalCircuit {
@@ -65,7 +69,11 @@ impl A320ElectricalCircuit {
             dc_bus_1_tie_contactor: Contactor::new(String::from("1PC1")),
             dc_bus_2: ElectricalBus::new(),
             dc_bus_2_tie_contactor: Contactor::new(String::from("1PC2")),
-            dc_bat_bus: ElectricalBus::new()
+            dc_bat_bus: ElectricalBus::new(),
+            battery_1: Battery::full(1),
+            battery_1_contactor: Contactor::new(String::from("6PB1")),
+            battery_2: Battery::full(2),
+            battery_2_contactor: Contactor::new(String::from("6PB2"))
         }
     }
 
@@ -146,6 +154,15 @@ impl A320ElectricalCircuit {
         self.dc_bus_2_tie_contactor.or_powered_by(vec!(&self.dc_bat_bus));
         self.dc_bus_1.or_powered_by(vec!(&self.dc_bus_1_tie_contactor));
         self.dc_bus_2.or_powered_by(vec!(&self.dc_bus_2_tie_contactor));
+
+        self.battery_1_contactor.powered_by(vec!(&self.dc_bat_bus));
+        self.battery_2_contactor.powered_by(vec!(&self.dc_bat_bus));
+
+        self.battery_1_contactor.toggle(!self.battery_1.is_full());
+        self.battery_2_contactor.toggle(!self.battery_2.is_full());
+
+        self.battery_1.powered_by(vec!(&self.battery_1_contactor));
+        self.battery_2.powered_by(vec!(&self.battery_2_contactor));
     }
 
     fn has_failed_or_is_unpowered(tr: &TransformerRectifier) -> bool {
@@ -683,6 +700,34 @@ mod a320_electrical_circuit_tests {
         assert!(tester.both_ac_ess_feed_contactors_open());
     }
 
+    #[test]
+    fn when_battery_1_full_it_is_not_powered_by_dc_bat_bus() {
+        let tester = tester_with().running_engines().run();
+
+        assert!(tester.battery_1_input().is_unpowered())
+    }
+
+    #[test]
+    fn when_battery_1_not_full_it_is_powered_by_dc_bat_bus() {
+        let tester = tester_with().running_engines().and().empty_battery_1().run();
+        
+        assert!(tester.battery_1_input().is_powered());
+    }
+
+    #[test]
+    fn when_battery_2_full_it_is_not_powered_by_dc_bat_bus() {
+        let tester = tester_with().running_engines().run();
+
+        assert!(tester.battery_2_input().is_unpowered())
+    }
+
+    #[test]
+    fn when_battery_2_not_full_it_is_powered_by_dc_bat_bus() {
+        let tester = tester_with().running_engines().and().empty_battery_2().run();
+        
+        assert!(tester.battery_2_input().is_powered());
+    }
+
     fn tester_with() -> ElectricalCircuitTester {
         tester()
     }
@@ -735,6 +780,16 @@ mod a320_electrical_circuit_tests {
 
         fn connected_external_power(mut self) -> ElectricalCircuitTester {
             self.ext_pwr = ElectricalCircuitTester::new_connected_external_power();
+            self
+        }
+
+        fn empty_battery_1(mut self) -> ElectricalCircuitTester {
+            self.elec.battery_1 = Battery::empty(1);
+            self
+        }
+
+        fn empty_battery_2(mut self) -> ElectricalCircuitTester {
+            self.elec.battery_2 = Battery::empty(2);
             self
         }
 
@@ -835,6 +890,14 @@ mod a320_electrical_circuit_tests {
 
         fn dc_bat_bus_output(&self) -> Current {
             self.elec.dc_bat_bus.output()
+        }
+
+        fn battery_1_input(&self) -> Current {
+            self.elec.battery_1.get_input()
+        }
+
+        fn battery_2_input(&self) -> Current {
+            self.elec.battery_2.get_input()
         }
 
         fn both_ac_ess_feed_contactors_open(&self) -> bool {

@@ -374,19 +374,37 @@ impl PowerConductor for EmergencyGenerator {
     }
 }
 
-struct Battery {
+pub struct Battery {
     number: u8,
     input: Current,
     charge: ElectricCharge
 }
 
 impl Battery {
-    fn new(number: u8) -> Battery {
+    const MAX_ELECTRIC_CHARGE_AMPERE_HOURS: f32 = 23.0;
+
+    pub fn full(number: u8) -> Battery {
+        Battery::new(number, ElectricCharge::new::<ampere_hour>(Battery::MAX_ELECTRIC_CHARGE_AMPERE_HOURS))
+    }
+
+    pub fn empty(number: u8) -> Battery {
+        Battery::new(number, ElectricCharge::new::<ampere_hour>(0.))
+    }
+
+    fn new(number: u8, charge: ElectricCharge) -> Battery {
         Battery {
             number,
             input: Current::None,
-            charge: ElectricCharge::new::<ampere_hour>(23.),
+            charge
         }
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.charge >= ElectricCharge::new::<ampere_hour>(Battery::MAX_ELECTRIC_CHARGE_AMPERE_HOURS)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.charge == ElectricCharge::new::<ampere_hour>(0.)
     }
 
     // TODO: Charging and depleting battery when used.
@@ -817,28 +835,58 @@ mod tests {
         use super::*;
 
         #[test]
-        fn starts_charged_with_output() {
-            assert!(battery().output().is_powered());
+        fn full_battery_is_full_with_output() {
+            assert!(full_battery().is_full());
+            assert!(!full_battery().is_empty());
+            assert!(full_battery().output().is_powered());
         }
 
         #[test]
-        fn when_has_input_doesnt_have_output() {
-            let mut battery = battery();
+        fn empty_battery_is_empty_without_output() {
+            assert!(!empty_battery().is_full());
+            assert!(empty_battery().is_empty());
+            assert!(empty_battery().output().is_unpowered());
+        }
+
+        #[test]
+        fn when_empty_battery_has_input_doesnt_have_output() {
+            let mut battery = empty_battery();
             battery.powered_by(vec!(&apu_generator()));
             
             assert!(battery.output().is_unpowered());
         }
 
         #[test]
-        fn when_has_no_input_does_have_output() {
-            let mut battery = battery();
+        fn when_full_battery_has_doesnt_have_output() {
+            // Of course battery input at this stage would result in overcharging. However, for the sake of the test we ignore it.
+            let mut battery = full_battery();
+            battery.powered_by(vec!(&apu_generator()));
+            
+            assert!(battery.output().is_unpowered());
+        }
+
+        #[test]
+        fn charged_battery_without_input_has_output() {
+            let mut battery = full_battery();
             battery.powered_by(vec!(&Powerless{}));
             
             assert!(battery.output().is_powered());
         }
 
-        fn battery() -> Battery {
-            Battery::new(1)
+        #[test]
+        fn empty_battery_without_input_has_no_output() {
+            let mut battery = empty_battery();
+            battery.powered_by(vec!(&Powerless{}));
+            
+            assert!(battery.output().is_unpowered());
+        }
+
+        fn full_battery() -> Battery {
+            Battery::full(1)
+        }
+
+        fn empty_battery() -> Battery {
+            Battery::empty(1)
         }
     }
 }
