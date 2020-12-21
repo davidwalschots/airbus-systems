@@ -1,4 +1,4 @@
-use uom::si::{electric_current::ampere, electric_potential::volt, f32::{Frequency, ElectricPotential, ElectricCurrent, Ratio}, frequency::hertz, ratio::percent};
+use uom::si::{electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f32::{Frequency, ElectricPotential, ElectricCurrent, Ratio, ElectricCharge}, frequency::hertz, ratio::percent};
 
 use crate::{overhead::OnOffPushButton, shared::Engine};
 
@@ -371,6 +371,46 @@ impl PowerConductor for EmergencyGenerator {
         } else {
             Current::None
         }
+    }
+}
+
+struct Battery {
+    number: u8,
+    input: Current,
+    charge: ElectricCharge
+}
+
+impl Battery {
+    fn new(number: u8) -> Battery {
+        Battery {
+            number,
+            input: Current::None,
+            charge: ElectricCharge::new::<ampere_hour>(23.),
+        }
+    }
+
+    // TODO: Charging and depleting battery when used.
+}
+
+impl Powerable for Battery {
+    fn set_input(&mut self, current: Current) {
+        self.input = current
+    }
+
+    fn get_input(&self) -> Current {
+        self.input
+    }
+}
+
+impl PowerConductor for Battery {
+    fn output(&self) -> Current {
+        if let Current::None = self.input {
+            if self.charge > ElectricCharge::new::<ampere_hour>(0.) {
+                return Current::Direct(PowerSource::Battery(self.number), ElectricPotential::new::<volt>(28.5), ElectricCurrent::new::<ampere>(35.));
+            }
+        }
+        
+        Current::None
     }
 }
 
@@ -772,4 +812,33 @@ mod tests {
         }
     }
 
+    #[cfg(test)]
+    mod battery_tests {
+        use super::*;
+
+        #[test]
+        fn starts_charged_with_output() {
+            assert!(battery().output().is_powered());
+        }
+
+        #[test]
+        fn when_has_input_doesnt_have_output() {
+            let mut battery = battery();
+            battery.powered_by(vec!(&apu_generator()));
+            
+            assert!(battery.output().is_unpowered());
+        }
+
+        #[test]
+        fn when_has_no_input_does_have_output() {
+            let mut battery = battery();
+            battery.powered_by(vec!(&Powerless{}));
+            
+            assert!(battery.output().is_powered());
+        }
+
+        fn battery() -> Battery {
+            Battery::new(1)
+        }
+    }
 }
