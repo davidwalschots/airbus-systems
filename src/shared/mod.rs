@@ -1,11 +1,12 @@
-use uom::si::{f32::{Ratio, Time}, ratio::percent, time::second};
+use uom::si::{f32::{Ratio}, ratio::percent};
+use std::time::Duration;
 
 pub struct UpdateContext {
-    delta: Time
+    delta: Duration
 }
 
 impl UpdateContext {
-    pub fn new(delta: Time) -> UpdateContext {
+    pub fn new(delta: Duration) -> UpdateContext {
         UpdateContext {
             delta
         }
@@ -15,17 +16,17 @@ impl UpdateContext {
 /// The delay logic gate delays the true result of a given expression by the given amount of time.
 /// False results are output immediately.
 pub struct DelayedTrueLogicGate {
-    delay: Time,
+    delay: Duration,
     expression_result: bool,
-    true_duration: Time
+    true_duration: Duration
 }
 
 impl DelayedTrueLogicGate {
-    pub fn new(delay: Time) -> DelayedTrueLogicGate {
+    pub fn new(delay: Duration) -> DelayedTrueLogicGate {
         DelayedTrueLogicGate {
             delay,
             expression_result: false,
-            true_duration: Time::new::<second>(0.)
+            true_duration: Duration::from_millis(0)
         }
     }
 
@@ -34,7 +35,7 @@ impl DelayedTrueLogicGate {
         if self.expression_result && expression_result {
             self.true_duration += context.delta;
         } else {
-            self.true_duration = Time::new::<second>(0.);
+            self.true_duration = Duration::from_millis(0);
         }
 
         self.expression_result = expression_result;
@@ -67,56 +68,56 @@ mod delayed_true_logic_gate_tests {
 
     #[test]
     fn when_the_expression_is_false_returns_false() {
-        let mut gate = delay_logic_gate(Time::new::<second>(0.1));
-        gate.update(&update_context(Time::new::<second>(0.)), false);
-        gate.update(&update_context(Time::new::<second>(1.0)), false);
+        let mut gate = delay_logic_gate(Duration::from_millis(100));
+        gate.update(&update_context(Duration::from_millis(0)), false);
+        gate.update(&update_context(Duration::from_millis(1_000)), false);
 
         assert_eq!(gate.output(), false);
     }
 
     #[test]
     fn when_the_expression_is_true_and_delay_hasnt_passed_returns_false() {
-        let mut gate = delay_logic_gate(Time::new::<second>(10.));
-        gate.update(&update_context(Time::new::<second>(0.)), false);
-        gate.update(&update_context(Time::new::<second>(1.0)), false);
+        let mut gate = delay_logic_gate(Duration::from_millis(10_000));
+        gate.update(&update_context(Duration::from_millis(0)), false);
+        gate.update(&update_context(Duration::from_millis(1_000)), false);
 
         assert_eq!(gate.output(), false);
     }
 
     #[test]
     fn when_the_expression_is_true_and_delay_has_passed_returns_true() {
-        let mut gate = delay_logic_gate(Time::new::<second>(0.1));
-        gate.update(&update_context(Time::new::<second>(0.)), true);
-        gate.update(&update_context(Time::new::<second>(1.0)), true);
+        let mut gate = delay_logic_gate(Duration::from_millis(100));
+        gate.update(&update_context(Duration::from_millis(0)), true);
+        gate.update(&update_context(Duration::from_millis(1_000)), true);
 
         assert_eq!(gate.output(), true);
     }
 
     #[test]
     fn when_the_expression_is_true_and_becomes_false_before_delay_has_passed_returns_false_once_delay_passed() {
-        let mut gate = delay_logic_gate(Time::new::<second>(1.0));
-        gate.update(&update_context(Time::new::<second>(0.)), true);
-        gate.update(&update_context(Time::new::<second>(0.8)), true);
-        gate.update(&update_context(Time::new::<second>(0.1)), false);
-        gate.update(&update_context(Time::new::<second>(0.2)), false);
+        let mut gate = delay_logic_gate(Duration::from_millis(1_000));
+        gate.update(&update_context(Duration::new(0, 0)), true);
+        gate.update(&update_context(Duration::from_millis(800)), true);
+        gate.update(&update_context(Duration::from_millis(100)), false);
+        gate.update(&update_context(Duration::from_millis(200)), false);
 
         assert_eq!(gate.output(), false);
     }
 
     #[test]
     fn does_not_include_delta_at_the_moment_of_expression_becoming_true() {
-        let mut gate = delay_logic_gate(Time::new::<second>(1.0));
-        gate.update(&update_context(Time::new::<second>(0.9)), true);
-        gate.update(&update_context(Time::new::<second>(0.2)), true);
+        let mut gate = delay_logic_gate(Duration::from_millis(1_000));
+        gate.update(&update_context(Duration::from_millis(900)), true);
+        gate.update(&update_context(Duration::from_millis(200)), true);
 
         assert_eq!(gate.output(), false);
     }
 
-    fn update_context(delta: Time) -> UpdateContext {
+    fn update_context(delta: Duration) -> UpdateContext {
         UpdateContext::new(delta)
     }
 
-    fn delay_logic_gate(delay: Time) -> DelayedTrueLogicGate {
+    fn delay_logic_gate(delay: Duration) -> DelayedTrueLogicGate {
         DelayedTrueLogicGate::new(delay)
     }
 }

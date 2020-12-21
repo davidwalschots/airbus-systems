@@ -1,4 +1,5 @@
-use uom::si::{f32::{Ratio, Time}, ratio::percent, time::second};
+use uom::si::{f32::{Ratio}, ratio::percent};
+use std::time::Duration;
 
 use crate::{electrical::{ApuGenerator, AuxiliaryPowerUnit, Contactor, ElectricalBus, EngineGenerator, EmergencyGenerator, ExternalPowerSource, PowerConductor, Powerable, TransformerRectifier}, overhead::{self, NormalAltnPushButton, OnOffPushButton}, shared::{DelayedTrueLogicGate, Engine, UpdateContext}};
 
@@ -30,7 +31,7 @@ pub struct A320ElectricalCircuit {
 }
 
 impl A320ElectricalCircuit {
-    const AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS: f32 = 3.;
+    const AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS: Duration = Duration::from_secs(3);
 
     pub fn new() -> A320ElectricalCircuit {
         A320ElectricalCircuit {
@@ -48,7 +49,7 @@ impl A320ElectricalCircuit {
             ac_ess_bus: ElectricalBus::new(),
             ac_ess_feed_contactor_1: Contactor::new(),
             ac_ess_feed_contactor_2: Contactor::new(),
-            ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate::new(Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS)),
+            ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate::new(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS),
             tr_1: TransformerRectifier::new(),
             tr_2: TransformerRectifier::new(),
             tr_ess: TransformerRectifier::new(),
@@ -632,16 +633,16 @@ mod a320_electrical_circuit_tests {
         }
 
         fn run(mut self) -> ElectricalCircuitTester {
-            let context = UpdateContext::new(Time::new::<second>(0.01));
+            let context = UpdateContext::new(Duration::from_millis(1));
             self.elec.update(&context, &self.engine1, &self.engine2, &self.apu, &self.ext_pwr, &self.hyd, &self.overhead);
 
             self
         }
 
-        fn run_waiting_for(mut self, delta: Time) -> ElectricalCircuitTester {
+        fn run_waiting_for(mut self, delta: Duration) -> ElectricalCircuitTester {
             // Firstly run without any time passing at all, such that if the DelayedTrueLogicGate reaches
             // the true state after waiting for the given time it will be reflected in its output.
-            let context = UpdateContext::new(Time::new::<second>(0.));
+            let context = UpdateContext::new(Duration::from_secs(0));
             self.elec.update(&context, &self.engine1, &self.engine2, &self.apu, &self.ext_pwr, &self.hyd, &self.overhead);
 
             let context = UpdateContext::new(delta);
@@ -651,11 +652,11 @@ mod a320_electrical_circuit_tests {
         }
 
         fn run_waiting_for_ac_ess_feed_transition(self) -> ElectricalCircuitTester {
-            self.run_waiting_for(Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS))
+            self.run_waiting_for(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS)
         }
 
         fn run_waiting_until_just_before_ac_ess_feed_transition(self) -> ElectricalCircuitTester {
-            self.run_waiting_for(Time::new::<second>(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS - 0.01))
+            self.run_waiting_for(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS - Duration::from_millis(1))
         }
 
         fn new_running_engine() -> Engine {
