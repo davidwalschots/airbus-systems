@@ -8,7 +8,8 @@ pub enum PowerSource {
     EngineGenerator(u8),
     ApuGenerator,
     External,
-    EmergencyGenerator
+    EmergencyGenerator,
+    Battery(u8)
 }
 
 /// Represents a type of electric current.
@@ -87,13 +88,15 @@ enum ContactorState {
 /// Represents a contactor in a electrical power circuit.
 #[derive(Debug)]
 pub struct Contactor {
+    id: String,
     state: ContactorState,
     input: Current,
 }
 
 impl Contactor {
-    pub fn new() -> Contactor {
+    pub fn new(id: String) -> Contactor {
         Contactor {
+            id,
             state: ContactorState::Open,
             input: Current::None,
         }
@@ -537,7 +540,7 @@ mod tests {
         }
 
         fn contactor() -> Contactor {
-            Contactor::new()
+            Contactor::new(String::from("TEST"))
         }
 
         fn open_contactor() -> Contactor {
