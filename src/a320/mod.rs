@@ -28,6 +28,8 @@ pub struct A320ElectricalCircuit {
     ac_ess_to_tr_ess_contactor: Contactor,
     emergency_gen: EmergencyGenerator,
     emergency_gen_contactor: Contactor,
+    dc_bus_1: ElectricalBus,
+    dc_bus_2: ElectricalBus,
 }
 
 impl A320ElectricalCircuit {
@@ -56,6 +58,8 @@ impl A320ElectricalCircuit {
             ac_ess_to_tr_ess_contactor: Contactor::new(),
             emergency_gen: EmergencyGenerator::new(),
             emergency_gen_contactor: Contactor::new(),
+            dc_bus_1: ElectricalBus::new(),
+            dc_bus_2: ElectricalBus::new()
         }
     }
 
@@ -120,6 +124,9 @@ impl A320ElectricalCircuit {
         self.ac_ess_bus.or_powered_by(vec!(&self.ac_ess_to_tr_ess_contactor));
 
         self.tr_ess.powered_by(vec!(&self.ac_ess_to_tr_ess_contactor, &self.emergency_gen_contactor));
+
+        self.dc_bus_1.powered_by(vec!(&self.tr_1));
+        self.dc_bus_2.powered_by(vec!(&self.tr_2));
     }
 
     fn has_failed_or_is_unpowered(tr: &TransformerRectifier) -> bool {
@@ -486,6 +493,20 @@ mod a320_electrical_circuit_tests {
         assert!(tester.both_ac_ess_feed_contactors_open());
     }
 
+    #[test]
+    fn when_tr_1_powered_dc_bus_1_powered() {
+        let tester = tester_with().running_engines().run();
+
+        assert!(tester.dc_bus_1_output().is_powered())
+    }
+
+    #[test]
+    fn when_tr_2_powered_dc_bus_2_powered() {
+        let tester = tester_with().running_engines().run();
+
+        assert!(tester.dc_bus_2_output().is_powered())
+    }
+
     fn tester_with() -> ElectricalCircuitTester {
         tester()
     }
@@ -626,6 +647,14 @@ mod a320_electrical_circuit_tests {
 
         fn tr_ess_output(&self) -> Current {
             self.elec.tr_ess.output()
+        }
+
+        fn dc_bus_1_output(&self) -> Current {
+            self.elec.dc_bus_1.output()
+        }
+
+        fn dc_bus_2_output(&self) -> Current {
+            self.elec.dc_bus_2.output()
         }
 
         fn both_ac_ess_feed_contactors_open(&self) -> bool {
