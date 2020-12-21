@@ -32,7 +32,7 @@ impl Current {
         if let Current::None = self { true } else { false }
     }
 
-    pub fn get_source(self) -> PowerSource {
+    pub fn source(self) -> PowerSource {
         match self {
             Current::Alternating(source, ..) => source,
             Current::Direct(source, ..) => source,
@@ -113,6 +113,10 @@ impl Contactor {
         } else {
             false
         }
+    }
+
+    pub fn is_closed(&self) -> bool {
+        !self.is_open()
     }
 }
 
