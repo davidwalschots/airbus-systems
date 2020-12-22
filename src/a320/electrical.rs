@@ -47,6 +47,8 @@ pub struct A320Electrical {
     dc_bat_bus: ElectricalBus,
     dc_ess_bus: ElectricalBus,
     dc_bat_bus_to_dc_ess_bus_contactor: Contactor,
+    dc_ess_shed_bus: ElectricalBus,
+    dc_ess_shed_contactor: Contactor,
     battery_1: Battery,
     battery_1_contactor: Contactor,
     battery_2: Battery,
@@ -92,6 +94,8 @@ impl A320Electrical {
             dc_bat_bus: ElectricalBus::new(),
             dc_ess_bus: ElectricalBus::new(),
             dc_bat_bus_to_dc_ess_bus_contactor: Contactor::new(String::from("4PC")),
+            dc_ess_shed_bus: ElectricalBus::new(),
+            dc_ess_shed_contactor: Contactor::new(String::from("8PH")),
             battery_1: Battery::full(1),
             battery_1_contactor: Contactor::new(String::from("6PB1")),
             battery_2: Battery::full(2),
@@ -229,13 +233,13 @@ impl A320Electrical {
             .powered_by(vec![&self.ac_ess_bus]);
 
         let emergency_gen_provides_power = self.emergency_gen.output().is_powered();
-        self.ac_ess_shed_contactor.close_when(
-            gen_1_provides_power
-                || gen_2_provides_power
-                || apu_gen_provides_power
-                || ext_pwr_provides_power
-                || emergency_gen_provides_power,
-        );
+        let generator_provides_power = gen_1_provides_power
+            || gen_2_provides_power
+            || apu_gen_provides_power
+            || ext_pwr_provides_power
+            || emergency_gen_provides_power;
+        self.ac_ess_shed_contactor
+            .close_when(generator_provides_power);
 
         self.ac_ess_shed_bus
             .powered_by(vec![&self.ac_ess_shed_contactor]);
@@ -290,10 +294,16 @@ impl A320Electrical {
         self.dc_bat_bus_to_dc_ess_bus_contactor
             .powered_by(vec![&self.dc_bat_bus]);
         self.dc_bat_bus_to_dc_ess_bus_contactor
-            .close_when(self.dc_bat_bus.output().is_powered());
+            .close_when(self.tr_ess.output().is_unpowered());
         let dc_ess_bus_power_sources: Vec<&dyn PowerConductor> =
             vec![&self.dc_bat_bus_to_dc_ess_bus_contactor, &self.tr_ess];
         self.dc_ess_bus.powered_by(dc_ess_bus_power_sources);
+        self.dc_ess_shed_contactor
+            .powered_by(vec![&self.dc_ess_bus]);
+        self.dc_ess_shed_contactor
+            .close_when(generator_provides_power);
+        self.dc_ess_shed_bus
+            .powered_by(vec![&self.dc_ess_shed_contactor]);
     }
 
     fn has_failed_or_is_unpowered(tr: &TransformerRectifier) -> bool {
@@ -402,6 +412,10 @@ mod a320_electrical_circuit_tests {
             tester.dc_ess_bus_output().source(),
             PowerSource::EngineGenerator(1)
         );
+        assert_eq!(
+            tester.dc_ess_shed_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
         assert_eq!(tester.hot_bus_1_output().source(), PowerSource::Battery(1));
         assert_eq!(tester.hot_bus_2_output().source(), PowerSource::Battery(2));
     }
@@ -451,6 +465,10 @@ mod a320_electrical_circuit_tests {
         );
         assert_eq!(
             tester.dc_ess_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.dc_ess_shed_bus_output().source(),
             PowerSource::EngineGenerator(1)
         );
         assert_eq!(tester.hot_bus_1_output().source(), PowerSource::Battery(1));
@@ -504,6 +522,10 @@ mod a320_electrical_circuit_tests {
             tester.dc_ess_bus_output().source(),
             PowerSource::EngineGenerator(2)
         );
+        assert_eq!(
+            tester.dc_ess_shed_bus_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
         assert_eq!(tester.hot_bus_1_output().source(), PowerSource::Battery(1));
         assert_eq!(tester.hot_bus_2_output().source(), PowerSource::Battery(2));
     }
@@ -537,6 +559,10 @@ mod a320_electrical_circuit_tests {
             tester.dc_ess_bus_output().source(),
             PowerSource::ApuGenerator
         );
+        assert_eq!(
+            tester.dc_ess_shed_bus_output().source(),
+            PowerSource::ApuGenerator
+        );
         assert_eq!(tester.hot_bus_1_output().source(), PowerSource::Battery(1));
         assert_eq!(tester.hot_bus_2_output().source(), PowerSource::Battery(2));
     }
@@ -562,6 +588,10 @@ mod a320_electrical_circuit_tests {
         assert_eq!(tester.dc_bus_2_output().source(), PowerSource::External);
         assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::External);
         assert_eq!(tester.dc_ess_bus_output().source(), PowerSource::External);
+        assert_eq!(
+            tester.dc_ess_shed_bus_output().source(),
+            PowerSource::External
+        );
         assert_eq!(tester.hot_bus_1_output().source(), PowerSource::Battery(1));
         assert_eq!(tester.hot_bus_2_output().source(), PowerSource::Battery(2));
     }
@@ -603,6 +633,10 @@ mod a320_electrical_circuit_tests {
         assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::None);
         assert_eq!(
             tester.dc_ess_bus_output().source(),
+            PowerSource::EmergencyGenerator
+        );
+        assert_eq!(
+            tester.dc_ess_shed_bus_output().source(),
             PowerSource::EmergencyGenerator
         );
         assert_eq!(tester.hot_bus_1_output().source(), PowerSource::Battery(1));
@@ -654,7 +688,11 @@ mod a320_electrical_circuit_tests {
         );
         assert_eq!(
             tester.dc_ess_bus_output().source(),
-            PowerSource::EngineGenerator(2)
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.dc_ess_shed_bus_output().source(),
+            PowerSource::EngineGenerator(1)
         );
         assert_eq!(tester.hot_bus_1_output().source(), PowerSource::Battery(1));
         assert_eq!(tester.hot_bus_2_output().source(), PowerSource::Battery(2));
@@ -707,6 +745,10 @@ mod a320_electrical_circuit_tests {
             tester.dc_ess_bus_output().source(),
             PowerSource::EngineGenerator(1)
         );
+        assert_eq!(
+            tester.dc_ess_shed_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
         assert_eq!(tester.hot_bus_1_output().source(), PowerSource::Battery(1));
         assert_eq!(tester.hot_bus_2_output().source(), PowerSource::Battery(2));
     }
@@ -749,6 +791,10 @@ mod a320_electrical_circuit_tests {
         assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::None);
         assert_eq!(
             tester.dc_ess_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.dc_ess_shed_bus_output().source(),
             PowerSource::EngineGenerator(1)
         );
         assert_eq!(tester.hot_bus_1_output().source(), PowerSource::Battery(1));
@@ -1505,6 +1551,10 @@ mod a320_electrical_circuit_tests {
 
         fn dc_ess_bus_output(&self) -> Current {
             self.elec.dc_ess_bus.output()
+        }
+
+        fn dc_ess_shed_bus_output(&self) -> Current {
+            self.elec.dc_ess_shed_bus.output()
         }
 
         fn battery_1_input(&self) -> Current {
