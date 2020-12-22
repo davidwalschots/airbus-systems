@@ -1,4 +1,4 @@
-use crate::visitor::Visitable;
+use crate::{shared::UpdateContext, visitor::Visitable};
 
 pub struct A320Hydraulic {
     // Until hydraulic is implemented, we'll fake it with this boolean.
@@ -15,6 +15,8 @@ impl A320Hydraulic {
     pub fn is_blue_pressurised(&self) -> bool {
         self.blue_pressurised
     }
+
+    pub fn update(&mut self, context: &UpdateContext) {}
 }
 
 impl Visitable for A320Hydraulic {

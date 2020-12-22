@@ -293,6 +293,8 @@ impl A320ElectricalOverheadPanel {
             commercial: OnOffPushButton::new_on(),
         }
     }
+
+    pub fn update(&mut self, context: &UpdateContext) {}
 }
 
 impl Visitable for A320ElectricalOverheadPanel {

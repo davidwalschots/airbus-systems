@@ -60,11 +60,13 @@ impl Engine {
             n2: Ratio::new::<percent>(0.),
         }
     }
+
+    pub fn update(&mut self, context: &UpdateContext) {}
 }
 
 impl Visitable for Engine {
     fn accept(&mut self, visitor: &mut Box<dyn crate::visitor::MutableVisitor>) {
-        visitor.visit_engine(&mut self);
+        visitor.visit_engine(self);
     }
 }
 

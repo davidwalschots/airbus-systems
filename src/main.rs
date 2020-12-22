@@ -1,4 +1,4 @@
-use a320::{A320Electrical, A320ElectricalOverheadPanel, A320Hydraulic};
+use a320::{A320Electrical, A320ElectricalOverheadPanel, A320Hydraulic, A320};
 use electrical::{AuxiliaryPowerUnit, ExternalPowerSource};
 use shared::{Engine, UpdateContext};
 use std::time::Duration;
@@ -10,14 +10,7 @@ mod shared;
 mod visitor;
 
 fn main() {
-    let mut circuit = A320Electrical::new();
-    circuit.update(
-        &UpdateContext::new(Duration::new(1, 0)),
-        &Engine::new(),
-        &Engine::new(),
-        &AuxiliaryPowerUnit::new(),
-        &ExternalPowerSource::new(),
-        &A320Hydraulic::new(),
-        &A320ElectricalOverheadPanel::new(),
-    );
+    let mut a320 = A320::new();
+
+    a320.update(&UpdateContext::new(Duration::new(1, 0)));
 }
