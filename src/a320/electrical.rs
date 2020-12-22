@@ -29,6 +29,8 @@ pub struct A320Electrical {
     ac_ess_feed_contactor_1: Contactor,
     ac_ess_feed_contactor_2: Contactor,
     ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate,
+    ac_ess_shed_bus: ElectricalBus,
+    ac_ess_shed_contactor: Contactor,
     // The electrical diagram lists separate contactors for each transformer rectifier.
     // As there is no button affecting the contactor, nor any logic that we know of, for now
     // the contactors are just assumed to be part of the transformer rectifiers.
@@ -71,6 +73,8 @@ impl A320Electrical {
             ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate::new(
                 A320Electrical::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS,
             ),
+            ac_ess_shed_bus: ElectricalBus::new(),
+            ac_ess_shed_contactor: Contactor::new(String::from("8XH")),
             tr_1: TransformerRectifier::new(),
             tr_2: TransformerRectifier::new(),
             tr_ess: TransformerRectifier::new(),
@@ -213,6 +217,21 @@ impl A320Electrical {
         self.ac_ess_bus
             .or_powered_by(vec![&self.ac_ess_to_tr_ess_contactor]);
 
+        self.ac_ess_shed_contactor
+            .powered_by(vec![&self.ac_ess_bus]);
+
+        let emergency_gen_provides_power = self.emergency_gen.output().is_powered();
+        self.ac_ess_shed_contactor.close_when(
+            gen_1_provides_power
+                || gen_2_provides_power
+                || apu_gen_provides_power
+                || ext_pwr_provides_power
+                || emergency_gen_provides_power,
+        );
+
+        self.ac_ess_shed_bus
+            .powered_by(vec![&self.ac_ess_shed_contactor]);
+
         self.tr_ess.powered_by(vec![
             &self.ac_ess_to_tr_ess_contactor,
             &self.emergency_gen_contactor,
@@ -336,6 +355,10 @@ mod a320_electrical_circuit_tests {
             PowerSource::EngineGenerator(1)
         );
         assert_eq!(
+            tester.ac_ess_shed_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
             tester.tr_1_output().source(),
             PowerSource::EngineGenerator(1)
         );
@@ -374,6 +397,10 @@ mod a320_electrical_circuit_tests {
         );
         assert_eq!(
             tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_ess_shed_bus_output().source(),
             PowerSource::EngineGenerator(1)
         );
         assert_eq!(
@@ -418,6 +445,10 @@ mod a320_electrical_circuit_tests {
             PowerSource::EngineGenerator(2)
         );
         assert_eq!(
+            tester.ac_ess_shed_bus_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
             tester.tr_1_output().source(),
             PowerSource::EngineGenerator(2)
         );
@@ -452,6 +483,10 @@ mod a320_electrical_circuit_tests {
             tester.ac_ess_bus_output().source(),
             PowerSource::ApuGenerator
         );
+        assert_eq!(
+            tester.ac_ess_shed_bus_output().source(),
+            PowerSource::ApuGenerator
+        );
         assert_eq!(tester.tr_1_output().source(), PowerSource::ApuGenerator);
         assert_eq!(tester.tr_2_output().source(), PowerSource::ApuGenerator);
         assert_eq!(tester.tr_ess_output().source(), PowerSource::None);
@@ -461,6 +496,28 @@ mod a320_electrical_circuit_tests {
             tester.dc_bat_bus_output().source(),
             PowerSource::ApuGenerator
         );
+    }
+
+    /// # Source
+    /// Derived from A320 manual electrical distribution table
+    /// (doesn't list external power, but we'll assume it's the same as other generators).
+    #[test]
+    fn distribution_table_only_external_power_available() {
+        let tester = tester_with().connected_external_power().run();
+
+        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::External);
+        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::External);
+        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::External);
+        assert_eq!(
+            tester.ac_ess_shed_bus_output().source(),
+            PowerSource::External
+        );
+        assert_eq!(tester.tr_1_output().source(), PowerSource::External);
+        assert_eq!(tester.tr_2_output().source(), PowerSource::External);
+        assert_eq!(tester.tr_ess_output().source(), PowerSource::None);
+        assert_eq!(tester.dc_bus_1_output().source(), PowerSource::External);
+        assert_eq!(tester.dc_bus_2_output().source(), PowerSource::External);
+        assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::External);
     }
 
     /// # Source
@@ -483,6 +540,10 @@ mod a320_electrical_circuit_tests {
         assert_eq!(tester.ac_bus_2_output().source(), PowerSource::None);
         assert_eq!(
             tester.ac_ess_bus_output().source(),
+            PowerSource::EmergencyGenerator
+        );
+        assert_eq!(
+            tester.ac_ess_shed_bus_output().source(),
             PowerSource::EmergencyGenerator
         );
         assert_eq!(tester.tr_1_output().source(), PowerSource::None);
@@ -512,6 +573,10 @@ mod a320_electrical_circuit_tests {
         );
         assert_eq!(
             tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_ess_shed_bus_output().source(),
             PowerSource::EngineGenerator(1)
         );
         assert_eq!(tester.tr_1_output().source(), PowerSource::None);
@@ -553,6 +618,10 @@ mod a320_electrical_circuit_tests {
         );
         assert_eq!(
             tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_ess_shed_bus_output().source(),
             PowerSource::EngineGenerator(1)
         );
         assert_eq!(
@@ -599,6 +668,10 @@ mod a320_electrical_circuit_tests {
         );
         assert_eq!(
             tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_ess_shed_bus_output().source(),
             PowerSource::EngineGenerator(1)
         );
         assert_eq!(tester.tr_1_output().source(), PowerSource::None);
@@ -1302,6 +1375,10 @@ mod a320_electrical_circuit_tests {
 
         fn ac_ess_bus_output(&self) -> Current {
             self.elec.ac_ess_bus.output()
+        }
+
+        fn ac_ess_shed_bus_output(&self) -> Current {
+            self.elec.ac_ess_shed_bus.output()
         }
 
         fn tr_1_output(&self) -> Current {
