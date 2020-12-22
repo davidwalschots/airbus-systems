@@ -118,18 +118,18 @@ impl A320Electrical {
             && !ext_pwr_provides_power
             && (no_engine_gen_provides_power || only_one_engine_gen_is_powered);
 
-        self.engine_1_gen_contactor.toggle(gen_1_provides_power);
-        self.engine_2_gen_contactor.toggle(gen_2_provides_power);
-        self.apu_gen_contactor.toggle(apu_gen_provides_power);
-        self.ext_pwr_contactor.toggle(ext_pwr_provides_power);
+        self.engine_1_gen_contactor.close_when(gen_1_provides_power);
+        self.engine_2_gen_contactor.close_when(gen_2_provides_power);
+        self.apu_gen_contactor.close_when(apu_gen_provides_power);
+        self.ext_pwr_contactor.close_when(ext_pwr_provides_power);
 
         let apu_or_ext_pwr_provides_power = ext_pwr_provides_power || apu_gen_provides_power;
-        self.bus_tie_1_contactor.toggle(
+        self.bus_tie_1_contactor.close_when(
             elec_overhead.bus_tie.is_on()
                 && ((only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
                     || (apu_or_ext_pwr_provides_power && !gen_1_provides_power)),
         );
-        self.bus_tie_2_contactor.toggle(
+        self.bus_tie_2_contactor.close_when(
             elec_overhead.bus_tie.is_on()
                 && ((only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
                     || (apu_or_ext_pwr_provides_power && !gen_2_provides_power)),
@@ -174,12 +174,12 @@ impl A320Electrical {
         self.ac_ess_feed_contactor_delay_logic_gate
             .update(context, self.ac_bus_1.output().is_unpowered());
 
-        self.ac_ess_feed_contactor_1.toggle(
+        self.ac_ess_feed_contactor_1.close_when(
             self.ac_bus_1.output().is_powered()
                 && (!self.ac_ess_feed_contactor_delay_logic_gate.output()
                     && elec_overhead.ac_ess_feed.is_normal()),
         );
-        self.ac_ess_feed_contactor_2.toggle(
+        self.ac_ess_feed_contactor_2.close_when(
             self.ac_bus_2.output().is_powered()
                 && (self.ac_ess_feed_contactor_delay_logic_gate.output()
                     || elec_overhead.ac_ess_feed.is_altn()),
@@ -195,8 +195,9 @@ impl A320Electrical {
             &self.ac_ess_feed_contactor_2,
         ]);
 
-        self.emergency_gen_contactor
-            .toggle(self.ac_bus_1.output().is_unpowered() && self.ac_bus_2.output().is_unpowered());
+        self.emergency_gen_contactor.close_when(
+            self.ac_bus_1.output().is_unpowered() && self.ac_bus_2.output().is_unpowered(),
+        );
         self.emergency_gen_contactor
             .powered_by(vec![&self.emergency_gen]);
 
@@ -204,7 +205,7 @@ impl A320Electrical {
             vec![&self.ac_ess_bus, &self.emergency_gen_contactor];
         self.ac_ess_to_tr_ess_contactor
             .powered_by(ac_ess_to_tr_ess_contactor_power_sources);
-        self.ac_ess_to_tr_ess_contactor.toggle(
+        self.ac_ess_to_tr_ess_contactor.close_when(
             A320Electrical::has_failed_or_is_unpowered(&self.tr_1)
                 || A320Electrical::has_failed_or_is_unpowered(&self.tr_2),
         );
@@ -224,9 +225,10 @@ impl A320Electrical {
         self.dc_bus_2_tie_contactor.powered_by(vec![&self.dc_bus_2]);
 
         self.dc_bus_1_tie_contactor
-            .toggle(self.dc_bus_1.output().is_powered() || self.dc_bus_2.output().is_powered());
-        self.dc_bus_2_tie_contactor
-            .toggle(self.dc_bus_1.output().is_unpowered() || self.dc_bus_2.output().is_unpowered());
+            .close_when(self.dc_bus_1.output().is_powered() || self.dc_bus_2.output().is_powered());
+        self.dc_bus_2_tie_contactor.close_when(
+            self.dc_bus_1.output().is_unpowered() || self.dc_bus_2.output().is_unpowered(),
+        );
 
         self.dc_bat_bus.powered_by(vec![
             &self.dc_bus_1_tie_contactor,
@@ -248,9 +250,9 @@ impl A320Electrical {
         // TODO: The actual logic for battery contactors is far more complex, however
         // not all systems is relates to are implemented yet. We'll have to get back to this later.
         self.battery_1_contactor
-            .toggle(!self.battery_1.is_full() && elec_overhead.bat_1.is_on());
+            .close_when(!self.battery_1.is_full() && elec_overhead.bat_1.is_on());
         self.battery_2_contactor
-            .toggle(!self.battery_2.is_full() && elec_overhead.bat_2.is_on());
+            .close_when(!self.battery_2.is_full() && elec_overhead.bat_2.is_on());
 
         self.battery_1.powered_by(vec![&self.battery_1_contactor]);
         self.battery_2.powered_by(vec![&self.battery_2_contactor]);

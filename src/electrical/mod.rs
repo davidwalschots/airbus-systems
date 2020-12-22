@@ -122,7 +122,7 @@ impl Contactor {
         }
     }
 
-    pub fn toggle(&mut self, should_be_closed: bool) {
+    pub fn close_when(&mut self, should_be_closed: bool) {
         self.state = match self.state {
             ContactorState::Open if should_be_closed => ContactorState::Closed,
             ContactorState::Closed if !should_be_closed => ContactorState::Open,
@@ -592,7 +592,7 @@ mod tests {
         #[test]
         fn open_contactor_when_toggled_open_stays_open() {
             let mut contactor = open_contactor();
-            contactor.toggle(false);
+            contactor.close_when(false);
 
             assert_eq!(contactor.state, ContactorState::Open);
         }
@@ -600,7 +600,7 @@ mod tests {
         #[test]
         fn open_contactor_when_toggled_closed_closes() {
             let mut contactor = open_contactor();
-            contactor.toggle(true);
+            contactor.close_when(true);
 
             assert_eq!(contactor.state, ContactorState::Closed);
         }
@@ -608,7 +608,7 @@ mod tests {
         #[test]
         fn closed_contactor_when_toggled_open_opens() {
             let mut contactor = closed_contactor();
-            contactor.toggle(false);
+            contactor.close_when(false);
 
             assert_eq!(contactor.state, ContactorState::Open);
         }
@@ -616,7 +616,7 @@ mod tests {
         #[test]
         fn closed_contactor_when_toggled_closed_stays_closed() {
             let mut contactor = closed_contactor();
-            contactor.toggle(true);
+            contactor.close_when(true);
 
             assert_eq!(contactor.state, ContactorState::Closed);
         }
