@@ -243,8 +243,12 @@ impl A320Electrical {
         self.battery_1_contactor.powered_by(vec![&self.dc_bat_bus]);
         self.battery_2_contactor.powered_by(vec![&self.dc_bat_bus]);
 
-        self.battery_1_contactor.toggle(!self.battery_1.is_full());
-        self.battery_2_contactor.toggle(!self.battery_2.is_full());
+        // TODO: The actual logic for battery contactors is far more complex, however
+        // not all systems is relates to are implemented yet. We'll have to get back to this later.
+        self.battery_1_contactor
+            .toggle(!self.battery_1.is_full() && elec_overhead.bat_1.is_on());
+        self.battery_2_contactor
+            .toggle(!self.battery_2.is_full() && elec_overhead.bat_2.is_on());
 
         self.battery_1.powered_by(vec![&self.battery_1_contactor]);
         self.battery_2.powered_by(vec![&self.battery_2_contactor]);
@@ -1066,6 +1070,18 @@ mod a320_electrical_circuit_tests {
     }
 
     #[test]
+    fn when_battery_1_not_full_and_button_off_it_is_not_powered_by_dc_bat_bus() {
+        let tester = tester_with()
+            .running_engines()
+            .empty_battery_1()
+            .and()
+            .bat_1_off()
+            .run();
+
+        assert!(tester.battery_1_input().is_unpowered())
+    }
+
+    #[test]
     fn when_battery_2_full_it_is_not_powered_by_dc_bat_bus() {
         let tester = tester_with().running_engines().run();
 
@@ -1081,6 +1097,18 @@ mod a320_electrical_circuit_tests {
             .run();
 
         assert!(tester.battery_2_input().is_powered());
+    }
+
+    #[test]
+    fn when_battery_2_not_full_and_button_off_it_is_not_powered_by_dc_bat_bus() {
+        let tester = tester_with()
+            .running_engines()
+            .empty_battery_2()
+            .and()
+            .bat_2_off()
+            .run();
+
+        assert!(tester.battery_2_input().is_unpowered())
     }
 
     fn tester_with() -> ElectricalCircuitTester {
@@ -1208,6 +1236,16 @@ mod a320_electrical_circuit_tests {
 
         fn ac_ess_feed_altn(mut self) -> ElectricalCircuitTester {
             self.overhead.ac_ess_feed.push_altn();
+            self
+        }
+
+        fn bat_1_off(mut self) -> ElectricalCircuitTester {
+            self.overhead.bat_1.push_off();
+            self
+        }
+
+        fn bat_2_off(mut self) -> ElectricalCircuitTester {
+            self.overhead.bat_2.push_off();
             self
         }
 
