@@ -125,12 +125,14 @@ impl A320Electrical {
 
         let apu_or_ext_pwr_provides_power = ext_pwr_provides_power || apu_gen_provides_power;
         self.bus_tie_1_contactor.toggle(
-            (only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
-                || (apu_or_ext_pwr_provides_power && !gen_1_provides_power),
+            elec_overhead.bus_tie.is_on()
+                && ((only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
+                    || (apu_or_ext_pwr_provides_power && !gen_1_provides_power)),
         );
         self.bus_tie_2_contactor.toggle(
-            (only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
-                || (apu_or_ext_pwr_provides_power && !gen_2_provides_power),
+            elec_overhead.bus_tie.is_on()
+                && ((only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
+                    || (apu_or_ext_pwr_provides_power && !gen_2_provides_power)),
         );
 
         self.apu_gen_contactor.powered_by(vec![&self.apu_gen]);
@@ -1111,6 +1113,40 @@ mod a320_electrical_circuit_tests {
         assert!(tester.battery_2_input().is_unpowered())
     }
 
+    #[test]
+    fn when_bus_tie_off_engine_1_does_not_power_ac_bus_2() {
+        let tester = tester_with().running_engine_1().and().bus_tie_off().run();
+
+        assert!(tester.ac_bus_2_output().is_unpowered());
+    }
+
+    #[test]
+    fn when_bus_tie_off_engine_2_does_not_power_ac_bus_1() {
+        let tester = tester_with().running_engine_2().and().bus_tie_off().run();
+
+        assert!(tester.ac_bus_1_output().is_unpowered());
+    }
+
+    #[test]
+    fn when_bus_tie_off_apu_does_not_power_ac_buses() {
+        let tester = tester_with().running_apu().and().bus_tie_off().run();
+
+        assert!(tester.ac_bus_1_output().is_unpowered());
+        assert!(tester.ac_bus_2_output().is_unpowered());
+    }
+
+    #[test]
+    fn when_bus_tie_off_external_power_does_not_power_ac_buses() {
+        let tester = tester_with()
+            .connected_external_power()
+            .and()
+            .bus_tie_off()
+            .run();
+
+        assert!(tester.ac_bus_1_output().is_unpowered());
+        assert!(tester.ac_bus_2_output().is_unpowered());
+    }
+
     fn tester_with() -> ElectricalCircuitTester {
         tester()
     }
@@ -1246,6 +1282,11 @@ mod a320_electrical_circuit_tests {
 
         fn bat_2_off(mut self) -> ElectricalCircuitTester {
             self.overhead.bat_2.push_off();
+            self
+        }
+
+        fn bus_tie_off(mut self) -> ElectricalCircuitTester {
+            self.overhead.bus_tie.push_off();
             self
         }
 
