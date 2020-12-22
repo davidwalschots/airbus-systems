@@ -31,12 +31,12 @@ pub struct A320Electrical {
     ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate,
     ac_ess_shed_bus: ElectricalBus,
     ac_ess_shed_contactor: Contactor,
-    // The electrical diagram lists separate contactors for each transformer rectifier.
-    // As there is no button affecting the contactor, nor any logic that we know of, for now
-    // the contactors are just assumed to be part of the transformer rectifiers.
     tr_1: TransformerRectifier,
+    tr_1_contactor: Contactor,
     tr_2: TransformerRectifier,
+    tr_2_contactor: Contactor,
     tr_ess: TransformerRectifier,
+    tr_ess_contactor: Contactor,
     ac_ess_to_tr_ess_contactor: Contactor,
     emergency_gen: EmergencyGenerator,
     emergency_gen_contactor: Contactor,
@@ -83,8 +83,11 @@ impl A320Electrical {
             ac_ess_shed_bus: ElectricalBus::new(),
             ac_ess_shed_contactor: Contactor::new(String::from("8XH")),
             tr_1: TransformerRectifier::new(),
+            tr_1_contactor: Contactor::new(String::from("5PU1")),
             tr_2: TransformerRectifier::new(),
+            tr_2_contactor: Contactor::new(String::from("5PU2")),
             tr_ess: TransformerRectifier::new(),
+            tr_ess_contactor: Contactor::new(String::from("3PE")),
             ac_ess_to_tr_ess_contactor: Contactor::new(String::from("15XE1")),
             emergency_gen: EmergencyGenerator::new(),
             emergency_gen_contactor: Contactor::new(String::from("2XE")),
@@ -251,8 +254,20 @@ impl A320Electrical {
             &self.emergency_gen_contactor,
         ]);
 
-        self.dc_bus_1.powered_by(vec![&self.tr_1]);
-        self.dc_bus_2.powered_by(vec![&self.tr_2]);
+        self.tr_1_contactor
+            .close_when(self.tr_1.output().is_powered());
+        self.tr_1_contactor.powered_by(vec![&self.tr_1]);
+
+        self.tr_2_contactor
+            .close_when(self.tr_2.output().is_powered());
+        self.tr_2_contactor.powered_by(vec![&self.tr_2]);
+
+        self.tr_ess_contactor
+            .close_when(self.tr_ess.output().is_powered());
+        self.tr_ess_contactor.powered_by(vec![&self.tr_ess]);
+
+        self.dc_bus_1.powered_by(vec![&self.tr_1_contactor]);
+        self.dc_bus_2.powered_by(vec![&self.tr_2_contactor]);
 
         self.dc_bus_1_tie_contactor.powered_by(vec![&self.dc_bus_1]);
         self.dc_bus_2_tie_contactor.powered_by(vec![&self.dc_bus_2]);
@@ -296,14 +311,14 @@ impl A320Electrical {
         self.dc_bat_bus_to_dc_ess_bus_contactor
             .powered_by(vec![&self.dc_bat_bus]);
         self.dc_bat_bus_to_dc_ess_bus_contactor
-            .close_when(self.tr_ess.output().is_unpowered());
+            .close_when(self.tr_ess_contactor.output().is_unpowered());
         self.battery_2_to_dc_ess_bus_contactor
             .powered_by(vec![&self.battery_2]);
         self.battery_2_to_dc_ess_bus_contactor
             .close_when(!generator_provides_power);
         let dc_ess_bus_power_sources: Vec<&dyn PowerConductor> = vec![
             &self.dc_bat_bus_to_dc_ess_bus_contactor,
-            &self.tr_ess,
+            &self.tr_ess_contactor,
             &self.battery_2_to_dc_ess_bus_contactor,
         ];
         self.dc_ess_bus.powered_by(dc_ess_bus_power_sources);
