@@ -53,6 +53,7 @@ pub struct A320Electrical {
     battery_1_contactor: Contactor,
     battery_2: Battery,
     battery_2_contactor: Contactor,
+    battery_2_to_dc_ess_bus_contactor: Contactor,
     hot_bus_1: ElectricalBus,
     hot_bus_2: ElectricalBus,
 }
@@ -100,6 +101,7 @@ impl A320Electrical {
             battery_1_contactor: Contactor::new(String::from("6PB1")),
             battery_2: Battery::full(2),
             battery_2_contactor: Contactor::new(String::from("6PB2")),
+            battery_2_to_dc_ess_bus_contactor: Contactor::new(String::from("2XB")),
             hot_bus_1: ElectricalBus::new(),
             hot_bus_2: ElectricalBus::new(),
         }
@@ -295,11 +297,20 @@ impl A320Electrical {
             .powered_by(vec![&self.dc_bat_bus]);
         self.dc_bat_bus_to_dc_ess_bus_contactor
             .close_when(self.tr_ess.output().is_unpowered());
-        let dc_ess_bus_power_sources: Vec<&dyn PowerConductor> =
-            vec![&self.dc_bat_bus_to_dc_ess_bus_contactor, &self.tr_ess];
+        self.battery_2_to_dc_ess_bus_contactor
+            .powered_by(vec![&self.battery_2]);
+        self.battery_2_to_dc_ess_bus_contactor
+            .close_when(!generator_provides_power);
+        let dc_ess_bus_power_sources: Vec<&dyn PowerConductor> = vec![
+            &self.dc_bat_bus_to_dc_ess_bus_contactor,
+            &self.tr_ess,
+            &self.battery_2_to_dc_ess_bus_contactor,
+        ];
         self.dc_ess_bus.powered_by(dc_ess_bus_power_sources);
+        let dc_ess_shed_contactor_power_sources: Vec<&dyn PowerConductor> =
+            vec![&self.dc_ess_bus, &self.battery_2_to_dc_ess_bus_contactor];
         self.dc_ess_shed_contactor
-            .powered_by(vec![&self.dc_ess_bus]);
+            .powered_by(dc_ess_shed_contactor_power_sources);
         self.dc_ess_shed_contactor
             .close_when(generator_provides_power);
         self.dc_ess_shed_bus
@@ -599,11 +610,27 @@ mod a320_electrical_circuit_tests {
     /// # Source
     /// A320 manual electrical distribution table
     #[test]
-    #[ignore]
     fn distribution_table_emergency_config_before_emergency_gen_available() {
-        let tester = tester_with().run();
+        let tester = tester().run();
 
+        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::None);
+        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::None);
         // TODO
+        // assert_eq!(
+        //     tester.ac_ess_bus_output().source(),
+        //     PowerSource::Battery(1)
+        // );
+        assert_eq!(tester.ac_ess_shed_bus_output().source(), PowerSource::None);
+        assert_eq!(tester.tr_1_output().source(), PowerSource::None);
+        assert_eq!(tester.tr_2_output().source(), PowerSource::None);
+        assert_eq!(tester.tr_ess_output().source(), PowerSource::None);
+        assert_eq!(tester.dc_bus_1_output().source(), PowerSource::None);
+        assert_eq!(tester.dc_bus_2_output().source(), PowerSource::None);
+        assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::None);
+        assert_eq!(tester.dc_ess_bus_output().source(), PowerSource::Battery(2));
+        assert_eq!(tester.dc_ess_shed_bus_output().source(), PowerSource::None);
+        assert_eq!(tester.hot_bus_1_output().source(), PowerSource::Battery(1));
+        assert_eq!(tester.hot_bus_2_output().source(), PowerSource::Battery(2));
     }
 
     /// # Source
