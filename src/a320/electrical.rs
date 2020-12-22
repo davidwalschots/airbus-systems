@@ -6,13 +6,14 @@ use crate::{
         ApuGenerator, AuxiliaryPowerUnit, Battery, Contactor, ElectricalBus, EmergencyGenerator,
         EngineGenerator, ExternalPowerSource, PowerConductor, Powerable, TransformerRectifier,
     },
-    overhead::{self, NormalAltnPushButton, OnOffPushButton},
+    overhead::{NormalAltnPushButton, OnOffPushButton},
     shared::{DelayedTrueLogicGate, Engine, UpdateContext},
+    visitor::Visitable,
 };
 
-use super::hydraulic::A320HydraulicCircuit;
+use super::hydraulic::A320Hydraulic;
 
-pub struct A320ElectricalCircuit {
+pub struct A320Electrical {
     engine_1_gen: EngineGenerator,
     engine_1_gen_contactor: Contactor,
     engine_2_gen: EngineGenerator,
@@ -48,11 +49,11 @@ pub struct A320ElectricalCircuit {
     battery_2_contactor: Contactor,
 }
 
-impl A320ElectricalCircuit {
+impl A320Electrical {
     const AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS: Duration = Duration::from_secs(3);
 
-    pub fn new() -> A320ElectricalCircuit {
-        A320ElectricalCircuit {
+    pub fn new() -> A320Electrical {
+        A320Electrical {
             engine_1_gen: EngineGenerator::new(1),
             engine_1_gen_contactor: Contactor::new(String::from("9XU1")),
             engine_2_gen: EngineGenerator::new(2),
@@ -68,7 +69,7 @@ impl A320ElectricalCircuit {
             ac_ess_feed_contactor_1: Contactor::new(String::from("3XC1")),
             ac_ess_feed_contactor_2: Contactor::new(String::from("3XC2")),
             ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate::new(
-                A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS,
+                A320Electrical::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS,
             ),
             tr_1: TransformerRectifier::new(),
             tr_2: TransformerRectifier::new(),
@@ -95,7 +96,7 @@ impl A320ElectricalCircuit {
         engine2: &Engine,
         apu: &AuxiliaryPowerUnit,
         ext_pwr: &ExternalPowerSource,
-        hydraulic: &A320HydraulicCircuit,
+        hydraulic: &A320Hydraulic,
         elec_overhead: &A320ElectricalOverheadPanel,
     ) {
         self.engine_1_gen.update(engine1, &elec_overhead.idg_1);
@@ -202,8 +203,8 @@ impl A320ElectricalCircuit {
         self.ac_ess_to_tr_ess_contactor
             .powered_by(ac_ess_to_tr_ess_contactor_power_sources);
         self.ac_ess_to_tr_ess_contactor.toggle(
-            A320ElectricalCircuit::has_failed_or_is_unpowered(&self.tr_1)
-                || A320ElectricalCircuit::has_failed_or_is_unpowered(&self.tr_2),
+            A320Electrical::has_failed_or_is_unpowered(&self.tr_1)
+                || A320Electrical::has_failed_or_is_unpowered(&self.tr_2),
         );
 
         self.ac_ess_bus
@@ -254,6 +255,12 @@ impl A320ElectricalCircuit {
     }
 }
 
+impl Visitable for A320Electrical {
+    fn accept(&mut self, visitor: &mut Box<dyn super::MutableVisitor>) {
+        // TODO
+    }
+}
+
 pub struct A320ElectricalOverheadPanel {
     bat_1: OnOffPushButton,
     bat_2: OnOffPushButton,
@@ -285,6 +292,12 @@ impl A320ElectricalOverheadPanel {
             ext_pwr: OnOffPushButton::new_on(),
             commercial: OnOffPushButton::new_on(),
         }
+    }
+}
+
+impl Visitable for A320ElectricalOverheadPanel {
+    fn accept(&mut self, visitor: &mut Box<dyn super::MutableVisitor>) {
+        // TODO
     }
 }
 
@@ -1081,8 +1094,8 @@ mod a320_electrical_circuit_tests {
         engine2: Engine,
         apu: AuxiliaryPowerUnit,
         ext_pwr: ExternalPowerSource,
-        hyd: A320HydraulicCircuit,
-        elec: A320ElectricalCircuit,
+        hyd: A320Hydraulic,
+        elec: A320Electrical,
         overhead: A320ElectricalOverheadPanel,
     }
 
@@ -1093,8 +1106,8 @@ mod a320_electrical_circuit_tests {
                 engine2: ElectricalCircuitTester::new_stopped_engine(),
                 apu: ElectricalCircuitTester::new_stopped_apu(),
                 ext_pwr: ElectricalCircuitTester::new_disconnected_external_power(),
-                hyd: A320HydraulicCircuit::new(),
-                elec: A320ElectricalCircuit::new(),
+                hyd: A320Hydraulic::new(),
+                elec: A320Electrical::new(),
                 overhead: A320ElectricalOverheadPanel::new(),
             }
         }
@@ -1289,13 +1302,12 @@ mod a320_electrical_circuit_tests {
         }
 
         fn run_waiting_for_ac_ess_feed_transition(self) -> ElectricalCircuitTester {
-            self.run_waiting_for(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS)
+            self.run_waiting_for(A320Electrical::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS)
         }
 
         fn run_waiting_until_just_before_ac_ess_feed_transition(self) -> ElectricalCircuitTester {
             self.run_waiting_for(
-                A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS
-                    - Duration::from_millis(1),
+                A320Electrical::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS - Duration::from_millis(1),
             )
         }
 

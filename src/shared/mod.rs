@@ -1,6 +1,8 @@
 use std::time::Duration;
 use uom::si::{f32::Ratio, ratio::percent};
 
+use crate::visitor::Visitable;
+
 pub struct UpdateContext {
     delta: Duration,
 }
@@ -57,6 +59,12 @@ impl Engine {
         Engine {
             n2: Ratio::new::<percent>(0.),
         }
+    }
+}
+
+impl Visitable for Engine {
+    fn accept(&mut self, visitor: &mut Box<dyn crate::visitor::MutableVisitor>) {
+        visitor.visit_engine(&mut self);
     }
 }
 

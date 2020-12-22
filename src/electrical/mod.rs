@@ -7,7 +7,7 @@ use uom::si::{
     ratio::percent,
 };
 
-use crate::{overhead::OnOffPushButton, shared::Engine};
+use crate::{overhead::OnOffPushButton, shared::Engine, visitor::Visitable};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PowerSource {
@@ -247,6 +247,12 @@ impl AuxiliaryPowerUnit {
     }
 }
 
+impl Visitable for AuxiliaryPowerUnit {
+    fn accept(&mut self, visitor: &mut Box<dyn crate::visitor::MutableVisitor>) {
+        visitor.visit_auxiliary_power_unit(&mut self);
+    }
+}
+
 pub struct ExternalPowerSource {
     pub plugged_in: bool,
 }
@@ -254,6 +260,12 @@ pub struct ExternalPowerSource {
 impl ExternalPowerSource {
     pub fn new() -> ExternalPowerSource {
         ExternalPowerSource { plugged_in: false }
+    }
+}
+
+impl Visitable for ExternalPowerSource {
+    fn accept(&mut self, visitor: &mut Box<dyn crate::visitor::MutableVisitor>) {
+        visitor.visit_external_power_source(&mut self);
     }
 }
 
