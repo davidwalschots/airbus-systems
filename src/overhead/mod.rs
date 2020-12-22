@@ -1,12 +1,12 @@
 pub enum OnOffPushButtonState {
     On,
-    Off
+    Off,
 }
 
 pub struct OnOffPushButton {
     state: OnOffPushButtonState,
     fault: bool,
-    available: bool
+    available: bool,
 }
 
 impl OnOffPushButton {
@@ -14,7 +14,7 @@ impl OnOffPushButton {
         OnOffPushButton {
             state: OnOffPushButtonState::On,
             fault: false,
-            available: false
+            available: false,
         }
     }
 
@@ -22,7 +22,7 @@ impl OnOffPushButton {
         OnOffPushButton {
             state: OnOffPushButtonState::Off,
             fault: false,
-            available: false
+            available: false,
         }
     }
 
@@ -35,36 +35,44 @@ impl OnOffPushButton {
     }
 
     pub fn is_on(&self) -> bool {
-        if let OnOffPushButtonState::On = self.state { true } else { false }
+        if let OnOffPushButtonState::On = self.state {
+            true
+        } else {
+            false
+        }
     }
 
     pub fn is_off(&self) -> bool {
-        if let OnOffPushButtonState::Off = self.state { true } else { false }
+        if let OnOffPushButtonState::Off = self.state {
+            true
+        } else {
+            false
+        }
     }
 }
 
 pub enum NormalAltnPushButtonState {
     Normal,
-    Altn
+    Altn,
 }
 
 pub struct NormalAltnPushButton {
     state: NormalAltnPushButtonState,
-    fault: bool
+    fault: bool,
 }
 
 impl NormalAltnPushButton {
     pub fn new_normal() -> NormalAltnPushButton {
         NormalAltnPushButton {
             state: NormalAltnPushButtonState::Normal,
-            fault: false
+            fault: false,
         }
     }
 
     pub fn new_altn() -> NormalAltnPushButton {
         NormalAltnPushButton {
             state: NormalAltnPushButtonState::Altn,
-            fault: false
+            fault: false,
         }
     }
 
@@ -77,11 +85,19 @@ impl NormalAltnPushButton {
     }
 
     pub fn is_normal(&self) -> bool {
-        if let NormalAltnPushButtonState::Normal = self.state { true } else { false }
+        if let NormalAltnPushButtonState::Normal = self.state {
+            true
+        } else {
+            false
+        }
     }
 
     pub fn is_altn(&self) -> bool {
-        if let NormalAltnPushButtonState::Altn = self.state { true } else { false }
+        if let NormalAltnPushButtonState::Altn = self.state {
+            true
+        } else {
+            false
+        }
     }
 }
 

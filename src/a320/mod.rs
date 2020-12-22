@@ -1,7 +1,14 @@
-use uom::si::{f32::{Ratio}, ratio::percent};
 use std::time::Duration;
+use uom::si::{f32::Ratio, ratio::percent};
 
-use crate::{electrical::{ApuGenerator, AuxiliaryPowerUnit, Battery, Contactor, ElectricalBus, EmergencyGenerator, EngineGenerator, ExternalPowerSource, PowerConductor, Powerable, TransformerRectifier}, overhead::{self, NormalAltnPushButton, OnOffPushButton}, shared::{DelayedTrueLogicGate, Engine, UpdateContext}};
+use crate::{
+    electrical::{
+        ApuGenerator, AuxiliaryPowerUnit, Battery, Contactor, ElectricalBus, EmergencyGenerator,
+        EngineGenerator, ExternalPowerSource, PowerConductor, Powerable, TransformerRectifier,
+    },
+    overhead::{self, NormalAltnPushButton, OnOffPushButton},
+    shared::{DelayedTrueLogicGate, Engine, UpdateContext},
+};
 
 pub struct A320ElectricalCircuit {
     engine_1_gen: EngineGenerator,
@@ -36,7 +43,7 @@ pub struct A320ElectricalCircuit {
     battery_1: Battery,
     battery_1_contactor: Contactor,
     battery_2: Battery,
-    battery_2_contactor: Contactor
+    battery_2_contactor: Contactor,
 }
 
 impl A320ElectricalCircuit {
@@ -58,7 +65,9 @@ impl A320ElectricalCircuit {
             ac_ess_bus: ElectricalBus::new(),
             ac_ess_feed_contactor_1: Contactor::new(String::from("3XC1")),
             ac_ess_feed_contactor_2: Contactor::new(String::from("3XC2")),
-            ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate::new(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS),
+            ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate::new(
+                A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS,
+            ),
             tr_1: TransformerRectifier::new(),
             tr_2: TransformerRectifier::new(),
             tr_ess: TransformerRectifier::new(),
@@ -73,96 +82,169 @@ impl A320ElectricalCircuit {
             battery_1: Battery::full(1),
             battery_1_contactor: Contactor::new(String::from("6PB1")),
             battery_2: Battery::full(2),
-            battery_2_contactor: Contactor::new(String::from("6PB2"))
+            battery_2_contactor: Contactor::new(String::from("6PB2")),
         }
     }
 
-    pub fn update(&mut self, context: &UpdateContext, engine1: &Engine, engine2: &Engine, apu: &AuxiliaryPowerUnit,
-        ext_pwr: &ExternalPowerSource, hydraulic: &A320HydraulicCircuit, elec_overhead: &A320ElectricalOverheadPanel) {
+    pub fn update(
+        &mut self,
+        context: &UpdateContext,
+        engine1: &Engine,
+        engine2: &Engine,
+        apu: &AuxiliaryPowerUnit,
+        ext_pwr: &ExternalPowerSource,
+        hydraulic: &A320HydraulicCircuit,
+        elec_overhead: &A320ElectricalOverheadPanel,
+    ) {
         self.engine_1_gen.update(engine1, &elec_overhead.idg_1);
         self.engine_2_gen.update(engine2, &elec_overhead.idg_2);
         self.apu_gen.update(apu);
         self.emergency_gen.update(hydraulic.is_blue_pressurised());
 
-        let gen_1_provides_power = elec_overhead.gen_1.is_on() && self.engine_1_gen.output().is_powered();
-        let gen_2_provides_power = elec_overhead.gen_2.is_on() && self.engine_2_gen.output().is_powered();
+        let gen_1_provides_power =
+            elec_overhead.gen_1.is_on() && self.engine_1_gen.output().is_powered();
+        let gen_2_provides_power =
+            elec_overhead.gen_2.is_on() && self.engine_2_gen.output().is_powered();
         let no_engine_gen_provides_power = !gen_1_provides_power && !gen_2_provides_power;
         let only_one_engine_gen_is_powered = gen_1_provides_power ^ gen_2_provides_power;
-        let ext_pwr_provides_power = elec_overhead.ext_pwr.is_on() && ext_pwr.output().is_powered() && (no_engine_gen_provides_power || only_one_engine_gen_is_powered);
-        let apu_gen_provides_power = elec_overhead.apu_gen.is_on() && self.apu_gen.output().is_powered() && !ext_pwr_provides_power && (no_engine_gen_provides_power || only_one_engine_gen_is_powered);
+        let ext_pwr_provides_power = elec_overhead.ext_pwr.is_on()
+            && ext_pwr.output().is_powered()
+            && (no_engine_gen_provides_power || only_one_engine_gen_is_powered);
+        let apu_gen_provides_power = elec_overhead.apu_gen.is_on()
+            && self.apu_gen.output().is_powered()
+            && !ext_pwr_provides_power
+            && (no_engine_gen_provides_power || only_one_engine_gen_is_powered);
 
         self.engine_1_gen_contactor.toggle(gen_1_provides_power);
-        self.engine_2_gen_contactor.toggle(gen_2_provides_power);        
+        self.engine_2_gen_contactor.toggle(gen_2_provides_power);
         self.apu_gen_contactor.toggle(apu_gen_provides_power);
         self.ext_pwr_contactor.toggle(ext_pwr_provides_power);
 
         let apu_or_ext_pwr_provides_power = ext_pwr_provides_power || apu_gen_provides_power;
-        self.bus_tie_1_contactor.toggle((only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power) || (apu_or_ext_pwr_provides_power && !gen_1_provides_power));
-        self.bus_tie_2_contactor.toggle((only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power) || (apu_or_ext_pwr_provides_power && !gen_2_provides_power));
-        
-        self.apu_gen_contactor.powered_by(vec!(&self.apu_gen));
-        self.ext_pwr_contactor.powered_by(vec!(ext_pwr));
+        self.bus_tie_1_contactor.toggle(
+            (only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
+                || (apu_or_ext_pwr_provides_power && !gen_1_provides_power),
+        );
+        self.bus_tie_2_contactor.toggle(
+            (only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
+                || (apu_or_ext_pwr_provides_power && !gen_2_provides_power),
+        );
 
-        self.engine_1_gen_contactor.powered_by(vec!(&self.engine_1_gen));
-        self.bus_tie_1_contactor.powered_by(vec!(&self.engine_1_gen_contactor, &self.apu_gen_contactor, &self.ext_pwr_contactor));
+        self.apu_gen_contactor.powered_by(vec![&self.apu_gen]);
+        self.ext_pwr_contactor.powered_by(vec![ext_pwr]);
 
-        self.engine_2_gen_contactor.powered_by(vec!(&self.engine_2_gen));
-        self.bus_tie_2_contactor.powered_by(vec!(&self.engine_2_gen_contactor, &self.apu_gen_contactor, &self.ext_pwr_contactor));
-        
-        self.bus_tie_1_contactor.or_powered_by(vec!(&self.bus_tie_2_contactor));
-        self.bus_tie_2_contactor.or_powered_by(vec!(&self.bus_tie_1_contactor));
+        self.engine_1_gen_contactor
+            .powered_by(vec![&self.engine_1_gen]);
+        self.bus_tie_1_contactor.powered_by(vec![
+            &self.engine_1_gen_contactor,
+            &self.apu_gen_contactor,
+            &self.ext_pwr_contactor,
+        ]);
 
-        self.ac_bus_1.powered_by(vec!(&self.engine_1_gen_contactor, &self.bus_tie_1_contactor));
-        self.ac_bus_2.powered_by(vec!(&self.engine_2_gen_contactor, &self.bus_tie_2_contactor));
+        self.engine_2_gen_contactor
+            .powered_by(vec![&self.engine_2_gen]);
+        self.bus_tie_2_contactor.powered_by(vec![
+            &self.engine_2_gen_contactor,
+            &self.apu_gen_contactor,
+            &self.ext_pwr_contactor,
+        ]);
 
-        self.tr_1.powered_by(vec!(&self.ac_bus_1));
-        self.tr_2.powered_by(vec!(&self.ac_bus_2));
+        self.bus_tie_1_contactor
+            .or_powered_by(vec![&self.bus_tie_2_contactor]);
+        self.bus_tie_2_contactor
+            .or_powered_by(vec![&self.bus_tie_1_contactor]);
 
-        self.ac_ess_feed_contactor_delay_logic_gate.update(context, self.ac_bus_1.output().is_unpowered());
+        self.ac_bus_1.powered_by(vec![
+            &self.engine_1_gen_contactor,
+            &self.bus_tie_1_contactor,
+        ]);
+        self.ac_bus_2.powered_by(vec![
+            &self.engine_2_gen_contactor,
+            &self.bus_tie_2_contactor,
+        ]);
 
-        self.ac_ess_feed_contactor_1.toggle(self.ac_bus_1.output().is_powered() && (!self.ac_ess_feed_contactor_delay_logic_gate.output() && elec_overhead.ac_ess_feed.is_normal()));
-        self.ac_ess_feed_contactor_2.toggle(self.ac_bus_2.output().is_powered() && (self.ac_ess_feed_contactor_delay_logic_gate.output() || elec_overhead.ac_ess_feed.is_altn()));
+        self.tr_1.powered_by(vec![&self.ac_bus_1]);
+        self.tr_2.powered_by(vec![&self.ac_bus_2]);
 
-        self.ac_ess_feed_contactor_1.powered_by(vec!(&self.ac_bus_1));
-        self.ac_ess_feed_contactor_2.powered_by(vec!(&self.ac_bus_2));
+        self.ac_ess_feed_contactor_delay_logic_gate
+            .update(context, self.ac_bus_1.output().is_unpowered());
 
-        self.ac_ess_bus.powered_by(vec!(&self.ac_ess_feed_contactor_1, &self.ac_ess_feed_contactor_2));
+        self.ac_ess_feed_contactor_1.toggle(
+            self.ac_bus_1.output().is_powered()
+                && (!self.ac_ess_feed_contactor_delay_logic_gate.output()
+                    && elec_overhead.ac_ess_feed.is_normal()),
+        );
+        self.ac_ess_feed_contactor_2.toggle(
+            self.ac_bus_2.output().is_powered()
+                && (self.ac_ess_feed_contactor_delay_logic_gate.output()
+                    || elec_overhead.ac_ess_feed.is_altn()),
+        );
 
-        self.emergency_gen_contactor.toggle(self.ac_bus_1.output().is_unpowered() && self.ac_bus_2.output().is_unpowered());
-        self.emergency_gen_contactor.powered_by(vec!(&self.emergency_gen));
-        
-        let ac_ess_to_tr_ess_contactor_power_sources: Vec<&dyn PowerConductor> = vec!(&self.ac_ess_bus, &self.emergency_gen_contactor);
-        self.ac_ess_to_tr_ess_contactor.powered_by(ac_ess_to_tr_ess_contactor_power_sources);
-        self.ac_ess_to_tr_ess_contactor.toggle(A320ElectricalCircuit::has_failed_or_is_unpowered(&self.tr_1) || A320ElectricalCircuit::has_failed_or_is_unpowered(&self.tr_2));
+        self.ac_ess_feed_contactor_1
+            .powered_by(vec![&self.ac_bus_1]);
+        self.ac_ess_feed_contactor_2
+            .powered_by(vec![&self.ac_bus_2]);
 
-        self.ac_ess_bus.or_powered_by(vec!(&self.ac_ess_to_tr_ess_contactor));
+        self.ac_ess_bus.powered_by(vec![
+            &self.ac_ess_feed_contactor_1,
+            &self.ac_ess_feed_contactor_2,
+        ]);
 
-        self.tr_ess.powered_by(vec!(&self.ac_ess_to_tr_ess_contactor, &self.emergency_gen_contactor));
+        self.emergency_gen_contactor
+            .toggle(self.ac_bus_1.output().is_unpowered() && self.ac_bus_2.output().is_unpowered());
+        self.emergency_gen_contactor
+            .powered_by(vec![&self.emergency_gen]);
 
-        self.dc_bus_1.powered_by(vec!(&self.tr_1));
-        self.dc_bus_2.powered_by(vec!(&self.tr_2));
+        let ac_ess_to_tr_ess_contactor_power_sources: Vec<&dyn PowerConductor> =
+            vec![&self.ac_ess_bus, &self.emergency_gen_contactor];
+        self.ac_ess_to_tr_ess_contactor
+            .powered_by(ac_ess_to_tr_ess_contactor_power_sources);
+        self.ac_ess_to_tr_ess_contactor.toggle(
+            A320ElectricalCircuit::has_failed_or_is_unpowered(&self.tr_1)
+                || A320ElectricalCircuit::has_failed_or_is_unpowered(&self.tr_2),
+        );
 
-        self.dc_bus_1_tie_contactor.powered_by(vec!(&self.dc_bus_1));
-        self.dc_bus_2_tie_contactor.powered_by(vec!(&self.dc_bus_2));
+        self.ac_ess_bus
+            .or_powered_by(vec![&self.ac_ess_to_tr_ess_contactor]);
 
-        self.dc_bus_1_tie_contactor.toggle(self.dc_bus_1.output().is_powered() || self.dc_bus_2.output().is_powered());
-        self.dc_bus_2_tie_contactor.toggle(self.dc_bus_1.output().is_unpowered() || self.dc_bus_2.output().is_unpowered());
+        self.tr_ess.powered_by(vec![
+            &self.ac_ess_to_tr_ess_contactor,
+            &self.emergency_gen_contactor,
+        ]);
 
-        self.dc_bat_bus.powered_by(vec!(&self.dc_bus_1_tie_contactor, &self.dc_bus_2_tie_contactor));
+        self.dc_bus_1.powered_by(vec![&self.tr_1]);
+        self.dc_bus_2.powered_by(vec![&self.tr_2]);
 
-        self.dc_bus_1_tie_contactor.or_powered_by(vec!(&self.dc_bat_bus));
-        self.dc_bus_2_tie_contactor.or_powered_by(vec!(&self.dc_bat_bus));
-        self.dc_bus_1.or_powered_by(vec!(&self.dc_bus_1_tie_contactor));
-        self.dc_bus_2.or_powered_by(vec!(&self.dc_bus_2_tie_contactor));
+        self.dc_bus_1_tie_contactor.powered_by(vec![&self.dc_bus_1]);
+        self.dc_bus_2_tie_contactor.powered_by(vec![&self.dc_bus_2]);
 
-        self.battery_1_contactor.powered_by(vec!(&self.dc_bat_bus));
-        self.battery_2_contactor.powered_by(vec!(&self.dc_bat_bus));
+        self.dc_bus_1_tie_contactor
+            .toggle(self.dc_bus_1.output().is_powered() || self.dc_bus_2.output().is_powered());
+        self.dc_bus_2_tie_contactor
+            .toggle(self.dc_bus_1.output().is_unpowered() || self.dc_bus_2.output().is_unpowered());
+
+        self.dc_bat_bus.powered_by(vec![
+            &self.dc_bus_1_tie_contactor,
+            &self.dc_bus_2_tie_contactor,
+        ]);
+
+        self.dc_bus_1_tie_contactor
+            .or_powered_by(vec![&self.dc_bat_bus]);
+        self.dc_bus_2_tie_contactor
+            .or_powered_by(vec![&self.dc_bat_bus]);
+        self.dc_bus_1
+            .or_powered_by(vec![&self.dc_bus_1_tie_contactor]);
+        self.dc_bus_2
+            .or_powered_by(vec![&self.dc_bus_2_tie_contactor]);
+
+        self.battery_1_contactor.powered_by(vec![&self.dc_bat_bus]);
+        self.battery_2_contactor.powered_by(vec![&self.dc_bat_bus]);
 
         self.battery_1_contactor.toggle(!self.battery_1.is_full());
         self.battery_2_contactor.toggle(!self.battery_2.is_full());
 
-        self.battery_1.powered_by(vec!(&self.battery_1_contactor));
-        self.battery_2.powered_by(vec!(&self.battery_2_contactor));
+        self.battery_1.powered_by(vec![&self.battery_1_contactor]);
+        self.battery_2.powered_by(vec![&self.battery_2_contactor]);
     }
 
     fn has_failed_or_is_unpowered(tr: &TransformerRectifier) -> bool {
@@ -182,7 +264,7 @@ pub struct A320ElectricalOverheadPanel {
     ac_ess_feed: NormalAltnPushButton,
     galy_and_cab: OnOffPushButton,
     ext_pwr: OnOffPushButton,
-    commercial: OnOffPushButton    
+    commercial: OnOffPushButton,
 }
 
 impl A320ElectricalOverheadPanel {
@@ -199,7 +281,7 @@ impl A320ElectricalOverheadPanel {
             ac_ess_feed: NormalAltnPushButton::new_normal(),
             galy_and_cab: OnOffPushButton::new_on(),
             ext_pwr: OnOffPushButton::new_on(),
-            commercial: OnOffPushButton::new_on()
+            commercial: OnOffPushButton::new_on(),
         }
     }
 }
@@ -212,7 +294,7 @@ pub struct A320HydraulicCircuit {
 impl A320HydraulicCircuit {
     pub fn new() -> A320HydraulicCircuit {
         A320HydraulicCircuit {
-            blue_pressurised: true
+            blue_pressurised: true,
         }
     }
 
@@ -233,15 +315,39 @@ mod a320_electrical_circuit_tests {
     fn distribution_table_norm_conf() {
         let tester = tester_with().running_engines().run();
 
-        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.tr_1_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.tr_2_output().source(), PowerSource::EngineGenerator(2));
+        assert_eq!(
+            tester.ac_bus_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_bus_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.tr_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.tr_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
         assert_eq!(tester.tr_ess_output().source(), PowerSource::None);
-        assert_eq!(tester.dc_bus_1_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.dc_bus_2_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::EngineGenerator(1));
+        assert_eq!(
+            tester.dc_bus_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.dc_bus_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.dc_bat_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
     }
 
     /// # Source
@@ -250,15 +356,39 @@ mod a320_electrical_circuit_tests {
     fn distribution_table_only_gen_1_available() {
         let tester = tester_with().running_engine_1().run();
 
-        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.tr_1_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.tr_2_output().source(), PowerSource::EngineGenerator(1));
+        assert_eq!(
+            tester.ac_bus_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_bus_2_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.tr_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.tr_2_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
         assert_eq!(tester.tr_ess_output().source(), PowerSource::None);
-        assert_eq!(tester.dc_bus_1_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.dc_bus_2_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::EngineGenerator(1));
+        assert_eq!(
+            tester.dc_bus_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.dc_bus_2_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.dc_bat_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
     }
 
     /// # Source
@@ -267,15 +397,39 @@ mod a320_electrical_circuit_tests {
     fn distribution_table_only_gen_2_available() {
         let tester = tester_with().running_engine_2().run();
 
-        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.tr_1_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.tr_2_output().source(), PowerSource::EngineGenerator(2));
+        assert_eq!(
+            tester.ac_bus_1_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.ac_bus_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.tr_1_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.tr_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
         assert_eq!(tester.tr_ess_output().source(), PowerSource::None);
-        assert_eq!(tester.dc_bus_1_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.dc_bus_2_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::EngineGenerator(2));
+        assert_eq!(
+            tester.dc_bus_1_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.dc_bus_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.dc_bat_bus_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
     }
 
     /// # Source
@@ -286,13 +440,19 @@ mod a320_electrical_circuit_tests {
 
         assert_eq!(tester.ac_bus_1_output().source(), PowerSource::ApuGenerator);
         assert_eq!(tester.ac_bus_2_output().source(), PowerSource::ApuGenerator);
-        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::ApuGenerator);
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::ApuGenerator
+        );
         assert_eq!(tester.tr_1_output().source(), PowerSource::ApuGenerator);
         assert_eq!(tester.tr_2_output().source(), PowerSource::ApuGenerator);
         assert_eq!(tester.tr_ess_output().source(), PowerSource::None);
         assert_eq!(tester.dc_bus_1_output().source(), PowerSource::ApuGenerator);
         assert_eq!(tester.dc_bus_2_output().source(), PowerSource::ApuGenerator);
-        assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::ApuGenerator);
+        assert_eq!(
+            tester.dc_bat_bus_output().source(),
+            PowerSource::ApuGenerator
+        );
     }
 
     /// # Source
@@ -304,7 +464,7 @@ mod a320_electrical_circuit_tests {
 
         // TODO
     }
-    
+
     /// # Source
     /// A320 manual electrical distribution table
     #[test]
@@ -313,10 +473,16 @@ mod a320_electrical_circuit_tests {
 
         assert_eq!(tester.ac_bus_1_output().source(), PowerSource::None);
         assert_eq!(tester.ac_bus_2_output().source(), PowerSource::None);
-        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::EmergencyGenerator);
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::EmergencyGenerator
+        );
         assert_eq!(tester.tr_1_output().source(), PowerSource::None);
         assert_eq!(tester.tr_2_output().source(), PowerSource::None);
-        assert_eq!(tester.tr_ess_output().source(), PowerSource::EmergencyGenerator);
+        assert_eq!(
+            tester.tr_ess_output().source(),
+            PowerSource::EmergencyGenerator
+        );
         assert_eq!(tester.dc_bus_1_output().source(), PowerSource::None);
         assert_eq!(tester.dc_bus_2_output().source(), PowerSource::None);
         assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::None);
@@ -328,15 +494,39 @@ mod a320_electrical_circuit_tests {
     fn distribution_table_tr_1_fault() {
         let tester = tester_with().running_engines().and().failed_tr_1().run();
 
-        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::EngineGenerator(1));
+        assert_eq!(
+            tester.ac_bus_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_bus_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
         assert_eq!(tester.tr_1_output().source(), PowerSource::None);
-        assert_eq!(tester.tr_2_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.tr_ess_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.dc_bus_1_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.dc_bus_2_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::EngineGenerator(2));
+        assert_eq!(
+            tester.tr_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.tr_ess_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.dc_bus_1_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.dc_bus_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.dc_bat_bus_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
     }
 
     /// # Source
@@ -345,29 +535,70 @@ mod a320_electrical_circuit_tests {
     fn distribution_table_tr_2_fault() {
         let tester = tester_with().running_engines().and().failed_tr_2().run();
 
-        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.tr_1_output().source(), PowerSource::EngineGenerator(1));
+        assert_eq!(
+            tester.ac_bus_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_bus_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.tr_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
         assert_eq!(tester.tr_2_output().source(), PowerSource::None);
-        assert_eq!(tester.tr_ess_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.dc_bus_1_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.dc_bus_2_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::EngineGenerator(1));
+        assert_eq!(
+            tester.tr_ess_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.dc_bus_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.dc_bus_2_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.dc_bat_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
     }
 
     /// # Source
     /// A320 manual electrical distribution table
     #[test]
     fn distribution_table_tr_1_and_2_fault() {
-        let tester = tester_with().running_engines().failed_tr_1().and().failed_tr_2().run();
+        let tester = tester_with()
+            .running_engines()
+            .failed_tr_1()
+            .and()
+            .failed_tr_2()
+            .run();
 
-        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::EngineGenerator(1));
+        assert_eq!(
+            tester.ac_bus_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_bus_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
         assert_eq!(tester.tr_1_output().source(), PowerSource::None);
         assert_eq!(tester.tr_2_output().source(), PowerSource::None);
-        assert_eq!(tester.tr_ess_output().source(), PowerSource::EngineGenerator(1));
+        assert_eq!(
+            tester.tr_ess_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
         assert_eq!(tester.dc_bus_1_output().source(), PowerSource::None);
         assert_eq!(tester.dc_bus_2_output().source(), PowerSource::None);
         assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::None);
@@ -389,7 +620,7 @@ mod a320_electrical_circuit_tests {
         // TODO
     }
 
-        /// # Source
+    /// # Source
     /// A320 manual electrical distribution table
     #[test]
     #[ignore]
@@ -397,33 +628,44 @@ mod a320_electrical_circuit_tests {
         // TODO
     }
 
-
     #[test]
     fn when_available_engine_1_gen_supplies_ac_bus_1() {
         let tester = tester_with().running_engine_1().run();
 
-        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::EngineGenerator(1));
+        assert_eq!(
+            tester.ac_bus_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
     }
 
     #[test]
     fn when_available_engine_2_gen_supplies_ac_bus_2() {
         let tester = tester_with().running_engine_2().run();
 
-        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::EngineGenerator(2));
+        assert_eq!(
+            tester.ac_bus_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
     }
 
     #[test]
     fn when_only_engine_1_is_running_supplies_ac_bus_2() {
         let tester = tester_with().running_engine_1().run();
 
-        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::EngineGenerator(1));
+        assert_eq!(
+            tester.ac_bus_2_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
     }
 
     #[test]
     fn when_only_engine_2_is_running_supplies_ac_bus_1() {
         let tester = tester_with().running_engine_2().run();
 
-        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::EngineGenerator(2));
+        assert_eq!(
+            tester.ac_bus_1_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
     }
 
     #[test]
@@ -452,7 +694,7 @@ mod a320_electrical_circuit_tests {
         let tester = tester_with().running_engine_2().and().running_apu().run();
 
         assert_eq!(tester.ac_bus_1_output().source(), PowerSource::ApuGenerator);
-    }        
+    }
 
     #[test]
     fn when_only_apu_running_apu_powers_ac_bus_1_and_2() {
@@ -461,17 +703,25 @@ mod a320_electrical_circuit_tests {
         assert_eq!(tester.ac_bus_1_output().source(), PowerSource::ApuGenerator);
         assert_eq!(tester.ac_bus_2_output().source(), PowerSource::ApuGenerator);
     }
-    
+
     #[test]
     fn when_engine_1_running_and_external_power_connected_ext_pwr_powers_ac_bus_2() {
-        let tester = tester_with().running_engine_1().and().connected_external_power().run();
+        let tester = tester_with()
+            .running_engine_1()
+            .and()
+            .connected_external_power()
+            .run();
 
         assert_eq!(tester.ac_bus_2_output().source(), PowerSource::External);
     }
 
     #[test]
     fn when_engine_2_running_and_external_power_connected_ext_pwr_powers_ac_bus_1() {
-        let tester = tester_with().running_engine_2().and().connected_external_power().run();
+        let tester = tester_with()
+            .running_engine_2()
+            .and()
+            .connected_external_power()
+            .run();
 
         assert_eq!(tester.ac_bus_1_output().source(), PowerSource::External);
     }
@@ -486,7 +736,11 @@ mod a320_electrical_circuit_tests {
 
     #[test]
     fn when_external_power_connected_and_apu_running_external_power_has_priority() {
-        let tester = tester_with().connected_external_power().and().running_apu().run();
+        let tester = tester_with()
+            .connected_external_power()
+            .and()
+            .running_apu()
+            .run();
 
         assert_eq!(tester.ac_bus_1_output().source(), PowerSource::External);
         assert_eq!(tester.ac_bus_2_output().source(), PowerSource::External);
@@ -494,30 +748,52 @@ mod a320_electrical_circuit_tests {
 
     #[test]
     fn when_both_engines_running_and_external_power_connected_engines_power_ac_buses() {
-        let tester = tester_with().running_engines().and().connected_external_power().run();
+        let tester = tester_with()
+            .running_engines()
+            .and()
+            .connected_external_power()
+            .run();
 
-        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::EngineGenerator(2));
+        assert_eq!(
+            tester.ac_bus_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_bus_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
     }
 
     #[test]
     fn when_both_engines_running_and_apu_running_engines_power_ac_buses() {
         let tester = tester_with().running_engines().and().running_apu().run();
 
-        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::EngineGenerator(2));
+        assert_eq!(
+            tester.ac_bus_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_bus_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
     }
 
     #[test]
     fn ac_bus_1_powers_ac_ess_bus_whenever_it_is_powered() {
         let tester = tester_with().running_engines().run();
-        
-        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::EngineGenerator(1));
+
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
     }
 
     #[test]
     fn when_ac_bus_1_becomes_unpowered_nothing_powers_ac_ess_bus_for_a_while() {
-        let tester = tester_with().running_engines().and().failed_ac_bus_1()
+        let tester = tester_with()
+            .running_engines()
+            .and()
+            .failed_ac_bus_1()
             .run_waiting_until_just_before_ac_ess_feed_transition();
 
         assert!(tester.ac_ess_bus_output().is_unpowered());
@@ -528,28 +804,48 @@ mod a320_electrical_circuit_tests {
     /// > The fault light will extinguish after 3 seconds. That's the time delay before automatic switching is activated in case of AC BUS 1 loss.
     #[test]
     fn with_ac_bus_1_being_unpowered_after_a_delay_ac_bus_2_powers_ac_ess_bus() {
-        let tester = tester_with().running_engines().and().failed_ac_bus_1()
+        let tester = tester_with()
+            .running_engines()
+            .and()
+            .failed_ac_bus_1()
             .run_waiting_for_ac_ess_feed_transition();
 
-        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::EngineGenerator(2));
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
     }
 
     /// # Source
     /// Discord (komp#1821):
     /// > When AC BUS 1 is available again, it will switch back automatically without delay, unless the AC ESS FEED button is on ALTN.
     #[test]
-    fn ac_bus_1_powers_ac_ess_bus_immediately_when_ac_bus_1_becomes_powered_after_ac_bus_2_was_powering_ac_ess_bus() {
-        let tester = tester_with().running_engines().and().failed_ac_bus_1()
+    fn ac_bus_1_powers_ac_ess_bus_immediately_when_ac_bus_1_becomes_powered_after_ac_bus_2_was_powering_ac_ess_bus(
+    ) {
+        let tester = tester_with()
+            .running_engines()
+            .and()
+            .failed_ac_bus_1()
             .run_waiting_for_ac_ess_feed_transition()
-            .then_continue_with().normal_ac_bus_1().run();
+            .then_continue_with()
+            .normal_ac_bus_1()
+            .run();
 
-        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::EngineGenerator(1));
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
     }
 
     #[test]
     // For now...
     fn nothing_powers_ac_ess_bus_when_ac_bus_1_and_2_failed() {
-        let tester = tester_with().running_engines().failed_ac_bus_1().and().failed_ac_bus_2().run();
+        let tester = tester_with()
+            .running_engines()
+            .failed_ac_bus_1()
+            .and()
+            .failed_ac_bus_2()
+            .run();
 
         assert!(tester.ac_ess_bus_output().is_unpowered());
     }
@@ -566,8 +862,14 @@ mod a320_electrical_circuit_tests {
     fn when_gen_1_off_and_both_engines_running_engine_2_powers_ac_buses() {
         let tester = tester_with().running_engines().and().gen_1_off().run();
 
-        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::EngineGenerator(2));
-        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::EngineGenerator(2));
+        assert_eq!(
+            tester.ac_bus_1_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
+        assert_eq!(
+            tester.ac_bus_2_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
     }
 
     #[test]
@@ -582,15 +884,28 @@ mod a320_electrical_circuit_tests {
     fn when_gen_2_off_and_both_engines_running_engine_1_powers_ac_buses() {
         let tester = tester_with().running_engines().and().gen_2_off().run();
 
-        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::EngineGenerator(1));
-        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::EngineGenerator(1));
+        assert_eq!(
+            tester.ac_bus_1_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_bus_2_output().source(),
+            PowerSource::EngineGenerator(1)
+        );
     }
 
     #[test]
     fn when_ac_ess_feed_push_button_altn_ac_bus_2_powers_ac_ess_bus() {
-        let tester = tester_with().running_engines().and().ac_ess_feed_altn().run();
+        let tester = tester_with()
+            .running_engines()
+            .and()
+            .ac_ess_feed_altn()
+            .run();
 
-        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::EngineGenerator(2));
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::EngineGenerator(2)
+        );
     }
 
     #[test]
@@ -602,8 +917,13 @@ mod a320_electrical_circuit_tests {
     }
 
     #[test]
-    fn when_only_external_power_connected_but_ext_pwr_push_button_off_nothing_powers_ac_bus_1_and_2() {
-        let tester = tester_with().connected_external_power().and().ext_pwr_off().run();
+    fn when_only_external_power_connected_but_ext_pwr_push_button_off_nothing_powers_ac_bus_1_and_2(
+    ) {
+        let tester = tester_with()
+            .connected_external_power()
+            .and()
+            .ext_pwr_off()
+            .run();
 
         assert!(tester.ac_bus_1_output().is_unpowered());
         assert!(tester.ac_bus_2_output().is_unpowered());
@@ -646,7 +966,10 @@ mod a320_electrical_circuit_tests {
 
     #[test]
     fn when_tr_1_unpowered_ess_tr_powered() {
-        let tester = tester_with().running_engines().and().failed_ac_bus_1()
+        let tester = tester_with()
+            .running_engines()
+            .and()
+            .failed_ac_bus_1()
             // AC ESS BUS which powers TR ESS is only supplied with power after the delay.
             .run_waiting_for_ac_ess_feed_transition();
 
@@ -662,7 +985,11 @@ mod a320_electrical_circuit_tests {
 
     #[test]
     fn when_tr_2_unpowered_ess_tr_powered() {
-        let tester = tester_with().running_engines().and().failed_ac_bus_2().run();
+        let tester = tester_with()
+            .running_engines()
+            .and()
+            .failed_ac_bus_2()
+            .run();
 
         assert!(tester.tr_ess_output().is_powered());
     }
@@ -676,26 +1003,46 @@ mod a320_electrical_circuit_tests {
 
     #[test]
     fn when_ac_bus_1_and_ac_bus_2_are_lost_a_running_emergency_gen_powers_tr_ess() {
-        let tester = tester_with().running_engines()
-            .failed_ac_bus_1().failed_ac_bus_2().and().running_emergency_generator().run();
+        let tester = tester_with()
+            .running_engines()
+            .failed_ac_bus_1()
+            .failed_ac_bus_2()
+            .and()
+            .running_emergency_generator()
+            .run();
 
         assert!(tester.tr_ess_output().is_powered());
-        assert_eq!(tester.tr_ess_output().source(), PowerSource::EmergencyGenerator);
+        assert_eq!(
+            tester.tr_ess_output().source(),
+            PowerSource::EmergencyGenerator
+        );
     }
 
     #[test]
     fn when_ac_bus_1_and_ac_bus_2_are_lost_a_running_emergency_gen_powers_ac_ess_bus() {
-        let tester = tester_with().running_engines()
-            .failed_ac_bus_1().failed_ac_bus_2().and().running_emergency_generator().run();
+        let tester = tester_with()
+            .running_engines()
+            .failed_ac_bus_1()
+            .failed_ac_bus_2()
+            .and()
+            .running_emergency_generator()
+            .run();
 
         assert!(tester.ac_ess_bus_output().is_powered());
-        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::EmergencyGenerator);
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::EmergencyGenerator
+        );
     }
 
     #[test]
     fn when_ac_bus_1_and_ac_bus_2_are_lost_neither_ac_ess_feed_contactor_is_closed() {
-        let tester = tester_with().running_engines()
-            .failed_ac_bus_1().and().failed_ac_bus_2().run();
+        let tester = tester_with()
+            .running_engines()
+            .failed_ac_bus_1()
+            .and()
+            .failed_ac_bus_2()
+            .run();
 
         assert!(tester.both_ac_ess_feed_contactors_open());
     }
@@ -709,8 +1056,12 @@ mod a320_electrical_circuit_tests {
 
     #[test]
     fn when_battery_1_not_full_it_is_powered_by_dc_bat_bus() {
-        let tester = tester_with().running_engines().and().empty_battery_1().run();
-        
+        let tester = tester_with()
+            .running_engines()
+            .and()
+            .empty_battery_1()
+            .run();
+
         assert!(tester.battery_1_input().is_powered());
     }
 
@@ -723,8 +1074,12 @@ mod a320_electrical_circuit_tests {
 
     #[test]
     fn when_battery_2_not_full_it_is_powered_by_dc_bat_bus() {
-        let tester = tester_with().running_engines().and().empty_battery_2().run();
-        
+        let tester = tester_with()
+            .running_engines()
+            .and()
+            .empty_battery_2()
+            .run();
+
         assert!(tester.battery_2_input().is_powered());
     }
 
@@ -743,9 +1098,9 @@ mod a320_electrical_circuit_tests {
         ext_pwr: ExternalPowerSource,
         hyd: A320HydraulicCircuit,
         elec: A320ElectricalCircuit,
-        overhead: A320ElectricalOverheadPanel
+        overhead: A320ElectricalOverheadPanel,
     }
-    
+
     impl ElectricalCircuitTester {
         fn new() -> ElectricalCircuitTester {
             ElectricalCircuitTester {
@@ -755,7 +1110,7 @@ mod a320_electrical_circuit_tests {
                 ext_pwr: ElectricalCircuitTester::new_disconnected_external_power(),
                 hyd: A320HydraulicCircuit::new(),
                 elec: A320ElectricalCircuit::new(),
-                overhead: A320ElectricalOverheadPanel::new()
+                overhead: A320ElectricalOverheadPanel::new(),
             }
         }
 
@@ -765,7 +1120,7 @@ mod a320_electrical_circuit_tests {
         }
 
         fn running_engine_2(mut self) -> ElectricalCircuitTester {
-            self.engine2 = ElectricalCircuitTester::new_running_engine();            
+            self.engine2 = ElectricalCircuitTester::new_running_engine();
             self
         }
 
@@ -901,12 +1256,21 @@ mod a320_electrical_circuit_tests {
         }
 
         fn both_ac_ess_feed_contactors_open(&self) -> bool {
-            self.elec.ac_ess_feed_contactor_1.is_open() && self.elec.ac_ess_feed_contactor_2.is_open()
+            self.elec.ac_ess_feed_contactor_1.is_open()
+                && self.elec.ac_ess_feed_contactor_2.is_open()
         }
 
         fn run(mut self) -> ElectricalCircuitTester {
             let context = UpdateContext::new(Duration::from_millis(1));
-            self.elec.update(&context, &self.engine1, &self.engine2, &self.apu, &self.ext_pwr, &self.hyd, &self.overhead);
+            self.elec.update(
+                &context,
+                &self.engine1,
+                &self.engine2,
+                &self.apu,
+                &self.ext_pwr,
+                &self.hyd,
+                &self.overhead,
+            );
 
             self
         }
@@ -915,10 +1279,26 @@ mod a320_electrical_circuit_tests {
             // Firstly run without any time passing at all, such that if the DelayedTrueLogicGate reaches
             // the true state after waiting for the given time it will be reflected in its output.
             let context = UpdateContext::new(Duration::from_secs(0));
-            self.elec.update(&context, &self.engine1, &self.engine2, &self.apu, &self.ext_pwr, &self.hyd, &self.overhead);
+            self.elec.update(
+                &context,
+                &self.engine1,
+                &self.engine2,
+                &self.apu,
+                &self.ext_pwr,
+                &self.hyd,
+                &self.overhead,
+            );
 
             let context = UpdateContext::new(delta);
-            self.elec.update(&context, &self.engine1, &self.engine2, &self.apu, &self.ext_pwr, &self.hyd, &self.overhead);
+            self.elec.update(
+                &context,
+                &self.engine1,
+                &self.engine2,
+                &self.apu,
+                &self.ext_pwr,
+                &self.hyd,
+                &self.overhead,
+            );
 
             self
         }
@@ -928,47 +1308,51 @@ mod a320_electrical_circuit_tests {
         }
 
         fn run_waiting_until_just_before_ac_ess_feed_transition(self) -> ElectricalCircuitTester {
-            self.run_waiting_for(A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS - Duration::from_millis(1))
+            self.run_waiting_for(
+                A320ElectricalCircuit::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS
+                    - Duration::from_millis(1),
+            )
         }
 
         fn new_running_engine() -> Engine {
             let mut engine = Engine::new();
-            engine.n2 = Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD + 1.);
-    
+            engine.n2 =
+                Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD + 1.);
+
             engine
         }
 
         fn new_stopped_engine() -> Engine {
             let mut engine = Engine::new();
             engine.n2 = Ratio::new::<percent>(0.);
-    
+
             engine
         }
 
         fn new_stopped_apu() -> AuxiliaryPowerUnit {
             let mut apu = AuxiliaryPowerUnit::new();
             apu.speed = Ratio::new::<percent>(0.);
-    
+
             apu
         }
-    
+
         fn new_running_apu() -> AuxiliaryPowerUnit {
             let mut apu = AuxiliaryPowerUnit::new();
             apu.speed = Ratio::new::<percent>(ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD + 1.);
-    
+
             apu
         }
-    
+
         fn new_disconnected_external_power() -> ExternalPowerSource {
             let ext_pwr = ExternalPowerSource::new();
-            
+
             ext_pwr
         }
-    
+
         fn new_connected_external_power() -> ExternalPowerSource {
             let mut ext_pwr = ExternalPowerSource::new();
             ext_pwr.plugged_in = true;
-            
+
             ext_pwr
         }
     }

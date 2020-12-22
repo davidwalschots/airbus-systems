@@ -1,4 +1,11 @@
-use uom::si::{electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f32::{Frequency, ElectricPotential, ElectricCurrent, Ratio, ElectricCharge}, frequency::hertz, ratio::percent};
+use uom::si::{
+    electric_charge::ampere_hour,
+    electric_current::ampere,
+    electric_potential::volt,
+    f32::{ElectricCharge, ElectricCurrent, ElectricPotential, Frequency, Ratio},
+    frequency::hertz,
+    ratio::percent,
+};
 
 use crate::{overhead::OnOffPushButton, shared::Engine};
 
@@ -9,7 +16,7 @@ pub enum PowerSource {
     ApuGenerator,
     External,
     EmergencyGenerator,
-    Battery(u8)
+    Battery(u8),
 }
 
 /// Represents a type of electric current.
@@ -17,27 +24,31 @@ pub enum PowerSource {
 pub enum Current {
     Alternating(PowerSource, Frequency, ElectricPotential, ElectricCurrent),
     Direct(PowerSource, ElectricPotential, ElectricCurrent),
-    None
+    None,
 }
 
 impl Current {
     pub fn is_powered(self) -> bool {
-        match self { 
+        match self {
             Current::Alternating(..) => true,
             Current::Direct(..) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_unpowered(self) -> bool {
-        if let Current::None = self { true } else { false }
+        if let Current::None = self {
+            true
+        } else {
+            false
+        }
     }
 
     pub fn source(self) -> PowerSource {
         match self {
             Current::Alternating(source, ..) => source,
             Current::Direct(source, ..) => source,
-            _ => PowerSource::None
+            _ => PowerSource::None,
         }
     }
 }
@@ -50,13 +61,18 @@ pub trait Powerable {
     /// Provides input power from any of the given sources. When none of the sources
     /// has any output, no input is provided.
     fn powered_by<T: PowerConductor + ?Sized>(&mut self, sources: Vec<&T>) {
-        self.set_input(sources.iter().find_map(|x| {
-            let output = x.output();
-            match output {
-                Current::None => None,
-                _ => Some(output)
-            }
-        }).unwrap_or(Current::None));
+        self.set_input(
+            sources
+                .iter()
+                .find_map(|x| {
+                    let output = x.output();
+                    match output {
+                        Current::None => None,
+                        _ => Some(output),
+                    }
+                })
+                .unwrap_or(Current::None),
+        );
     }
 
     /// Provides input power from any of the given sources. When none of the sources
@@ -82,7 +98,7 @@ pub trait Powerable {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ContactorState {
     Open,
-    Closed
+    Closed,
 }
 
 /// Represents a contactor in a electrical power circuit.
@@ -106,7 +122,7 @@ impl Contactor {
         self.state = match self.state {
             ContactorState::Open if should_be_closed => ContactorState::Closed,
             ContactorState::Closed if !should_be_closed => ContactorState::Open,
-            _ => self.state
+            _ => self.state,
         };
     }
 
@@ -163,8 +179,12 @@ impl EngineGenerator {
         // IDG itself. It would be disconnected the moment the push button is in the off state. Then the logic below would
         // consider the IDG state itself, instead of the button state.
         if EngineGenerator::engine_above_threshold(engine) && idg_push_button.is_on() {
-            self.output = Current::Alternating(PowerSource::EngineGenerator(self.number), Frequency::new::<hertz>(400.), 
-                ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60));
+            self.output = Current::Alternating(
+                PowerSource::EngineGenerator(self.number),
+                Frequency::new::<hertz>(400.),
+                ElectricPotential::new::<volt>(115.),
+                ElectricCurrent::new::<ampere>(782.60),
+            );
         } else {
             self.output = Current::None
         }
@@ -182,7 +202,7 @@ impl PowerConductor for EngineGenerator {
 }
 
 pub struct ApuGenerator {
-    output: Current
+    output: Current,
 }
 
 impl ApuGenerator {
@@ -190,15 +210,19 @@ impl ApuGenerator {
 
     pub fn new() -> ApuGenerator {
         ApuGenerator {
-            output: Current::None
+            output: Current::None,
         }
     }
 
     pub fn update(&mut self, apu: &AuxiliaryPowerUnit) {
         const POWER_OUTPUT_THRESHOLD: f32 = 57.5;
         if apu.speed > Ratio::new::<percent>(ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD) {
-            self.output = Current::Alternating(PowerSource::ApuGenerator, Frequency::new::<hertz>(400.),
-                ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60));
+            self.output = Current::Alternating(
+                PowerSource::ApuGenerator,
+                Frequency::new::<hertz>(400.),
+                ElectricPotential::new::<volt>(115.),
+                ElectricCurrent::new::<ampere>(782.60),
+            );
         } else {
             self.output = Current::None
         }
@@ -212,34 +236,36 @@ impl PowerConductor for ApuGenerator {
 }
 
 pub struct AuxiliaryPowerUnit {
-    pub speed: Ratio
+    pub speed: Ratio,
 }
 
 impl AuxiliaryPowerUnit {
     pub fn new() -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
-            speed: Ratio::new::<percent>(0.)
+            speed: Ratio::new::<percent>(0.),
         }
     }
 }
 
 pub struct ExternalPowerSource {
-    pub plugged_in: bool
+    pub plugged_in: bool,
 }
 
 impl ExternalPowerSource {
     pub fn new() -> ExternalPowerSource {
-        ExternalPowerSource {
-            plugged_in: false
-        }
+        ExternalPowerSource { plugged_in: false }
     }
 }
 
 impl PowerConductor for ExternalPowerSource {
     fn output(&self) -> Current {
-        if self.plugged_in { 
-            Current::Alternating(PowerSource::External, Frequency::new::<hertz>(400.), 
-                ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60))
+        if self.plugged_in {
+            Current::Alternating(
+                PowerSource::External,
+                Frequency::new::<hertz>(400.),
+                ElectricPotential::new::<volt>(115.),
+                ElectricCurrent::new::<ampere>(782.60),
+            )
         } else {
             Current::None
         }
@@ -248,14 +274,14 @@ impl PowerConductor for ExternalPowerSource {
 
 pub struct ElectricalBus {
     input: Current,
-    failed: bool
+    failed: bool,
 }
 
 impl ElectricalBus {
     pub fn new() -> ElectricalBus {
         ElectricalBus {
             input: Current::None,
-            failed: false
+            failed: false,
         }
     }
 
@@ -290,14 +316,14 @@ impl PowerConductor for ElectricalBus {
 
 pub struct TransformerRectifier {
     input: Current,
-    failed: bool
+    failed: bool,
 }
 
 impl TransformerRectifier {
     pub fn new() -> TransformerRectifier {
         TransformerRectifier {
             input: Current::None,
-            failed: false
+            failed: false,
         }
     }
 
@@ -330,8 +356,12 @@ impl PowerConductor for TransformerRectifier {
             Current::None
         } else {
             match self.input {
-                Current::Alternating(source, ..) => Current::Direct(source, ElectricPotential::new::<volt>(28.5), ElectricCurrent::new::<ampere>(35.)),
-                _ => Current::None
+                Current::Alternating(source, ..) => Current::Direct(
+                    source,
+                    ElectricPotential::new::<volt>(28.5),
+                    ElectricCurrent::new::<ampere>(35.),
+                ),
+                _ => Current::None,
             }
         }
     }
@@ -339,14 +369,14 @@ impl PowerConductor for TransformerRectifier {
 
 pub struct EmergencyGenerator {
     running: bool,
-    is_blue_pressurised: bool
+    is_blue_pressurised: bool,
 }
 
 impl EmergencyGenerator {
     pub fn new() -> EmergencyGenerator {
         EmergencyGenerator {
             running: false,
-            is_blue_pressurised: false
+            is_blue_pressurised: false,
         }
     }
 
@@ -367,7 +397,12 @@ impl EmergencyGenerator {
 impl PowerConductor for EmergencyGenerator {
     fn output(&self) -> Current {
         if self.is_running() {
-            Current::Alternating(PowerSource::EmergencyGenerator, Frequency::new::<hertz>(400.), ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(43.47)) // 5 kVA.
+            Current::Alternating(
+                PowerSource::EmergencyGenerator,
+                Frequency::new::<hertz>(400.),
+                ElectricPotential::new::<volt>(115.),
+                ElectricCurrent::new::<ampere>(43.47),
+            ) // 5 kVA.
         } else {
             Current::None
         }
@@ -377,14 +412,17 @@ impl PowerConductor for EmergencyGenerator {
 pub struct Battery {
     number: u8,
     input: Current,
-    charge: ElectricCharge
+    charge: ElectricCharge,
 }
 
 impl Battery {
     const MAX_ELECTRIC_CHARGE_AMPERE_HOURS: f32 = 23.0;
 
     pub fn full(number: u8) -> Battery {
-        Battery::new(number, ElectricCharge::new::<ampere_hour>(Battery::MAX_ELECTRIC_CHARGE_AMPERE_HOURS))
+        Battery::new(
+            number,
+            ElectricCharge::new::<ampere_hour>(Battery::MAX_ELECTRIC_CHARGE_AMPERE_HOURS),
+        )
     }
 
     pub fn empty(number: u8) -> Battery {
@@ -395,7 +433,7 @@ impl Battery {
         Battery {
             number,
             input: Current::None,
-            charge
+            charge,
         }
     }
 
@@ -424,10 +462,14 @@ impl PowerConductor for Battery {
     fn output(&self) -> Current {
         if let Current::None = self.input {
             if self.charge > ElectricCharge::new::<ampere_hour>(0.) {
-                return Current::Direct(PowerSource::Battery(self.number), ElectricPotential::new::<volt>(28.5), ElectricCurrent::new::<ampere>(35.));
+                return Current::Direct(
+                    PowerSource::Battery(self.number),
+                    ElectricPotential::new::<volt>(28.5),
+                    ElectricCurrent::new::<ampere>(35.),
+                );
             }
         }
-        
+
         Current::None
     }
 }
@@ -447,8 +489,12 @@ mod tests {
 
     impl PowerConductor for StubApuGenerator {
         fn output(&self) -> Current {
-            Current::Alternating(PowerSource::ApuGenerator, Frequency::new::<hertz>(400.), 
-                ElectricPotential::new::<volt>(115.), ElectricCurrent::new::<ampere>(782.60))
+            Current::Alternating(
+                PowerSource::ApuGenerator,
+                Frequency::new::<hertz>(400.),
+                ElectricPotential::new::<volt>(115.),
+                ElectricCurrent::new::<ampere>(782.60),
+            )
         }
     }
 
@@ -481,7 +527,7 @@ mod tests {
         fn direct_current_is_not_unpowered() {
             assert_eq!(direct_current().is_unpowered(), false);
         }
-        
+
         #[test]
         fn none_current_is_not_powered() {
             assert_eq!(none_current().is_powered(), false);
@@ -493,11 +539,20 @@ mod tests {
         }
 
         fn alternating_current() -> Current {
-            Current::Alternating(PowerSource::ApuGenerator, Frequency::new::<hertz>(0.), ElectricPotential::new::<volt>(0.), ElectricCurrent::new::<ampere>(0.))
+            Current::Alternating(
+                PowerSource::ApuGenerator,
+                Frequency::new::<hertz>(0.),
+                ElectricPotential::new::<volt>(0.),
+                ElectricCurrent::new::<ampere>(0.),
+            )
         }
 
         fn direct_current() -> Current {
-            Current::Direct(PowerSource::ApuGenerator, ElectricPotential::new::<volt>(0.), ElectricCurrent::new::<ampere>(0.))
+            Current::Direct(
+                PowerSource::ApuGenerator,
+                ElectricPotential::new::<volt>(0.),
+                ElectricCurrent::new::<ampere>(0.),
+            )
         }
 
         fn none_current() -> Current {
@@ -573,8 +628,10 @@ mod tests {
             contactor_has_no_output_when_powered_by_nothing_which_is_powered(closed_contactor());
         }
 
-        fn contactor_has_no_output_when_powered_by_nothing_which_is_powered(mut contactor: Contactor) {
-            contactor.powered_by(vec![&Powerless{}]);
+        fn contactor_has_no_output_when_powered_by_nothing_which_is_powered(
+            mut contactor: Contactor,
+        ) {
+            contactor.powered_by(vec![&Powerless {}]);
 
             assert!(contactor.output().is_unpowered());
         }
@@ -582,7 +639,7 @@ mod tests {
         #[test]
         fn open_contactor_has_no_output_when_powered_by_something() {
             let mut contactor = open_contactor();
-            let conductors: Vec<&dyn PowerConductor> = vec![&Powerless{}, &StubApuGenerator{}];
+            let conductors: Vec<&dyn PowerConductor> = vec![&Powerless {}, &StubApuGenerator {}];
             contactor.powered_by(conductors);
 
             assert!(contactor.output().is_unpowered());
@@ -591,7 +648,7 @@ mod tests {
         #[test]
         fn closed_contactor_has_output_when_powered_by_something_which_is_powered() {
             let mut contactor = closed_contactor();
-            let conductors: Vec<&dyn PowerConductor> = vec![&Powerless{}, &StubApuGenerator{}];
+            let conductors: Vec<&dyn PowerConductor> = vec![&Powerless {}, &StubApuGenerator {}];
             contactor.powered_by(conductors);
 
             assert!(contactor.output().is_powered());
@@ -618,8 +675,8 @@ mod tests {
 
     #[cfg(test)]
     mod engine_generator_tests {
-        use uom::si::{ratio::percent};
         use super::*;
+        use uom::si::ratio::percent;
 
         #[test]
         fn starts_without_output() {
@@ -672,18 +729,22 @@ mod tests {
         }
 
         fn engine_above_threshold() -> Engine {
-            engine(Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD + 1.))
+            engine(Ratio::new::<percent>(
+                EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD + 1.,
+            ))
         }
 
         fn engine_below_threshold() -> Engine {
-            engine(Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD - 1.))
+            engine(Ratio::new::<percent>(
+                EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD - 1.,
+            ))
         }
     }
 
     #[cfg(test)]
     mod apu_generator_tests {
-        use uom::si::{ratio::percent};
         use super::*;
+        use uom::si::ratio::percent;
 
         #[test]
         fn starts_without_output() {
@@ -720,11 +781,15 @@ mod tests {
         }
 
         fn update_above_threshold(generator: &mut ApuGenerator) {
-            generator.update(&apu(Ratio::new::<percent>(ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD + 1.)));
+            generator.update(&apu(Ratio::new::<percent>(
+                ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD + 1.,
+            )));
         }
 
         fn update_below_threshold(generator: &mut ApuGenerator) {
-            generator.update(&apu(Ratio::new::<percent>(ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD - 1.)));
+            generator.update(&apu(Ratio::new::<percent>(
+                ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD - 1.,
+            )));
         }
     }
 
@@ -770,16 +835,22 @@ mod tests {
         #[test]
         fn when_powered_with_alternating_current_outputs_direct_current() {
             let mut tr = transformer_rectifier();
-            tr.powered_by(vec!(&apu_generator()));
+            tr.powered_by(vec![&apu_generator()]);
 
             assert!(tr.output().is_powered());
-            assert!(if let Current::Direct(PowerSource::ApuGenerator, ..) = tr.output() { true } else { false });
+            assert!(
+                if let Current::Direct(PowerSource::ApuGenerator, ..) = tr.output() {
+                    true
+                } else {
+                    false
+                }
+            );
         }
 
         #[test]
         fn when_powered_with_alternating_current_but_failed_has_no_output() {
             let mut tr = transformer_rectifier();
-            tr.powered_by(vec!(&apu_generator()));
+            tr.powered_by(vec![&apu_generator()]);
             tr.fail();
 
             assert!(tr.output().is_unpowered());
@@ -788,7 +859,7 @@ mod tests {
         #[test]
         fn when_unpowered_has_no_output() {
             let mut tr = transformer_rectifier();
-            tr.powered_by(vec!(&Powerless {}));
+            tr.powered_by(vec![&Powerless {}]);
 
             tr.output().is_unpowered();
         }
@@ -851,8 +922,8 @@ mod tests {
         #[test]
         fn when_empty_battery_has_input_doesnt_have_output() {
             let mut battery = empty_battery();
-            battery.powered_by(vec!(&apu_generator()));
-            
+            battery.powered_by(vec![&apu_generator()]);
+
             assert!(battery.output().is_unpowered());
         }
 
@@ -860,24 +931,24 @@ mod tests {
         fn when_full_battery_has_doesnt_have_output() {
             // Of course battery input at this stage would result in overcharging. However, for the sake of the test we ignore it.
             let mut battery = full_battery();
-            battery.powered_by(vec!(&apu_generator()));
-            
+            battery.powered_by(vec![&apu_generator()]);
+
             assert!(battery.output().is_unpowered());
         }
 
         #[test]
         fn charged_battery_without_input_has_output() {
             let mut battery = full_battery();
-            battery.powered_by(vec!(&Powerless{}));
-            
+            battery.powered_by(vec![&Powerless {}]);
+
             assert!(battery.output().is_powered());
         }
 
         #[test]
         fn empty_battery_without_input_has_no_output() {
             let mut battery = empty_battery();
-            battery.powered_by(vec!(&Powerless{}));
-            
+            battery.powered_by(vec![&Powerless {}]);
+
             assert!(battery.output().is_unpowered());
         }
 

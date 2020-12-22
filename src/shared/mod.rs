@@ -1,15 +1,13 @@
-use uom::si::{f32::{Ratio}, ratio::percent};
 use std::time::Duration;
+use uom::si::{f32::Ratio, ratio::percent};
 
 pub struct UpdateContext {
-    delta: Duration
+    delta: Duration,
 }
 
 impl UpdateContext {
     pub fn new(delta: Duration) -> UpdateContext {
-        UpdateContext {
-            delta
-        }
+        UpdateContext { delta }
     }
 }
 
@@ -18,7 +16,7 @@ impl UpdateContext {
 pub struct DelayedTrueLogicGate {
     delay: Duration,
     expression_result: bool,
-    true_duration: Duration
+    true_duration: Duration,
 }
 
 impl DelayedTrueLogicGate {
@@ -26,7 +24,7 @@ impl DelayedTrueLogicGate {
         DelayedTrueLogicGate {
             delay,
             expression_result: false,
-            true_duration: Duration::from_millis(0)
+            true_duration: Duration::from_millis(0),
         }
     }
 
@@ -51,13 +49,13 @@ impl DelayedTrueLogicGate {
 }
 
 pub struct Engine {
-    pub n2: Ratio
+    pub n2: Ratio,
 }
 
 impl Engine {
     pub fn new() -> Engine {
         Engine {
-            n2: Ratio::new::<percent>(0.)
+            n2: Ratio::new::<percent>(0.),
         }
     }
 }
@@ -94,7 +92,8 @@ mod delayed_true_logic_gate_tests {
     }
 
     #[test]
-    fn when_the_expression_is_true_and_becomes_false_before_delay_has_passed_returns_false_once_delay_passed() {
+    fn when_the_expression_is_true_and_becomes_false_before_delay_has_passed_returns_false_once_delay_passed(
+    ) {
         let mut gate = delay_logic_gate(Duration::from_millis(1_000));
         gate.update(&update_context(Duration::new(0, 0)), true);
         gate.update(&update_context(Duration::from_millis(800)), true);
