@@ -318,12 +318,11 @@ impl A320Electrical {
         self.battery_2_to_dc_ess_bus_contactor.close_when(
             self.tr_ess_contactor.is_open() && self.dc_bat_bus_to_dc_ess_bus_contactor.is_open(),
         );
-        let dc_ess_bus_power_sources: Vec<&dyn PowerConductor> = vec![
+        self.dc_ess_bus.powered_by(vec![
             &self.dc_bat_bus_to_dc_ess_bus_contactor,
             &self.tr_ess_contactor,
             &self.battery_2_to_dc_ess_bus_contactor,
-        ];
-        self.dc_ess_bus.powered_by(dc_ess_bus_power_sources);
+        ]);
         let dc_ess_shed_contactor_power_sources: Vec<&dyn PowerConductor> =
             vec![&self.dc_ess_bus, &self.battery_2_to_dc_ess_bus_contactor];
         self.dc_ess_shed_contactor
