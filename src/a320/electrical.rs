@@ -226,10 +226,11 @@ impl A320Electrical {
             vec![&self.ac_ess_bus, &self.emergency_gen_contactor];
         self.ac_ess_to_tr_ess_contactor
             .powered_by(ac_ess_to_tr_ess_contactor_power_sources);
-        self.ac_ess_to_tr_ess_contactor.close_when(
-            A320Electrical::has_failed_or_is_unpowered(&self.tr_1)
-                || A320Electrical::has_failed_or_is_unpowered(&self.tr_2),
-        );
+
+        let tr_1_or_2_unavailable = A320Electrical::has_failed_or_is_unpowered(&self.tr_1)
+            || A320Electrical::has_failed_or_is_unpowered(&self.tr_2);
+        self.ac_ess_to_tr_ess_contactor
+            .close_when(tr_1_or_2_unavailable);
 
         self.ac_ess_bus
             .or_powered_by(vec![&self.ac_ess_to_tr_ess_contactor]);
@@ -263,7 +264,7 @@ impl A320Electrical {
         self.tr_2_contactor.powered_by(vec![&self.tr_2]);
 
         self.tr_ess_contactor
-            .close_when(self.tr_ess.output().is_powered());
+            .close_when(tr_1_or_2_unavailable && self.tr_ess.output().is_powered());
         self.tr_ess_contactor.powered_by(vec![&self.tr_ess]);
 
         self.dc_bus_1.powered_by(vec![&self.tr_1_contactor]);
@@ -311,11 +312,12 @@ impl A320Electrical {
         self.dc_bat_bus_to_dc_ess_bus_contactor
             .powered_by(vec![&self.dc_bat_bus]);
         self.dc_bat_bus_to_dc_ess_bus_contactor
-            .close_when(self.tr_ess_contactor.output().is_unpowered());
+            .close_when(!tr_1_or_2_unavailable);
         self.battery_2_to_dc_ess_bus_contactor
             .powered_by(vec![&self.battery_2]);
-        self.battery_2_to_dc_ess_bus_contactor
-            .close_when(!generator_provides_power);
+        self.battery_2_to_dc_ess_bus_contactor.close_when(
+            self.tr_ess_contactor.is_open() && self.dc_bat_bus_to_dc_ess_bus_contactor.is_open(),
+        );
         let dc_ess_bus_power_sources: Vec<&dyn PowerConductor> = vec![
             &self.dc_bat_bus_to_dc_ess_bus_contactor,
             &self.tr_ess_contactor,
@@ -327,13 +329,31 @@ impl A320Electrical {
         self.dc_ess_shed_contactor
             .powered_by(dc_ess_shed_contactor_power_sources);
         self.dc_ess_shed_contactor
-            .close_when(generator_provides_power);
+            .close_when(self.battery_2_to_dc_ess_bus_contactor.is_open());
         self.dc_ess_shed_bus
             .powered_by(vec![&self.dc_ess_shed_contactor]);
+
+        self.debug_assert_invariants();
     }
 
     fn has_failed_or_is_unpowered(tr: &TransformerRectifier) -> bool {
         tr.has_failed() || tr.output().is_unpowered()
+    }
+
+    fn debug_assert_invariants(&self) {
+        debug_assert!(self.battery_never_powers_dc_ess_shed());
+        debug_assert!(self.only_one_source_powers_dc_ess_bus());
+    }
+
+    fn battery_never_powers_dc_ess_shed(&self) -> bool {
+        !(self.battery_2_to_dc_ess_bus_contactor.is_closed()
+            && self.dc_ess_shed_contactor.is_closed())
+    }
+
+    fn only_one_source_powers_dc_ess_bus(&self) -> bool {
+        self.battery_2_to_dc_ess_bus_contactor.is_closed()
+            ^ self.dc_bat_bus_to_dc_ess_bus_contactor.is_closed()
+            ^ self.tr_ess_contactor.is_closed()
     }
 }
 
