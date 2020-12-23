@@ -494,6 +494,42 @@ impl PowerConductor for Battery {
     }
 }
 
+pub struct StaticInverter {
+    input: Current,
+}
+
+impl StaticInverter {
+    pub fn new() -> StaticInverter {
+        StaticInverter {
+            input: Current::None,
+        }
+    }
+}
+
+impl Powerable for StaticInverter {
+    fn set_input(&mut self, current: Current) {
+        self.input = current;
+    }
+
+    fn get_input(&self) -> Current {
+        self.input
+    }
+}
+
+impl PowerConductor for StaticInverter {
+    fn output(&self) -> Current {
+        match self.input {
+            Current::Direct(source, ..) => Current::Alternating(
+                source,
+                Frequency::new::<hertz>(400.),
+                ElectricPotential::new::<volt>(115.0),
+                ElectricCurrent::new::<ampere>(8.7),
+            ),
+            _ => Current::None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -881,7 +917,7 @@ mod tests {
             let mut tr = transformer_rectifier();
             tr.powered_by(vec![&Powerless {}]);
 
-            tr.output().is_unpowered();
+            assert!(tr.output().is_unpowered());
         }
 
         fn transformer_rectifier() -> TransformerRectifier {
@@ -978,6 +1014,47 @@ mod tests {
 
         fn empty_battery() -> Battery {
             Battery::empty(1)
+        }
+    }
+
+    #[cfg(test)]
+    mod static_inverter_tests {
+        use super::*;
+
+        #[test]
+        fn starts_without_output() {
+            assert!(static_inverter().output().is_unpowered());
+        }
+
+        #[test]
+        fn when_powered_with_direct_current_outputs_alternating_current() {
+            let mut static_inv = static_inverter();
+            static_inv.powered_by(vec![&battery()]);
+
+            assert!(static_inv.output().is_powered());
+            assert!(
+                if let Current::Alternating(PowerSource::Battery(1), ..) = static_inv.output() {
+                    true
+                } else {
+                    false
+                }
+            );
+        }
+
+        #[test]
+        fn when_unpowered_has_no_output() {
+            let mut static_inv = static_inverter();
+            static_inv.powered_by(vec![&Powerless {}]);
+
+            assert!(static_inv.output().is_unpowered());
+        }
+
+        fn static_inverter() -> StaticInverter {
+            StaticInverter::new()
+        }
+
+        fn battery() -> Battery {
+            Battery::full(1)
         }
     }
 }

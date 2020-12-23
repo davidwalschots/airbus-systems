@@ -4,7 +4,8 @@ use uom::si::{f32::Ratio, ratio::percent};
 use crate::{
     electrical::{
         ApuGenerator, AuxiliaryPowerUnit, Battery, Contactor, ElectricalBus, EmergencyGenerator,
-        EngineGenerator, ExternalPowerSource, PowerConductor, Powerable, TransformerRectifier,
+        EngineGenerator, ExternalPowerSource, PowerConductor, Powerable, StaticInverter,
+        TransformerRectifier,
     },
     overhead::{NormalAltnPushButton, OnOffPushButton},
     shared::{DelayedTrueLogicGate, Engine, UpdateContext},
@@ -54,6 +55,10 @@ pub struct A320Electrical {
     battery_2: Battery,
     battery_2_contactor: Contactor,
     battery_2_to_dc_ess_bus_contactor: Contactor,
+    battery_1_to_static_inv_contactor: Contactor,
+    static_inv: StaticInverter,
+    static_inv_to_ac_ess_bus_contactor: Contactor,
+    ac_stat_inv_bus: ElectricalBus,
     hot_bus_1: ElectricalBus,
     hot_bus_2: ElectricalBus,
 }
@@ -104,7 +109,11 @@ impl A320Electrical {
             battery_1_contactor: Contactor::new(String::from("6PB1")),
             battery_2: Battery::full(2),
             battery_2_contactor: Contactor::new(String::from("6PB2")),
-            battery_2_to_dc_ess_bus_contactor: Contactor::new(String::from("2XB")),
+            battery_2_to_dc_ess_bus_contactor: Contactor::new(String::from("2XB-2")),
+            battery_1_to_static_inv_contactor: Contactor::new(String::from("2XB-1")),
+            static_inv: StaticInverter::new(),
+            static_inv_to_ac_ess_bus_contactor: Contactor::new(String::from("15XE2")),
+            ac_stat_inv_bus: ElectricalBus::new(),
             hot_bus_1: ElectricalBus::new(),
             hot_bus_2: ElectricalBus::new(),
         }
@@ -229,26 +238,18 @@ impl A320Electrical {
 
         let tr_1_or_2_unavailable = A320Electrical::has_failed_or_is_unpowered(&self.tr_1)
             || A320Electrical::has_failed_or_is_unpowered(&self.tr_2);
-        self.ac_ess_to_tr_ess_contactor
-            .close_when(tr_1_or_2_unavailable);
+        self.ac_ess_to_tr_ess_contactor.close_when(
+            (tr_1_or_2_unavailable
+                && (self.ac_ess_feed_contactor_1.output().is_powered()
+                    || self.ac_ess_feed_contactor_2.output().is_powered()))
+                || self.emergency_gen_contactor.output().is_powered(),
+        );
 
         self.ac_ess_bus
             .or_powered_by(vec![&self.ac_ess_to_tr_ess_contactor]);
 
         self.ac_ess_shed_contactor
             .powered_by(vec![&self.ac_ess_bus]);
-
-        let emergency_gen_provides_power = self.emergency_gen.output().is_powered();
-        let generator_provides_power = gen_1_provides_power
-            || gen_2_provides_power
-            || apu_gen_provides_power
-            || ext_pwr_provides_power
-            || emergency_gen_provides_power;
-        self.ac_ess_shed_contactor
-            .close_when(generator_provides_power);
-
-        self.ac_ess_shed_bus
-            .powered_by(vec![&self.ac_ess_shed_contactor]);
 
         self.tr_ess.powered_by(vec![
             &self.ac_ess_to_tr_ess_contactor,
@@ -318,6 +319,35 @@ impl A320Electrical {
         self.battery_2_to_dc_ess_bus_contactor.close_when(
             self.tr_ess_contactor.is_open() && self.dc_bat_bus_to_dc_ess_bus_contactor.is_open(),
         );
+        self.battery_1_to_static_inv_contactor
+            .powered_by(vec![&self.battery_1]);
+        self.battery_1_to_static_inv_contactor
+            .close_when(self.battery_2_to_dc_ess_bus_contactor.is_closed());
+
+        self.static_inv
+            .powered_by(vec![&self.battery_1_to_static_inv_contactor]);
+
+        self.ac_stat_inv_bus.powered_by(vec![&self.static_inv]);
+        self.static_inv_to_ac_ess_bus_contactor
+            .close_when(self.static_inv.output().is_powered());
+        self.static_inv_to_ac_ess_bus_contactor
+            .powered_by(vec![&self.static_inv]);
+
+        self.ac_ess_bus
+            .or_powered_by(vec![&self.static_inv_to_ac_ess_bus_contactor]);
+
+        let emergency_gen_provides_power = self.emergency_gen.output().is_powered();
+        let generator_provides_power = gen_1_provides_power
+            || gen_2_provides_power
+            || apu_gen_provides_power
+            || ext_pwr_provides_power
+            || emergency_gen_provides_power;
+        self.ac_ess_shed_contactor
+            .close_when(generator_provides_power);
+
+        self.ac_ess_shed_bus
+            .powered_by(vec![&self.ac_ess_shed_contactor]);
+
         self.dc_ess_bus.powered_by(vec![
             &self.dc_bat_bus_to_dc_ess_bus_contactor,
             &self.tr_ess_contactor,
@@ -342,6 +372,10 @@ impl A320Electrical {
     fn debug_assert_invariants(&self) {
         debug_assert!(self.battery_never_powers_dc_ess_shed());
         debug_assert!(self.only_one_source_powers_dc_ess_bus());
+        debug_assert!(self.static_inverter_or_emergency_gen_powers_ac_ess_bus());
+        debug_assert!(
+            self.batteries_power_both_static_inv_and_dc_ess_bus_at_the_same_time_or_not_at_all()
+        );
     }
 
     fn battery_never_powers_dc_ess_shed(&self) -> bool {
@@ -353,6 +387,18 @@ impl A320Electrical {
         self.battery_2_to_dc_ess_bus_contactor.is_closed()
             ^ self.dc_bat_bus_to_dc_ess_bus_contactor.is_closed()
             ^ self.tr_ess_contactor.is_closed()
+    }
+
+    fn static_inverter_or_emergency_gen_powers_ac_ess_bus(&self) -> bool {
+        !(self.static_inv_to_ac_ess_bus_contactor.is_closed()
+            && self.ac_ess_to_tr_ess_contactor.is_closed())
+    }
+
+    fn batteries_power_both_static_inv_and_dc_ess_bus_at_the_same_time_or_not_at_all(
+        &self,
+    ) -> bool {
+        self.battery_1_to_static_inv_contactor.is_closed()
+            == self.battery_2_to_dc_ess_bus_contactor.is_closed()
     }
 }
 
@@ -432,6 +478,7 @@ mod a320_electrical_circuit_tests {
             tester.ac_ess_shed_bus_output().source(),
             PowerSource::EngineGenerator(1)
         );
+        assert_eq!(tester.ac_stat_inv_bus_output().source(), PowerSource::None);
         assert_eq!(
             tester.tr_1_output().source(),
             PowerSource::EngineGenerator(1)
@@ -487,6 +534,7 @@ mod a320_electrical_circuit_tests {
             tester.ac_ess_shed_bus_output().source(),
             PowerSource::EngineGenerator(1)
         );
+        assert_eq!(tester.ac_stat_inv_bus_output().source(), PowerSource::None);
         assert_eq!(
             tester.tr_1_output().source(),
             PowerSource::EngineGenerator(1)
@@ -542,6 +590,7 @@ mod a320_electrical_circuit_tests {
             tester.ac_ess_shed_bus_output().source(),
             PowerSource::EngineGenerator(2)
         );
+        assert_eq!(tester.ac_stat_inv_bus_output().source(), PowerSource::None);
         assert_eq!(
             tester.tr_1_output().source(),
             PowerSource::EngineGenerator(2)
@@ -591,6 +640,7 @@ mod a320_electrical_circuit_tests {
             tester.ac_ess_shed_bus_output().source(),
             PowerSource::ApuGenerator
         );
+        assert_eq!(tester.ac_stat_inv_bus_output().source(), PowerSource::None);
         assert_eq!(tester.tr_1_output().source(), PowerSource::ApuGenerator);
         assert_eq!(tester.tr_2_output().source(), PowerSource::ApuGenerator);
         assert_eq!(tester.tr_ess_output().source(), PowerSource::None);
@@ -626,6 +676,7 @@ mod a320_electrical_circuit_tests {
             tester.ac_ess_shed_bus_output().source(),
             PowerSource::External
         );
+        assert_eq!(tester.ac_stat_inv_bus_output().source(), PowerSource::None);
         assert_eq!(tester.tr_1_output().source(), PowerSource::External);
         assert_eq!(tester.tr_2_output().source(), PowerSource::External);
         assert_eq!(tester.tr_ess_output().source(), PowerSource::None);
@@ -649,12 +700,12 @@ mod a320_electrical_circuit_tests {
 
         assert_eq!(tester.ac_bus_1_output().source(), PowerSource::None);
         assert_eq!(tester.ac_bus_2_output().source(), PowerSource::None);
-        // TODO
-        // assert_eq!(
-        //     tester.ac_ess_bus_output().source(),
-        //     PowerSource::Battery(1)
-        // );
+        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::Battery(1));
         assert_eq!(tester.ac_ess_shed_bus_output().source(), PowerSource::None);
+        assert_eq!(
+            tester.ac_stat_inv_bus_output().source(),
+            PowerSource::Battery(1)
+        );
         assert_eq!(tester.tr_1_output().source(), PowerSource::None);
         assert_eq!(tester.tr_2_output().source(), PowerSource::None);
         assert_eq!(tester.tr_ess_output().source(), PowerSource::None);
@@ -689,6 +740,7 @@ mod a320_electrical_circuit_tests {
             tester.tr_ess_output().source(),
             PowerSource::EmergencyGenerator
         );
+        assert_eq!(tester.ac_stat_inv_bus_output().source(), PowerSource::None);
         assert_eq!(tester.dc_bus_1_output().source(), PowerSource::None);
         assert_eq!(tester.dc_bus_2_output().source(), PowerSource::None);
         assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::None);
@@ -726,6 +778,7 @@ mod a320_electrical_circuit_tests {
             tester.ac_ess_shed_bus_output().source(),
             PowerSource::EngineGenerator(1)
         );
+        assert_eq!(tester.ac_stat_inv_bus_output().source(), PowerSource::None);
         assert_eq!(tester.tr_1_output().source(), PowerSource::None);
         assert_eq!(
             tester.tr_2_output().source(),
@@ -781,6 +834,7 @@ mod a320_electrical_circuit_tests {
             tester.ac_ess_shed_bus_output().source(),
             PowerSource::EngineGenerator(1)
         );
+        assert_eq!(tester.ac_stat_inv_bus_output().source(), PowerSource::None);
         assert_eq!(
             tester.tr_1_output().source(),
             PowerSource::EngineGenerator(1)
@@ -841,6 +895,7 @@ mod a320_electrical_circuit_tests {
             tester.ac_ess_shed_bus_output().source(),
             PowerSource::EngineGenerator(1)
         );
+        assert_eq!(tester.ac_stat_inv_bus_output().source(), PowerSource::None);
         assert_eq!(tester.tr_1_output().source(), PowerSource::None);
         assert_eq!(tester.tr_2_output().source(), PowerSource::None);
         assert_eq!(
@@ -1047,14 +1102,25 @@ mod a320_electrical_circuit_tests {
     }
 
     #[test]
-    fn when_ac_bus_1_becomes_unpowered_nothing_powers_ac_ess_bus_for_a_while() {
+    fn when_ac_bus_1_becomes_unpowered_bat_1_powers_ac_ess_bus_for_a_while() {
         let tester = tester_with()
             .running_engines()
             .and()
             .failed_ac_bus_1()
             .run_waiting_until_just_before_ac_ess_feed_transition();
 
-        assert!(tester.ac_ess_bus_output().is_unpowered());
+        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::Battery(1));
+    }
+
+    #[test]
+    fn when_ac_bus_1_becomes_unpowered_bat_2_powers_dc_ess_bus_for_a_while() {
+        let tester = tester_with()
+            .running_engines()
+            .and()
+            .failed_ac_bus_1()
+            .run_waiting_until_just_before_ac_ess_feed_transition();
+
+        assert_eq!(tester.dc_ess_bus_output().source(), PowerSource::Battery(2));
     }
 
     /// # Source
@@ -1096,8 +1162,7 @@ mod a320_electrical_circuit_tests {
     }
 
     #[test]
-    // For now...
-    fn nothing_powers_ac_ess_bus_when_ac_bus_1_and_2_failed() {
+    fn battery_1_powers_ac_ess_bus_when_ac_bus_1_and_2_failed() {
         let tester = tester_with()
             .running_engines()
             .failed_ac_bus_1()
@@ -1105,7 +1170,7 @@ mod a320_electrical_circuit_tests {
             .failed_ac_bus_2()
             .run();
 
-        assert!(tester.ac_ess_bus_output().is_unpowered());
+        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::Battery(1));
     }
 
     #[test]
@@ -1584,6 +1649,10 @@ mod a320_electrical_circuit_tests {
 
         fn ac_ess_shed_bus_output(&self) -> Current {
             self.elec.ac_ess_shed_bus.output()
+        }
+
+        fn ac_stat_inv_bus_output(&self) -> Current {
+            self.elec.ac_stat_inv_bus.output()
         }
 
         fn tr_1_output(&self) -> Current {
