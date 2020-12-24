@@ -127,26 +127,26 @@ impl A320Electrical {
         apu: &AuxiliaryPowerUnit,
         ext_pwr: &ExternalPowerSource,
         hydraulic: &A320Hydraulic,
-        elec_overhead: &A320ElectricalOverheadPanel,
+        overhead: &A320ElectricalOverheadPanel,
     ) {
-        self.engine_1_gen.update(engine1, &elec_overhead.idg_1);
-        self.engine_2_gen.update(engine2, &elec_overhead.idg_2);
+        self.engine_1_gen.update(engine1, &overhead.idg_1);
+        self.engine_2_gen.update(engine2, &overhead.idg_2);
         self.apu_gen.update(apu);
         self.emergency_gen.update(hydraulic.is_blue_pressurised());
 
-        let gen_1_provides_power =
-            elec_overhead.gen_1.is_on() && self.engine_1_gen.output().is_powered();
-        let gen_2_provides_power =
-            elec_overhead.gen_2.is_on() && self.engine_2_gen.output().is_powered();
+        let gen_1_provides_power = overhead.generator_1_is_on() && self.engine_1_gen.is_powered();
+        let gen_2_provides_power = overhead.generator_2_is_on() && self.engine_2_gen.is_powered();
         let no_engine_gen_provides_power = !gen_1_provides_power && !gen_2_provides_power;
         let only_one_engine_gen_is_powered = gen_1_provides_power ^ gen_2_provides_power;
-        let ext_pwr_provides_power = elec_overhead.ext_pwr.is_on()
-            && ext_pwr.output().is_powered()
-            && (no_engine_gen_provides_power || only_one_engine_gen_is_powered);
-        let apu_gen_provides_power = elec_overhead.apu_gen.is_on()
-            && self.apu_gen.output().is_powered()
+        let both_engine_gens_provide_power =
+            !(no_engine_gen_provides_power || only_one_engine_gen_is_powered);
+        let ext_pwr_provides_power = overhead.external_power_is_on()
+            && ext_pwr.is_powered()
+            && !both_engine_gens_provide_power;
+        let apu_gen_provides_power = overhead.apu_generator_is_on()
+            && self.apu_gen.is_powered()
             && !ext_pwr_provides_power
-            && (no_engine_gen_provides_power || only_one_engine_gen_is_powered);
+            && !both_engine_gens_provide_power;
 
         self.engine_1_gen_contactor.close_when(gen_1_provides_power);
         self.engine_2_gen_contactor.close_when(gen_2_provides_power);
@@ -155,12 +155,12 @@ impl A320Electrical {
 
         let apu_or_ext_pwr_provides_power = ext_pwr_provides_power || apu_gen_provides_power;
         self.bus_tie_1_contactor.close_when(
-            elec_overhead.bus_tie.is_on()
+            overhead.bus_tie_is_on()
                 && ((only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
                     || (apu_or_ext_pwr_provides_power && !gen_1_provides_power)),
         );
         self.bus_tie_2_contactor.close_when(
-            elec_overhead.bus_tie.is_on()
+            overhead.bus_tie_is_on()
                 && ((only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
                     || (apu_or_ext_pwr_provides_power && !gen_2_provides_power)),
         );
@@ -202,17 +202,17 @@ impl A320Electrical {
         self.tr_2.powered_by(vec![&self.ac_bus_2]);
 
         self.ac_ess_feed_contactor_delay_logic_gate
-            .update(context, self.ac_bus_1.output().is_unpowered());
+            .update(context, self.ac_bus_1.is_unpowered());
 
         self.ac_ess_feed_contactor_1.close_when(
-            self.ac_bus_1.output().is_powered()
+            self.ac_bus_1.is_powered()
                 && (!self.ac_ess_feed_contactor_delay_logic_gate.output()
-                    && elec_overhead.ac_ess_feed.is_normal()),
+                    && overhead.ac_ess_feed_is_normal()),
         );
         self.ac_ess_feed_contactor_2.close_when(
-            self.ac_bus_2.output().is_powered()
+            self.ac_bus_2.is_powered()
                 && (self.ac_ess_feed_contactor_delay_logic_gate.output()
-                    || elec_overhead.ac_ess_feed.is_altn()),
+                    || overhead.ac_ess_feed_is_altn()),
         );
 
         self.ac_ess_feed_contactor_1
@@ -225,9 +225,8 @@ impl A320Electrical {
             &self.ac_ess_feed_contactor_2,
         ]);
 
-        self.emergency_gen_contactor.close_when(
-            self.ac_bus_1.output().is_unpowered() && self.ac_bus_2.output().is_unpowered(),
-        );
+        self.emergency_gen_contactor
+            .close_when(self.ac_bus_1.is_unpowered() && self.ac_bus_2.is_unpowered());
         self.emergency_gen_contactor
             .powered_by(vec![&self.emergency_gen]);
 
@@ -240,9 +239,9 @@ impl A320Electrical {
             || A320Electrical::has_failed_or_is_unpowered(&self.tr_2);
         self.ac_ess_to_tr_ess_contactor.close_when(
             (tr_1_or_2_unavailable
-                && (self.ac_ess_feed_contactor_1.output().is_powered()
-                    || self.ac_ess_feed_contactor_2.output().is_powered()))
-                || self.emergency_gen_contactor.output().is_powered(),
+                && (self.ac_ess_feed_contactor_1.is_powered()
+                    || self.ac_ess_feed_contactor_2.is_powered()))
+                || self.emergency_gen_contactor.is_powered(),
         );
 
         self.ac_ess_bus
@@ -256,16 +255,14 @@ impl A320Electrical {
             &self.emergency_gen_contactor,
         ]);
 
-        self.tr_1_contactor
-            .close_when(self.tr_1.output().is_powered());
+        self.tr_1_contactor.close_when(self.tr_1.is_powered());
         self.tr_1_contactor.powered_by(vec![&self.tr_1]);
 
-        self.tr_2_contactor
-            .close_when(self.tr_2.output().is_powered());
+        self.tr_2_contactor.close_when(self.tr_2.is_powered());
         self.tr_2_contactor.powered_by(vec![&self.tr_2]);
 
         self.tr_ess_contactor
-            .close_when(tr_1_or_2_unavailable && self.tr_ess.output().is_powered());
+            .close_when(tr_1_or_2_unavailable && self.tr_ess.is_powered());
         self.tr_ess_contactor.powered_by(vec![&self.tr_ess]);
 
         self.dc_bus_1.powered_by(vec![&self.tr_1_contactor]);
@@ -275,10 +272,9 @@ impl A320Electrical {
         self.dc_bus_2_tie_contactor.powered_by(vec![&self.dc_bus_2]);
 
         self.dc_bus_1_tie_contactor
-            .close_when(self.dc_bus_1.output().is_powered() || self.dc_bus_2.output().is_powered());
-        self.dc_bus_2_tie_contactor.close_when(
-            self.dc_bus_1.output().is_unpowered() || self.dc_bus_2.output().is_unpowered(),
-        );
+            .close_when(self.dc_bus_1.is_powered() || self.dc_bus_2.is_powered());
+        self.dc_bus_2_tie_contactor
+            .close_when(self.dc_bus_1.is_unpowered() || self.dc_bus_2.is_unpowered());
 
         self.dc_bat_bus.powered_by(vec![
             &self.dc_bus_1_tie_contactor,
@@ -300,9 +296,9 @@ impl A320Electrical {
         // TODO: The actual logic for battery contactors is far more complex, however
         // not all systems is relates to are implemented yet. We'll have to get back to this later.
         self.battery_1_contactor
-            .close_when(!self.battery_1.is_full() && elec_overhead.bat_1.is_on());
+            .close_when(!self.battery_1.is_full() && overhead.bat_1_is_on());
         self.battery_2_contactor
-            .close_when(!self.battery_2.is_full() && elec_overhead.bat_2.is_on());
+            .close_when(!self.battery_2.is_full() && overhead.bat_2_is_on());
 
         self.battery_1.powered_by(vec![&self.battery_1_contactor]);
         self.battery_2.powered_by(vec![&self.battery_2_contactor]);
@@ -316,27 +312,30 @@ impl A320Electrical {
             .close_when(!tr_1_or_2_unavailable);
         self.battery_2_to_dc_ess_bus_contactor
             .powered_by(vec![&self.battery_2]);
-        self.battery_2_to_dc_ess_bus_contactor.close_when(
+        A320Electrical::close_multiple_contactors_when(
+            vec![
+                &mut self.battery_2_to_dc_ess_bus_contactor,
+                &mut self.battery_1_to_static_inv_contactor,
+            ],
             self.tr_ess_contactor.is_open() && self.dc_bat_bus_to_dc_ess_bus_contactor.is_open(),
         );
+
         self.battery_1_to_static_inv_contactor
             .powered_by(vec![&self.battery_1]);
-        self.battery_1_to_static_inv_contactor
-            .close_when(self.battery_2_to_dc_ess_bus_contactor.is_closed());
 
         self.static_inv
             .powered_by(vec![&self.battery_1_to_static_inv_contactor]);
 
         self.ac_stat_inv_bus.powered_by(vec![&self.static_inv]);
         self.static_inv_to_ac_ess_bus_contactor
-            .close_when(self.static_inv.output().is_powered());
+            .close_when(self.static_inv.is_powered());
         self.static_inv_to_ac_ess_bus_contactor
             .powered_by(vec![&self.static_inv]);
 
         self.ac_ess_bus
             .or_powered_by(vec![&self.static_inv_to_ac_ess_bus_contactor]);
 
-        let emergency_gen_provides_power = self.emergency_gen.output().is_powered();
+        let emergency_gen_provides_power = self.emergency_gen.is_powered();
         let generator_provides_power = gen_1_provides_power
             || gen_2_provides_power
             || apu_gen_provides_power
@@ -363,8 +362,14 @@ impl A320Electrical {
         self.debug_assert_invariants();
     }
 
+    fn close_multiple_contactors_when(contactors: Vec<&mut Contactor>, should_be_closed: bool) {
+        for contactor in contactors {
+            contactor.close_when(should_be_closed);
+        }
+    }
+
     fn has_failed_or_is_unpowered(tr: &TransformerRectifier) -> bool {
-        tr.has_failed() || tr.output().is_unpowered()
+        tr.has_failed() || tr.is_unpowered()
     }
 
     fn debug_assert_invariants(&self) {
@@ -440,6 +445,42 @@ impl A320ElectricalOverheadPanel {
     }
 
     pub fn update(&mut self, context: &UpdateContext) {}
+
+    fn generator_1_is_on(&self) -> bool {
+        self.gen_1.is_on()
+    }
+
+    fn generator_2_is_on(&self) -> bool {
+        self.gen_2.is_on()
+    }
+
+    fn external_power_is_on(&self) -> bool {
+        self.ext_pwr.is_on()
+    }
+
+    fn apu_generator_is_on(&self) -> bool {
+        self.apu_gen.is_on()
+    }
+
+    fn bus_tie_is_on(&self) -> bool {
+        self.bus_tie.is_on()
+    }
+
+    fn ac_ess_feed_is_normal(&self) -> bool {
+        self.ac_ess_feed.is_normal()
+    }
+
+    fn ac_ess_feed_is_altn(&self) -> bool {
+        self.ac_ess_feed.is_altn()
+    }
+
+    fn bat_1_is_on(&self) -> bool {
+        self.bat_1.is_on()
+    }
+
+    fn bat_2_is_on(&self) -> bool {
+        self.bat_2.is_on()
+    }
 }
 
 impl Visitable for A320ElectricalOverheadPanel {
@@ -1796,7 +1837,7 @@ mod a320_electrical_circuit_tests {
 
         fn new_connected_external_power() -> ExternalPowerSource {
             let mut ext_pwr = ExternalPowerSource::new();
-            ext_pwr.plugged_in = true;
+            ext_pwr.is_connected = true;
 
             ext_pwr
         }

@@ -32,7 +32,7 @@ pub enum Current {
 }
 
 impl Current {
-    pub fn is_powered(self) -> bool {
+    pub fn is_powered(&self) -> bool {
         match self {
             Current::Alternating(..) => true,
             Current::Direct(..) => true,
@@ -40,7 +40,7 @@ impl Current {
         }
     }
 
-    pub fn is_unpowered(self) -> bool {
+    pub fn is_unpowered(&self) -> bool {
         if let Current::None = self {
             true
         } else {
@@ -59,6 +59,14 @@ impl Current {
 
 pub trait PowerConductor {
     fn output(&self) -> Current;
+
+    fn is_powered(&self) -> bool {
+        self.output().is_powered()
+    }
+
+    fn is_unpowered(&self) -> bool {
+        self.output().is_unpowered()
+    }
 }
 
 pub trait Powerable {
@@ -260,12 +268,14 @@ impl Visitable for AuxiliaryPowerUnit {
 }
 
 pub struct ExternalPowerSource {
-    pub plugged_in: bool,
+    pub is_connected: bool,
 }
 
 impl ExternalPowerSource {
     pub fn new() -> ExternalPowerSource {
-        ExternalPowerSource { plugged_in: false }
+        ExternalPowerSource {
+            is_connected: false,
+        }
     }
 
     pub fn update(&mut self, context: &UpdateContext) {}
@@ -279,7 +289,7 @@ impl Visitable for ExternalPowerSource {
 
 impl PowerConductor for ExternalPowerSource {
     fn output(&self) -> Current {
-        if self.plugged_in {
+        if self.is_connected {
             Current::Alternating(
                 PowerSource::External,
                 Frequency::new::<hertz>(400.),
@@ -861,7 +871,7 @@ mod tests {
         #[test]
         fn when_plugged_in_provides_output() {
             let mut ext_pwr = external_power_source();
-            ext_pwr.plugged_in = true;
+            ext_pwr.is_connected = true;
 
             assert!(ext_pwr.output().is_powered());
         }
@@ -869,7 +879,7 @@ mod tests {
         #[test]
         fn when_not_plugged_in_provides_no_output() {
             let mut ext_pwr = external_power_source();
-            ext_pwr.plugged_in = false;
+            ext_pwr.is_connected = false;
 
             assert!(ext_pwr.output().is_unpowered());
         }
