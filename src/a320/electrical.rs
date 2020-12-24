@@ -1,5 +1,5 @@
 use std::time::Duration;
-use uom::si::{f32::Ratio, ratio::percent};
+use uom::si::{f32::*, length::foot, ratio::percent, velocity::knot};
 
 use crate::{
     electrical::{
@@ -132,7 +132,11 @@ impl A320Electrical {
         self.engine_1_gen.update(engine1, &overhead.idg_1);
         self.engine_2_gen.update(engine2, &overhead.idg_2);
         self.apu_gen.update(apu);
-        self.emergency_gen.update(hydraulic.is_blue_pressurised());
+        self.emergency_gen.update(
+            // ON GROUND BAT ONLY SPEED <= 100 kts scenario. We'll probably need to move this logic into
+            // the ram air turbine, emergency generator and hydraulic implementation.
+            hydraulic.is_blue_pressurised() && context.airspeed > Velocity::new::<knot>(100.),
+        );
 
         let gen_1_provides_power = overhead.generator_1_is_on() && self.engine_1_gen.is_powered();
         let gen_2_provides_power = overhead.generator_2_is_on() && self.engine_2_gen.is_powered();
@@ -293,15 +297,30 @@ impl A320Electrical {
         self.battery_1_contactor.powered_by(vec![&self.dc_bat_bus]);
         self.battery_2_contactor.powered_by(vec![&self.dc_bat_bus]);
 
-        // TODO: The actual logic for battery contactors is far more complex, however
+        // TODO: The actual logic for battery contactors is more complex, however
         // not all systems is relates to are implemented yet. We'll have to get back to this later.
-        self.battery_1_contactor
-            .close_when(!self.battery_1.is_full() && overhead.bat_1_is_on());
-        self.battery_2_contactor
-            .close_when(!self.battery_2.is_full() && overhead.bat_2_is_on());
+        let ac_bus_1_and_2_unpowered = self.ac_bus_1.is_unpowered() && self.ac_bus_2.is_unpowered();
+        let airspeed_below_100_knots = context.airspeed < Velocity::new::<knot>(100.);
+        let batteries_should_supply_bat_bus = ac_bus_1_and_2_unpowered && airspeed_below_100_knots;
+        self.battery_1_contactor.close_when(
+            overhead.bat_1_is_on()
+                && (!self.battery_1.is_full() || batteries_should_supply_bat_bus),
+        );
+        self.battery_2_contactor.close_when(
+            overhead.bat_2_is_on()
+                && (!self.battery_2.is_full() || batteries_should_supply_bat_bus),
+        );
 
         self.battery_1.powered_by(vec![&self.battery_1_contactor]);
         self.battery_2.powered_by(vec![&self.battery_2_contactor]);
+
+        self.battery_1_contactor
+            .or_powered_by(vec![&self.battery_1]);
+        self.battery_2_contactor
+            .or_powered_by(vec![&self.battery_2]);
+
+        self.dc_bat_bus
+            .or_powered_by_both_batteries(&self.battery_1_contactor, &self.battery_2_contactor);
 
         self.hot_bus_1.powered_by(vec![&self.battery_1]);
         self.hot_bus_2.powered_by(vec![&self.battery_2]);
@@ -327,8 +346,9 @@ impl A320Electrical {
             .powered_by(vec![&self.battery_1_to_static_inv_contactor]);
 
         self.ac_stat_inv_bus.powered_by(vec![&self.static_inv]);
-        self.static_inv_to_ac_ess_bus_contactor
-            .close_when(self.static_inv.is_powered());
+        self.static_inv_to_ac_ess_bus_contactor.close_when(
+            self.static_inv.is_powered() && context.airspeed >= Velocity::new::<knot>(50.),
+        );
         self.static_inv_to_ac_ess_bus_contactor
             .powered_by(vec![&self.static_inv]);
 
@@ -959,25 +979,110 @@ mod a320_electrical_circuit_tests {
     /// # Source
     /// A320 manual electrical distribution table
     #[test]
-    #[ignore]
-    fn distribution_table_on_ground_bat_only_speed_above_100_knots() {
-        // TODO
+    fn distribution_table_on_ground_bat_and_emergency_gen_only_speed_above_100_knots() {
+        let tester = tester_with()
+            .running_emergency_generator()
+            .airspeed(Velocity::new::<knot>(101.))
+            .and()
+            .on_the_ground()
+            .run();
+
+        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::None);
+        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::None);
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::EmergencyGenerator
+        );
+        assert_eq!(
+            tester.ac_ess_shed_bus_output().source(),
+            PowerSource::EmergencyGenerator
+        );
+        assert_eq!(tester.ac_stat_inv_bus_output().source(), PowerSource::None);
+        assert_eq!(tester.tr_1_output().source(), PowerSource::None);
+        assert_eq!(tester.tr_2_output().source(), PowerSource::None);
+        assert_eq!(
+            tester.tr_ess_output().source(),
+            PowerSource::EmergencyGenerator
+        );
+        assert_eq!(tester.dc_bus_1_output().source(), PowerSource::None);
+        assert_eq!(tester.dc_bus_2_output().source(), PowerSource::None);
+        assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::None);
+        assert_eq!(
+            tester.dc_ess_bus_output().source(),
+            PowerSource::EmergencyGenerator
+        );
+        assert_eq!(
+            tester.dc_ess_shed_bus_output().source(),
+            PowerSource::EmergencyGenerator
+        );
+        assert_eq!(tester.hot_bus_1_output().source(), PowerSource::Battery(1));
+        assert_eq!(tester.hot_bus_2_output().source(), PowerSource::Battery(2));
     }
 
     /// # Source
     /// A320 manual electrical distribution table
     #[test]
-    #[ignore]
     fn distribution_table_on_ground_bat_only_rat_stall_or_speed_between_50_to_100_knots() {
-        // TODO
+        let tester = tester_with()
+            .running_emergency_generator()
+            .airspeed(Velocity::new::<knot>(50.))
+            .and()
+            .on_the_ground()
+            .run();
+
+        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::None);
+        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::None);
+        assert_eq!(tester.ac_ess_bus_output().source(), PowerSource::Battery(1));
+        assert_eq!(tester.ac_ess_shed_bus_output().source(), PowerSource::None);
+        assert_eq!(
+            tester.ac_stat_inv_bus_output().source(),
+            PowerSource::Battery(1)
+        );
+        assert_eq!(tester.tr_1_output().source(), PowerSource::None);
+        assert_eq!(tester.tr_2_output().source(), PowerSource::None);
+        assert_eq!(tester.tr_ess_output().source(), PowerSource::None);
+        assert_eq!(tester.dc_bus_1_output().source(), PowerSource::None);
+        assert_eq!(tester.dc_bus_2_output().source(), PowerSource::None);
+        assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::Batteries);
+        assert_eq!(tester.dc_ess_bus_output().source(), PowerSource::Battery(2));
+        assert_eq!(tester.dc_ess_shed_bus_output().source(), PowerSource::None);
+        assert_eq!(tester.hot_bus_1_output().source(), PowerSource::Battery(1));
+        assert_eq!(tester.hot_bus_2_output().source(), PowerSource::Battery(2));
     }
 
     /// # Source
     /// A320 manual electrical distribution table
     #[test]
-    #[ignore]
     fn distribution_table_on_ground_bat_only_speed_less_than_50_knots() {
-        // TODO
+        let tester = tester_with()
+            .running_emergency_generator()
+            .airspeed(Velocity::new::<knot>(49.9))
+            .and()
+            .on_the_ground()
+            .run();
+
+        assert_eq!(tester.ac_bus_1_output().source(), PowerSource::None);
+        assert_eq!(tester.ac_bus_2_output().source(), PowerSource::None);
+        assert_eq!(
+            tester.ac_ess_bus_output().source(),
+            PowerSource::None,
+            "AC ESS BUS shouldn't be powered below 50 knots when on batteries only."
+        );
+        assert_eq!(tester.ac_ess_shed_bus_output().source(), PowerSource::None);
+        assert_eq!(
+            tester.ac_stat_inv_bus_output().source(),
+            PowerSource::Battery(1)
+        );
+        assert_eq!(tester.tr_1_output().source(), PowerSource::None);
+        assert_eq!(tester.tr_2_output().source(), PowerSource::None);
+        assert_eq!(tester.tr_ess_output().source(), PowerSource::None);
+        assert_eq!(tester.dc_bus_1_output().source(), PowerSource::None);
+        assert_eq!(tester.dc_bus_2_output().source(), PowerSource::None);
+        assert_eq!(tester.dc_bat_bus_output().source(), PowerSource::Batteries);
+        assert_eq!(tester.dc_ess_bus_output().source(), PowerSource::Battery(2));
+        assert_eq!(tester.dc_ess_shed_bus_output().source(), PowerSource::None);
+        assert_eq!(tester.hot_bus_1_output().source(), PowerSource::Battery(1));
+        assert_eq!(tester.hot_bus_2_output().source(), PowerSource::Battery(2));
     }
 
     #[test]
@@ -1547,6 +1652,8 @@ mod a320_electrical_circuit_tests {
         hyd: A320Hydraulic,
         elec: A320Electrical,
         overhead: A320ElectricalOverheadPanel,
+        airspeed: Velocity,
+        above_ground_level: Length,
     }
 
     impl ElectricalCircuitTester {
@@ -1559,6 +1666,8 @@ mod a320_electrical_circuit_tests {
                 hyd: A320Hydraulic::new(),
                 elec: A320Electrical::new(),
                 overhead: A320ElectricalOverheadPanel::new(),
+                airspeed: Velocity::new::<knot>(250.),
+                above_ground_level: Length::new::<foot>(5000.),
             }
         }
 
@@ -1593,6 +1702,16 @@ mod a320_electrical_circuit_tests {
 
         fn empty_battery_2(mut self) -> ElectricalCircuitTester {
             self.elec.battery_2 = Battery::empty(2);
+            self
+        }
+
+        fn airspeed(mut self, velocity: Velocity) -> ElectricalCircuitTester {
+            self.airspeed = velocity;
+            self
+        }
+
+        fn on_the_ground(mut self) -> ElectricalCircuitTester {
+            self.above_ground_level = Length::new::<foot>(0.);
             self
         }
 
@@ -1748,7 +1867,11 @@ mod a320_electrical_circuit_tests {
         }
 
         fn run(mut self) -> ElectricalCircuitTester {
-            let context = UpdateContext::new(Duration::from_millis(1));
+            let context = UpdateContext::new(
+                Duration::from_millis(1),
+                self.airspeed,
+                self.above_ground_level,
+            );
             self.elec.update(
                 &context,
                 &self.engine1,
@@ -1765,7 +1888,11 @@ mod a320_electrical_circuit_tests {
         fn run_waiting_for(mut self, delta: Duration) -> ElectricalCircuitTester {
             // Firstly run without any time passing at all, such that if the DelayedTrueLogicGate reaches
             // the true state after waiting for the given time it will be reflected in its output.
-            let context = UpdateContext::new(Duration::from_secs(0));
+            let context = UpdateContext::new(
+                Duration::from_secs(0),
+                self.airspeed,
+                self.above_ground_level,
+            );
             self.elec.update(
                 &context,
                 &self.engine1,
@@ -1776,7 +1903,7 @@ mod a320_electrical_circuit_tests {
                 &self.overhead,
             );
 
-            let context = UpdateContext::new(delta);
+            let context = UpdateContext::new(delta, self.airspeed, self.above_ground_level);
             self.elec.update(
                 &context,
                 &self.engine1,

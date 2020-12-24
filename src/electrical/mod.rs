@@ -1,10 +1,6 @@
 use uom::si::{
-    electric_charge::ampere_hour,
-    electric_current::ampere,
-    electric_potential::volt,
-    f32::{ElectricCharge, ElectricCurrent, ElectricPotential, Frequency, Ratio},
-    frequency::hertz,
-    ratio::percent,
+    electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f32::*,
+    frequency::hertz, power::watt, ratio::percent,
 };
 
 use crate::{
@@ -21,10 +17,11 @@ pub enum PowerSource {
     External,
     EmergencyGenerator,
     Battery(u8),
+    Batteries,
 }
 
 /// Represents a type of electric current.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Current {
     Alternating(PowerSource, Frequency, ElectricPotential, ElectricCurrent),
     Direct(PowerSource, ElectricPotential, ElectricCurrent),
@@ -53,6 +50,29 @@ impl Current {
             Current::Alternating(source, ..) => source,
             Current::Direct(source, ..) => source,
             _ => PowerSource::None,
+        }
+    }
+
+    pub fn clone_with_power_source(&self, source: PowerSource) -> Current {
+        match self {
+            Current::Alternating(_, frequency, potential, current) => Current::Alternating(
+                source,
+                frequency.clone(),
+                potential.clone(),
+                current.clone(),
+            ),
+            Current::Direct(_, potential, current) => {
+                Current::Direct(source, potential.clone(), current.clone())
+            }
+            _ => Current::None,
+        }
+    }
+
+    fn total_power(&self) -> Power {
+        match self {
+            Current::Alternating(_, _, potential, current) => *potential * *current,
+            Current::Direct(_, potential, current) => *potential * *current,
+            Current::None => Power::new::<watt>(0.),
         }
     }
 }
@@ -102,8 +122,46 @@ pub trait Powerable {
         }
     }
 
+    fn or_powered_by_both_batteries(
+        &mut self,
+        battery_1_contactor: &Contactor,
+        battery_2_contactor: &Contactor,
+    ) {
+        if let Current::None = self.get_input() {
+            let is_battery_1_powered = is_battery_contactor_powered(battery_1_contactor);
+            let is_battery_2_powered = is_battery_contactor_powered(battery_2_contactor);
+
+            if is_battery_1_powered && is_battery_2_powered {
+                let highest_power_battery_output = if battery_1_contactor.output().total_power()
+                    > battery_2_contactor.output().total_power()
+                {
+                    battery_1_contactor.output()
+                } else {
+                    battery_2_contactor.output()
+                };
+
+                self.set_input(
+                    highest_power_battery_output.clone_with_power_source(PowerSource::Batteries),
+                );
+            } else if is_battery_1_powered {
+                self.set_input(battery_1_contactor.output());
+            } else if is_battery_2_powered {
+                self.set_input(battery_2_contactor.output());
+            } else {
+                self.set_input(Current::None);
+            }
+        }
+    }
+
     fn set_input(&mut self, current: Current);
     fn get_input(&self) -> Current;
+}
+
+fn is_battery_contactor_powered(battery_contactor: &Contactor) -> bool {
+    match battery_contactor.output() {
+        Current::Direct(..) => true,
+        _ => false,
+    }
 }
 
 /// Represents the state of a contactor.
@@ -566,6 +624,161 @@ mod tests {
 
     fn apu_generator() -> StubApuGenerator {
         StubApuGenerator {}
+    }
+
+    #[cfg(test)]
+    mod powerable_tests {
+        use super::*;
+
+        struct BatteryStub {
+            current: Current,
+        }
+
+        impl BatteryStub {
+            fn new(current: Current) -> BatteryStub {
+                BatteryStub { current }
+            }
+        }
+
+        impl PowerConductor for BatteryStub {
+            fn output(&self) -> Current {
+                self.current
+            }
+        }
+
+        struct PowerableUnderTest {
+            input: Current,
+        }
+
+        impl PowerableUnderTest {
+            fn new() -> PowerableUnderTest {
+                PowerableUnderTest {
+                    input: Current::None,
+                }
+            }
+        }
+
+        impl Powerable for PowerableUnderTest {
+            fn set_input(&mut self, current: Current) {
+                self.input = current;
+            }
+
+            fn get_input(&self) -> Current {
+                self.input
+            }
+        }
+
+        #[test]
+        fn or_powered_by_both_batteries_results_in_strongest_output_bat_1() {
+            let high_potential = ElectricPotential::new::<volt>(28.);
+            let high_current = ElectricCurrent::new::<ampere>(10.);
+
+            let bat_1 = BatteryStub::new(Current::Direct(
+                PowerSource::Battery(1),
+                high_potential,
+                high_current,
+            ));
+
+            let bat_2 = BatteryStub::new(Current::Direct(
+                PowerSource::Battery(2),
+                ElectricPotential::new::<volt>(5.),
+                ElectricCurrent::new::<ampere>(5.),
+            ));
+
+            let expected = Current::Direct(PowerSource::Batteries, high_potential, high_current);
+
+            or_powered_by_both_batteries_results_in_strongest_output_a(bat_1, bat_2, expected);
+        }
+
+        #[test]
+        fn or_powered_by_both_batteries_results_in_strongest_output_bat_2() {
+            let high_potential = ElectricPotential::new::<volt>(28.);
+            let high_current = ElectricCurrent::new::<ampere>(10.);
+
+            let bat_1 = BatteryStub::new(Current::Direct(
+                PowerSource::Battery(2),
+                ElectricPotential::new::<volt>(5.),
+                ElectricCurrent::new::<ampere>(5.),
+            ));
+
+            let bat_2 = BatteryStub::new(Current::Direct(
+                PowerSource::Battery(1),
+                high_potential,
+                high_current,
+            ));
+
+            let expected = Current::Direct(PowerSource::Batteries, high_potential, high_current);
+
+            or_powered_by_both_batteries_results_in_strongest_output_a(bat_1, bat_2, expected);
+        }
+
+        fn or_powered_by_both_batteries_results_in_strongest_output_a(
+            bat_1: BatteryStub,
+            bat_2: BatteryStub,
+            expected: Current,
+        ) {
+            let mut powerable = PowerableUnderTest::new();
+
+            let mut contactor_1 = Contactor::new(String::from("BAT1"));
+            contactor_1.powered_by(vec![&bat_1]);
+            contactor_1.close_when(true);
+
+            let mut contactor_2 = Contactor::new(String::from("BAT2"));
+            contactor_2.powered_by(vec![&bat_2]);
+            contactor_2.close_when(true);
+
+            powerable.or_powered_by_both_batteries(&contactor_1, &contactor_2);
+
+            assert_eq!(powerable.get_input(), expected)
+        }
+
+        #[test]
+        fn or_powered_by_battery_1_results_in_bat_1_output() {
+            let expected = Current::Direct(
+                PowerSource::Battery(1),
+                ElectricPotential::new::<volt>(28.),
+                ElectricCurrent::new::<ampere>(10.),
+            );
+
+            let bat_1 = BatteryStub::new(expected);
+            let bat_2 = BatteryStub::new(Current::None);
+
+            or_powered_by_battery_results_in_expected_output(bat_1, bat_2, expected);
+        }
+
+        #[test]
+        fn or_powered_by_battery_2_results_in_bat_2_output() {
+            let expected = Current::Direct(
+                PowerSource::Battery(1),
+                ElectricPotential::new::<volt>(28.),
+                ElectricCurrent::new::<ampere>(10.),
+            );
+
+            let bat_1 = BatteryStub::new(Current::None);
+            let bat_2 = BatteryStub::new(expected);
+
+            or_powered_by_battery_results_in_expected_output(bat_1, bat_2, expected);
+        }
+
+        fn or_powered_by_battery_results_in_expected_output(
+            bat_1: BatteryStub,
+            bat_2: BatteryStub,
+            expected: Current,
+        ) {
+            let mut powerable = PowerableUnderTest::new();
+
+            let mut contactor_1 = Contactor::new(String::from("BAT1"));
+            contactor_1.powered_by(vec![&bat_1]);
+            contactor_1.close_when(true);
+
+            let mut contactor_2 = Contactor::new(String::from("BAT2"));
+            contactor_2.powered_by(vec![&bat_2]);
+            contactor_2.close_when(true);
+
+            powerable.or_powered_by_both_batteries(&contactor_1, &contactor_2);
+
+            assert_eq!(powerable.get_input(), expected);
+        }
     }
 
     #[cfg(test)]

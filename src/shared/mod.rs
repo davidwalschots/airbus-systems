@@ -1,15 +1,26 @@
 use std::time::Duration;
-use uom::si::{f32::Ratio, ratio::percent};
+use uom::si::{
+    f32::{Length, Ratio, Velocity},
+    length::foot,
+    ratio::percent,
+    velocity::knot,
+};
 
 use crate::visitor::Visitable;
 
 pub struct UpdateContext {
-    delta: Duration,
+    pub delta: Duration,
+    pub airspeed: Velocity,
+    pub above_ground_level: Length,
 }
 
 impl UpdateContext {
-    pub fn new(delta: Duration) -> UpdateContext {
-        UpdateContext { delta }
+    pub fn new(delta: Duration, airspeed: Velocity, above_ground_level: Length) -> UpdateContext {
+        UpdateContext {
+            delta,
+            airspeed,
+            above_ground_level,
+        }
     }
 }
 
@@ -123,7 +134,11 @@ mod delayed_true_logic_gate_tests {
     }
 
     fn update_context(delta: Duration) -> UpdateContext {
-        UpdateContext::new(delta)
+        UpdateContext::new(
+            delta,
+            Velocity::new::<knot>(250.),
+            Length::new::<foot>(5000.),
+        )
     }
 
     fn delay_logic_gate(delay: Duration) -> DelayedTrueLogicGate {
