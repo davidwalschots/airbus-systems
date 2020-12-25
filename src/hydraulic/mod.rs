@@ -1,4 +1,3 @@
-// should we use liter/s or m^3/s for volume_rate?
 use uom::si::{
     pressure::psi, volume::gallon, volume_rate::gallon_per_second,
 };
@@ -37,7 +36,7 @@ pub enum ActuatorType {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum BleedSrc {
+pub enum BleedSrcType {
     None,
     Engine1,
     XBleedLine
@@ -48,15 +47,6 @@ pub enum LoopColor {
     Blue,
     Green,
     Yellow,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Pump {
-    None,
-    ElectricPump,
-    EngineDrivenPump,
-    PtuPump,
-    RatPump,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -103,7 +93,7 @@ impl HydLoop {
         }
     }
 
-    pub fn pressurized_by(&mut self, pumps: Vec<Pump>) {
+    pub fn pressurized_by<T: PressureSource + ?Sized>(&mut self, pumps: Vec<&T>) {
 
     }
 
@@ -125,9 +115,19 @@ impl HydLoop {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct ElectricPump {
-    active: bool,
+    active:         bool,
+    displacement:   volume,
+    flow:           volume_rate,
 }
 impl ElectricPump {
+    pub fn new() -> ElectricPump {
+        ElectricPump {
+            active:         false,
+            displacement:   0.263,
+            flow:           0,
+        } 
+    }
+
     pub fn update(&mut self) {
 
     }
@@ -138,9 +138,19 @@ impl PressureSource for ElectricPump {
 
 
 pub struct EngineDrivenPump {
-    active: bool,
+    active:         bool,
+    displacement:   volume,
+    flow:           volume_rate,
 }
 impl EngineDrivenPump {
+    pub fn new() -> EngineDrivenPump {
+        EngineDrivenPump {
+            active:         false,
+            displacement:   2.4,
+            flow:           0,
+        }
+    }
+    
     pub fn update(&mut self) {
         
     }
@@ -150,22 +160,43 @@ impl PressureSource for EngineDrivenPump {
 }
 
 pub struct PtuPump {
-    active: bool,
-    state:  PtuState,
+    active:         bool,
+    displacement:   volume,
+    flow:           volume_rate,
+    state:          PtuState,
 }
 impl PtuPump {
+    pub fn new() -> PtuPump {
+        PtuPump {
+            active:         false,
+            displacement:   0,
+            flow:           0,
+            state:          PtuState::Off,
+        }
+    }
+
     pub fn update(&mut self) {
         
     }
 }
-impl PresusreSource for PtuPump {
+impl PressureSource for PtuPump {
 
 }
 
 pub struct RatPump {
-    active: bool,
+    active:         bool,
+    displacement:   volume,
+    flow:           volume_rate,
 }
 impl RatPump {
+    pub fn new() -> RatPump {
+        RatPump {
+            active:         false,
+            displacement:   0,
+            flow:           0,       
+        }
+    }
+
     pub fn update(&mut self) {
         
     }
@@ -180,10 +211,16 @@ impl PressureSource for RatPump {
 
 pub struct Actuator {
     type: ActuatorType,
+    line: HydLoop,
 }
 
 impl Actuator {
-
+    pub fn new(type: ActuatorType, line: HydLoop) -> Actuator {
+        Actuator {
+            type,
+            line,
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -191,11 +228,15 @@ impl Actuator {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct BleedAirSource {
-    type: BleedSrc,
+    type: BleedSrcType,
 }
 
 impl BleedAirSource {
-
+    pub fn new(type: BleedSrcType) -> BleedAirSource {
+        BleedAirSource {
+            type,
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
