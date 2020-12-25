@@ -1,3 +1,4 @@
+// should we use liter/s or m^3/s for volume_rate?
 use uom::si::{
     pressure::psi, volume::liter, volume_rate::liter_per_second,
 };
@@ -13,26 +14,7 @@ use crate::{
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum HydLoop {
-    Blue,
-    Green,
-    Yellow,
-}
-
-// Represents a source of hydraulic pressure
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Pump {
-    None,
-    ElectricPump,
-    EngineDrivenPump,
-    HandPump,
-    PtuPump,
-    RatPump,
-}
-
-// Represents an actuator powered by hydraulics
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Actuator {
+pub enum ActuatorType {
     Aileron,
     BrakesNormal,
     BrakesAlternate,
@@ -54,52 +36,61 @@ pub enum Actuator {
     YawDamper,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BleedSrc {
+    None,
+    Engine1,
+    XBleedLine
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HydLoop {
+    Blue,
+    Green,
+    Yellow,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Pump {
+    None,
+    ElectricPump,
+    EngineDrivenPump,
+    PtuPump,
+    RatPump,
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // TRAITS
 ////////////////////////////////////////////////////////////////////////////////
 
-// Trait which is used by all three loops
-pub trait HydraulicLoop {
-
-}
-
-// Trait which is used by all pumps
+// Methods which are common to all pumps
 pub trait PressureSource {
-
-}
-
-// Trait which is used by all three accumulators
-pub trait PressureAccumulator {
-
-}
-
-// Trait which is used by all actuators
-pub trait PressureSink {
-
+    fn get_flow(&self) -> volume_rate {
+        self.flow
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // LOOP STRUCTS/IMPLS
 ////////////////////////////////////////////////////////////////////////////////
 
-pub struct BlueLoop {
-
-}
-impl BlueLoop {
+pub struct Loop {
 
 }
 
-pub struct GreenLoop {
-
-}
-impl GreenLoop {
+impl Loop {
 
 }
 
-pub struct YellowLoop {
+////////////////////////////////////////////////////////////////////////////////
+// RESERVOIR STRUCT/IMPL
+////////////////////////////////////////////////////////////////////////////////
 
+pub struct Reservoir {
+    
 }
-impl YellowLoop {
+
+impl Reservoir {
 
 }
 
@@ -113,6 +104,10 @@ pub struct ElectricPump {
 impl ElectricPump {
 
 }
+impl PressureSource for ElectricPump {
+
+}
+
 
 pub struct EngineDrivenPump {
 
@@ -120,11 +115,7 @@ pub struct EngineDrivenPump {
 impl EngineDrivenPump {
 
 }
-
-pub struct HandPump {
-
-}
-impl HandPump {
+impl PressureSource for EngineDrivenPump {
 
 }
 
@@ -134,6 +125,9 @@ pub struct PtuPump {
 impl PtuPump {
 
 }
+impl PresusreSource for PtuPump {
+
+}
 
 pub struct RatPump {
 
@@ -141,7 +135,9 @@ pub struct RatPump {
 impl RatPump {
 
 }
+impl PressureSource for RatPump {
 
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // ACCUMULATOR STRUCT/IMPL
@@ -150,15 +146,28 @@ impl RatPump {
 pub struct HydAccumulator {
     
 }
-impl HydAccumulator {
 
+impl HydAccumulator {
+    fn get_pressure(&self) -> pressure {
+        self.pressure
+    }
+
+    fn get_volume(&self) -> volume {
+        self.volume
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// ACTUATOR STRUCTS/IMPL
+// ACTUATOR STRUCT/IMPL
 ////////////////////////////////////////////////////////////////////////////////
 
-// Lots of stuff to add here...
+pub struct Actuator {
+    type: ActuatorType,
+}
+
+impl Actuator {
+
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // TESTS
