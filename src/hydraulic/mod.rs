@@ -1,6 +1,6 @@
 // should we use liter/s or m^3/s for volume_rate?
 use uom::si::{
-    pressure::psi, volume::liter, volume_rate::liter_per_second,
+    pressure::psi, volume::gallon, volume_rate::gallon_per_second,
 };
 
 use crate::{
@@ -44,7 +44,7 @@ pub enum BleedSrc {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum HydLoop {
+pub enum LoopColor {
     Blue,
     Green,
     Yellow,
@@ -59,50 +59,78 @@ pub enum Pump {
     RatPump,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PtuState {
+    Off,
+    GreenToYellow,
+    YellowToGreen,
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // TRAITS
 ////////////////////////////////////////////////////////////////////////////////
 
-// Methods which are common to all pumps
+// Trait common to all hydraulic pumps
 pub trait PressureSource {
     fn get_flow(&self) -> volume_rate {
         self.flow
     }
+
+    fn get_displacement(&self) -> volume {
+        self.displacement
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// LOOP STRUCTS/IMPLS
+// LOOP DEFINITION - INCLUDES RESERVOIR AND ACCUMULATOR
 ////////////////////////////////////////////////////////////////////////////////
 
-pub struct Loop {
-
+pub struct HydLoop {
+    color:          LoopColor,
+    line_pressure:  pressure,
+    res_volume:     volume,
 }
 
-impl Loop {
+impl HydLoop {
+    pub const ACCUMULATOR_PRE_CHARGE: pressure = 1885;
+    pub const ACCUMULATOR_MAX_VOLUME: volume = 0.241966;
 
+    pub fn new(color: LoopColor, res_volume: volume) -> HydLoop {
+        HydLoop {
+            color,
+            line_pressure:  0,
+            res_volume,
+        }
+    }
+
+    pub fn pressurized_by(&mut self, pumps: Vec<Pump>) {
+
+    }
+
+    pub fn get_pressure(&self) -> pressure {
+        self.line_pressure
+    }
+
+    pub fn get_res_volume(&self) -> volume {
+        self.res_volume
+    }
+
+    pub fn update(&mut self) {
+
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// RESERVOIR STRUCT/IMPL
-////////////////////////////////////////////////////////////////////////////////
-
-pub struct Reservoir {
-    
-}
-
-impl Reservoir {
-
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// PUMP STRUCTS/IMPLS
+// PUMP DEFINITION
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct ElectricPump {
-
+    active: bool,
 }
 impl ElectricPump {
+    pub fn update(&mut self) {
 
+    }
 }
 impl PressureSource for ElectricPump {
 
@@ -110,55 +138,44 @@ impl PressureSource for ElectricPump {
 
 
 pub struct EngineDrivenPump {
-
+    active: bool,
 }
 impl EngineDrivenPump {
-
+    pub fn update(&mut self) {
+        
+    }
 }
 impl PressureSource for EngineDrivenPump {
 
 }
 
 pub struct PtuPump {
-
+    active: bool,
+    state:  PtuState,
 }
 impl PtuPump {
-
+    pub fn update(&mut self) {
+        
+    }
 }
 impl PresusreSource for PtuPump {
 
 }
 
 pub struct RatPump {
-
+    active: bool,
 }
 impl RatPump {
-
+    pub fn update(&mut self) {
+        
+    }
 }
 impl PressureSource for RatPump {
 
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// ACCUMULATOR STRUCT/IMPL
-////////////////////////////////////////////////////////////////////////////////
-
-pub struct HydAccumulator {
-    
-}
-
-impl HydAccumulator {
-    fn get_pressure(&self) -> pressure {
-        self.pressure
-    }
-
-    fn get_volume(&self) -> volume {
-        self.volume
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// ACTUATOR STRUCT/IMPL
+// ACTUATOR DEFINITION
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct Actuator {
@@ -166,6 +183,18 @@ pub struct Actuator {
 }
 
 impl Actuator {
+
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// BLEED AIR SRC DEFINITION
+////////////////////////////////////////////////////////////////////////////////
+
+pub struct BleedAirSource {
+    type: BleedSrc,
+}
+
+impl BleedAirSource {
 
 }
 
