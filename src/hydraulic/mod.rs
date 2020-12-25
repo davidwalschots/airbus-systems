@@ -1,3 +1,5 @@
+use std::cmp;
+
 use uom::si::{
     pressure::psi, volume::gallon, volume_rate::gallon_per_second,
 };
@@ -105,6 +107,17 @@ impl HydLoop {
         self.res_volume
     }
 
+    pub fn draw_res_fluid(&mut self, amount: volume) -> volume {
+        let drawn: volume = amount;
+        if amount > self.res_volume {
+            drawn = self.res_volume;
+            self.res_volume = 0;
+        } else {
+            self.res_volume -= drawn;
+        }
+        drawn;
+    }
+
     pub fn update(&mut self) {
 
     }
@@ -128,7 +141,7 @@ impl ElectricPump {
         } 
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self, line: &HydLoop) {
 
     }
 }
@@ -136,13 +149,16 @@ impl PressureSource for ElectricPump {
 
 }
 
-
 pub struct EngineDrivenPump {
     active:         bool,
     displacement:   volume,
     flow:           volume_rate,
 }
 impl EngineDrivenPump {
+    const ENG_PCT_MAX_RPM: f32 = 65.00; // DUMMY PLACEHOLDER - get real N1!
+    const ENG_DISP_SCALAR: f32 = 58.08;
+    const ENG_DISP_MULTIPLIER: f32 = -0.0192;
+
     pub fn new() -> EngineDrivenPump {
         EngineDrivenPump {
             active:         false,
@@ -151,14 +167,32 @@ impl EngineDrivenPump {
         }
     }
     
-    pub fn update(&mut self) {
-        
+    pub fn update(&mut self, context: &UpdateContext, line: &HydLoop) {
+        // Calculate displacement
+        if line.get_pressure() < 2900 {
+            self.displacement = 2.4;
+        } else {
+            self.displacement = cmp::max((
+                line.get_pressure() *
+                ENG_DISP_MULTIPLIER +
+                ENG_DISP_SCALAR
+            ), 0);
+        }
+
+        // Calculate flow
+        self.flow = (ENG_PCT_MAX_RPM * 4000 * self.displacement / 231 / 60) * (context.delta.as_millis() * 0.0001);
+
+        // Update reservoir
+        let amount_drawn = line.draw_res_fluid(self.flow);
+        self.flow = cmp::min(self.flow, amount_drawn);
     }
 }
 impl PressureSource for EngineDrivenPump {
 
 }
 
+// PTU "pump" affects 2 hydraulic lines, not just 1
+// Need to find a way to specify displacements for multiple lines
 pub struct PtuPump {
     active:         bool,
     displacement:   volume,
