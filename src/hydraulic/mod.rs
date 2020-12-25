@@ -1,7 +1,7 @@
 use std::cmp;
 
 use uom::si::{
-    pressure::psi, volume::gallon, volume_rate::gallon_per_second,
+    f32::*, pressure::psi, volume::gallon, volume_rate::gallon_per_second,
 };
 
 use crate::{
@@ -9,6 +9,62 @@ use crate::{
     shared::{Engine, UpdateContext},
     visitor::Visitable,
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// DATA & REFERENCES
+////////////////////////////////////////////////////////////////////////////////
+/// 
+/// On A320, the reservoir level variation can, depending on the system, 
+/// decrease in flight by about 3.5 l (G RSVR), 4 l (Y RSVR) and 0.5 l (B RSVR)
+/// 
+/// Each MLG door open (2 total) uses 0.25 liters each of green hyd fluid
+/// Each cargo door open (3 total) uses 0.2 liters each of yellow hyd fluid
+/// 
+/// 
+/// EDP (Eaton PV3-240-10C/D/F):
+/// ------------------------------------------
+/// 37.5 GPM (141.95 L/min)
+/// 3750 RPM
+/// variable displacement
+/// 3000 PSI
+/// Displacement: 2.40 in3/rev, 39.3 mL/rev
+/// 
+/// 
+/// Electric Pump (Eaton MPEV-032-15):
+/// ------------------------------------------
+/// Uses 115/200 VAC, 400HZ electric motor
+/// 8.5 GPM (32 L/min)
+/// variable displacement
+/// 3000 PSI
+/// Displacement: 0.263 in3/rev, 4.3 mL/ev
+/// 
+/// 
+/// PTU (Eaton Vickers MPHV3-115-1C):
+/// ------------------------------------------
+/// Yellow to Green
+/// ---------------
+/// 34 GPM (130 L/min) from Yellow system
+/// 24 GPM (90 L/min) to Green system
+/// Maintains constant pressure near 3000PSI in green
+/// 
+/// Green to Yellow
+/// ---------------
+/// 16 GPM (60 L/min) from Green system
+/// 13 GPM (50 L/min) to Yellow system
+/// Maintains constant pressure near 3000PSI in yellow
+///  
+/// 
+/// RAT PUMP (Eaton PV3-115):
+/// ------------------------------------------
+/// Max displacement: 1.15 in3/rev, 18.85 mL/rev
+/// Normal speed: 6,600 RPM
+/// Max. Ov. Speed: 8,250 RPM
+/// Theoretical Flow at normal speed: 32.86 gpm, 124.4 l/m
+/// 
+/// 
+/// Equations:
+/// Flow (Q), gpm:  Q = (in3/rev * rpm)/231
+/// 
 
 ////////////////////////////////////////////////////////////////////////////////
 // ENUMERATIONS
@@ -64,11 +120,11 @@ pub enum PtuState {
 
 // Trait common to all hydraulic pumps
 pub trait PressureSource {
-    fn get_flow(&self) -> volume_rate {
+    fn get_flow(&self) -> VolumeRate {
         self.flow
     }
 
-    fn get_displacement(&self) -> volume {
+    fn get_displacement(&self) -> Volume {
         self.displacement
     }
 }
@@ -79,15 +135,15 @@ pub trait PressureSource {
 
 pub struct HydLoop {
     color:          LoopColor,
-    line_pressure:  pressure,
-    res_volume:     volume,
+    line_pressure:  Pressure,
+    res_volume:     Volume,
 }
 
 impl HydLoop {
-    pub const ACCUMULATOR_PRE_CHARGE: pressure = 1885;
-    pub const ACCUMULATOR_MAX_VOLUME: volume = 0.241966;
+    const ACCUMULATOR_PRE_CHARGE: f32 = 1885.0;
+    const ACCUMULATOR_MAX_VOLUME: f32 = 0.241966;
 
-    pub fn new(color: LoopColor, res_volume: volume) -> HydLoop {
+    pub fn new(color: LoopColor, res_volume: Volume) -> HydLoop {
         HydLoop {
             color,
             line_pressure:  0,
@@ -99,16 +155,16 @@ impl HydLoop {
 
     }
 
-    pub fn get_pressure(&self) -> pressure {
+    pub fn get_pressure(&self) -> Pressure {
         self.line_pressure
     }
 
-    pub fn get_res_volume(&self) -> volume {
+    pub fn get_res_volume(&self) -> Volume {
         self.res_volume
     }
 
-    pub fn draw_res_fluid(&mut self, amount: volume) -> volume {
-        let drawn: volume = amount;
+    pub fn draw_res_fluid(&mut self, amount: Volume) -> Volume {
+        let drawn: Volume = amount;
         if amount > self.res_volume {
             drawn = self.res_volume;
             self.res_volume = 0;
@@ -129,15 +185,15 @@ impl HydLoop {
 
 pub struct ElectricPump {
     active:         bool,
-    displacement:   volume,
-    flow:           volume_rate,
+    displacement:   Volume,
+    flow:           VolumeRate,
 }
 impl ElectricPump {
     pub fn new() -> ElectricPump {
         ElectricPump {
             active:         false,
-            displacement:   0.263,
-            flow:           0,
+            displacement:   Volume::new::<gallon>(0.263),
+            flow:           VolumeRate::new::<gallon_per_second>(0),
         } 
     }
 
@@ -151,19 +207,21 @@ impl PressureSource for ElectricPump {
 
 pub struct EngineDrivenPump {
     active:         bool,
-    displacement:   volume,
-    flow:           volume_rate,
+    displacement:   Volume,
+    flow:           VolumeRate,
 }
 impl EngineDrivenPump {
-    const ENG_PCT_MAX_RPM: f32 = 65.00; // DUMMY PLACEHOLDER - get real N1!
+    const CNV_IN3_TO_GAL: f32 = 231.0;
+    const EDP_MAX_RPM: f32 = 4000.0;
+    const ENG_PCT_MAX_RPM: f32 = 65.00; // TODO: DUMMY PLACEHOLDER - get real N1!
     const ENG_DISP_SCALAR: f32 = 58.08;
     const ENG_DISP_MULTIPLIER: f32 = -0.0192;
 
     pub fn new() -> EngineDrivenPump {
         EngineDrivenPump {
             active:         false,
-            displacement:   2.4,
-            flow:           0,
+            displacement:   Volume::new::<gallon>(2.4),
+            flow:           VolumeRate::new::<gallon_per_second>(0),
         }
     }
     
@@ -180,7 +238,13 @@ impl EngineDrivenPump {
         }
 
         // Calculate flow
-        self.flow = (ENG_PCT_MAX_RPM * 4000 * self.displacement / 231 / 60) * (context.delta.as_millis() * 0.0001);
+        self.flow = (
+            ENG_PCT_MAX_RPM * 
+            EDP_MAX_RPM * 
+            self.displacement /
+            CNV_IN3_TO_GAL / 
+            60
+        ) * (context.delta.as_millis() * 0.001);
 
         // Update reservoir
         let amount_drawn = line.draw_res_fluid(self.flow);
@@ -195,16 +259,16 @@ impl PressureSource for EngineDrivenPump {
 // Need to find a way to specify displacements for multiple lines
 pub struct PtuPump {
     active:         bool,
-    displacement:   volume,
-    flow:           volume_rate,
+    displacement:   Volume,
+    flow:           VolumeRate,
     state:          PtuState,
 }
 impl PtuPump {
     pub fn new() -> PtuPump {
         PtuPump {
             active:         false,
-            displacement:   0,
-            flow:           0,
+            displacement:   Volume::new::<gallon>(0),
+            flow:           VolumeRate::new::<gallon_per_second>(0),
             state:          PtuState::Off,
         }
     }
@@ -219,15 +283,15 @@ impl PressureSource for PtuPump {
 
 pub struct RatPump {
     active:         bool,
-    displacement:   volume,
-    flow:           volume_rate,
+    displacement:   Volume,
+    flow:           VolumeRate,
 }
 impl RatPump {
     pub fn new() -> RatPump {
         RatPump {
             active:         false,
-            displacement:   0,
-            flow:           0,       
+            displacement:   Volume::new::<gallon_per_second>(0),
+            flow:           VolumeRate::new::<gallon_per_second>(0),       
         }
     }
 
@@ -244,14 +308,14 @@ impl PressureSource for RatPump {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct Actuator {
-    type: ActuatorType,
+    a_type: ActuatorType,
     line: HydLoop,
 }
 
 impl Actuator {
-    pub fn new(type: ActuatorType, line: HydLoop) -> Actuator {
+    pub fn new(a_type: ActuatorType, line: HydLoop) -> Actuator {
         Actuator {
-            type,
+            a_type,
             line,
         }
     }
@@ -262,13 +326,13 @@ impl Actuator {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct BleedAirSource {
-    type: BleedSrcType,
+    b_type: BleedSrcType,
 }
 
 impl BleedAirSource {
-    pub fn new(type: BleedSrcType) -> BleedAirSource {
+    pub fn new(b_type: BleedSrcType) -> BleedAirSource {
         BleedAirSource {
-            type,
+            b_type,
         }
     }
 }
