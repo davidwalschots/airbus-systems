@@ -8,7 +8,7 @@ use crate::{
     overhead::{NormalAltnPushButton, OnOffPushButton},
     shared::{Engine, UpdateContext},
     visitor::Visitable,
-}
+};
 
 // TODO:
 // - Priority valve
@@ -265,7 +265,7 @@ impl HydLoop {
                 let vol_sum = delta_vol + self.acc_volume;
                 if vol_sum > 0 {
                     delta_vol = 0;
-                    delta_p -= 2: // TODO: replace this WIP placeholder load
+                    delta_p -= 2; // TODO: replace this WIP placeholder load
                     self.acc_volume += delta_vol; // TODO: is this necessary? delta_vol was just zeroed out...
                     self.acc_pressure = (ACC_PRE_CHARGE * ACC_MAX_VOLUME) / (ACC_MAX_VOLUME - self.acc_volume);
                 } else {
