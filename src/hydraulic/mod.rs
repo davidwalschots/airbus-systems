@@ -187,18 +187,66 @@ pub struct ElectricPump {
     active:         bool,
     displacement:   Volume,
     flow:           VolumeRate,
+    rpm:            f32,
 }
 impl ElectricPump {
+    const EPUMP_SPOOLUP_TIME: f32 = 2.0;
+    const EPUMP_DISP_MULTIPLIER: f32 = -0.002104;
+    const EPUMP_DISP_SCALAR: f32 = 6.3646;
+    
     pub fn new() -> ElectricPump {
         ElectricPump {
             active:         false,
             displacement:   Volume::new::<gallon>(0.263),
             flow:           VolumeRate::new::<gallon_per_second>(0),
+            rpm:            0.0,
         } 
     }
 
-    pub fn update(&mut self, line: &HydLoop) {
+    pub fn start(&mut self) {
+        self.active = true;
+    }
 
+    pub fn stop(&mut self) {
+        self.active = false;
+    }
+
+    pub fn update(&mut self, line: &HydLoop) {
+        // Pump startup/shutdown process
+        if self.active {
+            self.rpm += cmp::min(
+                (7600 / EPUMP_SPOOLUP_TIME) * (context.delta.as_millis() * 0.001),
+                7600
+            );
+        } else {
+            self.rpm -= cmp::max(
+                (7600 / EPUMP_SPOOLUP_TIME) * (context.delta.as_millis() * 0.001),
+                7600
+            );
+        }
+
+        // Calculate displacement
+        if line.get_pressure() < 2900 {
+            self.displacement = 0.263;
+        } else {
+            self.displacement = cmp::max((
+                line.get_pressure() *
+                EPUMP_DISP_MULTIPLIER +
+                EPUMP_DISP_SCALAR
+            ), 0);
+        }
+
+        // Calculate flow
+        self.flow = (
+            self.rpm *
+            self.displacement /
+            CNV_IN3_TO_GAL / 
+            60
+        ) * (context.delta.as_millis() * 0.001);
+
+        // Update reservoir
+        let amount_drawn = line.draw_res_fluid(self.flow);
+        self.flow = cmp::min(self.flow, amount_drawn);
     }
 }
 impl PressureSource for ElectricPump {
@@ -213,9 +261,10 @@ pub struct EngineDrivenPump {
 impl EngineDrivenPump {
     const CNV_IN3_TO_GAL: f32 = 231.0;
     const EDP_MAX_RPM: f32 = 4000.0;
+    const EDP_DISP_MULTIPLIER: f32 = -0.0192;
+    const EDP_DISP_SCALAR: f32 = 58.08;
+
     const ENG_PCT_MAX_RPM: f32 = 65.00; // TODO: DUMMY PLACEHOLDER - get real N1!
-    const ENG_DISP_SCALAR: f32 = 58.08;
-    const ENG_DISP_MULTIPLIER: f32 = -0.0192;
 
     pub fn new() -> EngineDrivenPump {
         EngineDrivenPump {
@@ -232,8 +281,8 @@ impl EngineDrivenPump {
         } else {
             self.displacement = cmp::max((
                 line.get_pressure() *
-                ENG_DISP_MULTIPLIER +
-                ENG_DISP_SCALAR
+                EDP_DISP_MULTIPLIER +
+                EDP_DISP_SCALAR
             ), 0);
         }
 
