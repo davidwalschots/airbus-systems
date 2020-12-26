@@ -10,6 +10,18 @@ use crate::{
     visitor::Visitable,
 }
 
+// TODO:
+// - Priority valve
+// - Engine fire shutoff valve
+// - Leak measurement valve
+// - Roll accumulator
+// - PTU Rework
+// - RAT pump implementation
+// - Connecting electric pumps to electric sources
+// - Connecting RAT pump/blue loop to emergency generator
+// - Actuators
+// - Bleed air sources for reservoir/line anti-cavitation
+
 ////////////////////////////////////////////////////////////////////////////////
 // DATA & REFERENCES
 ////////////////////////////////////////////////////////////////////////////////
