@@ -63,7 +63,21 @@ use crate::{
 /// 
 /// 
 /// Equations:
-/// Flow (Q), gpm:  Q = (in3/rev * rpm)/231
+/// ------------------------------------------
+/// Flow (Q), gpm:  Q = (in3/rev * rpm) / 231
+/// Velocity (V), ft/s: V = (0.3208 * flow rate, gpm) / internal area, sq in
+/// Force (F), lbs: F = density * area * velocity^2
+/// Pressure (P), PSI: P = force / area
+/// 
+/// 
+/// Hydraulic Fluid: EXXON HyJet IV
+/// ------------------------------------------
+/// Kinematic viscosity at 40C: 10.55 mm^2 s^-1, +/- 20%
+/// Density at 25C: 996 kg m^-3
+/// 
+/// Hydraulic Line (HP) inner diameter
+/// ------------------------------------------
+/// Currently unknown. Estimating to be 7.5mm for now?
 /// 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -185,6 +199,7 @@ impl HydLoop {
 
 pub struct ElectricPump {
     active:         bool,
+    delta_vol:      Volume,
     displacement:   Volume,
     flow:           VolumeRate,
     rpm:            f32,
@@ -197,6 +212,7 @@ impl ElectricPump {
     pub fn new() -> ElectricPump {
         ElectricPump {
             active:         false,
+            delta_vol:      Volume::new::<gallon>(0),
             displacement:   Volume::new::<gallon>(0.263),
             flow:           VolumeRate::new::<gallon_per_second>(0),
             rpm:            0.0,
@@ -242,11 +258,12 @@ impl ElectricPump {
             self.displacement /
             CNV_IN3_TO_GAL / 
             60
-        ) * (context.delta.as_millis() * 0.001);
+        );
+        self.delta_vol = self.flow * context.delta.as_seconds_f32();
 
         // Update reservoir
-        let amount_drawn = line.draw_res_fluid(self.flow);
-        self.flow = cmp::min(self.flow, amount_drawn);
+        let amount_drawn = line.draw_res_fluid(self.delta_vol);
+        self.delta_vol = cmp::min(self.delta_vol, amount_drawn);
     }
 }
 impl PressureSource for ElectricPump {
@@ -255,6 +272,7 @@ impl PressureSource for ElectricPump {
 
 pub struct EngineDrivenPump {
     active:         bool,
+    delta_vol:      Volume,
     displacement:   Volume,
     flow:           VolumeRate,
 }
@@ -269,6 +287,7 @@ impl EngineDrivenPump {
     pub fn new() -> EngineDrivenPump {
         EngineDrivenPump {
             active:         false,
+            delta_vol:      Volume::new::<gallon>(0),
             displacement:   Volume::new::<gallon>(2.4),
             flow:           VolumeRate::new::<gallon_per_second>(0),
         }
@@ -293,11 +312,12 @@ impl EngineDrivenPump {
             self.displacement /
             CNV_IN3_TO_GAL / 
             60
-        ) * (context.delta.as_millis() * 0.001);
+        );
+        self.delta_vol = self.flow * context.delta.as_seconds_f32();
 
         // Update reservoir
-        let amount_drawn = line.draw_res_fluid(self.flow);
-        self.flow = cmp::min(self.flow, amount_drawn);
+        let amount_drawn = line.draw_res_fluid(self.delta_vol);
+        self.delta_vol = cmp::min(self.delta_vol, amount_drawn);
     }
 }
 impl PressureSource for EngineDrivenPump {
@@ -308,6 +328,7 @@ impl PressureSource for EngineDrivenPump {
 // Need to find a way to specify displacements for multiple lines
 pub struct PtuPump {
     active:         bool,
+    delta_vol:      Volume,
     displacement:   Volume,
     flow:           VolumeRate,
     state:          PtuState,
@@ -316,6 +337,7 @@ impl PtuPump {
     pub fn new() -> PtuPump {
         PtuPump {
             active:         false,
+            delta_vol:      Volume::new::<gallon>(0),
             displacement:   Volume::new::<gallon>(0),
             flow:           VolumeRate::new::<gallon_per_second>(0),
             state:          PtuState::Off,
@@ -332,6 +354,7 @@ impl PressureSource for PtuPump {
 
 pub struct RatPump {
     active:         bool,
+    delta_vol:      Volume,
     displacement:   Volume,
     flow:           VolumeRate,
 }
@@ -339,6 +362,7 @@ impl RatPump {
     pub fn new() -> RatPump {
         RatPump {
             active:         false,
+            delta_vol:      Volume::new::<gallon>(0),
             displacement:   Volume::new::<gallon_per_second>(0),
             flow:           VolumeRate::new::<gallon_per_second>(0),       
         }
