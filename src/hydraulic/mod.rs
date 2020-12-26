@@ -168,22 +168,38 @@ pub trait PressureSource {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct HydLoop {
-    pumps:          Vec<&dyn PressureSource>,
-    color:          LoopColor,
-    line_pressure:  Pressure,
-    res_volume:     Volume,
+    acc_pressure:       Pressure,
+    acc_volume:         Volume,
+    pumps:              Vec<&dyn PressureSource>,
+    color:              LoopColor,
+    line_pressure:      Pressure,
+    loop_volume:        Volume,
+    max_loop_volume:    Volume,
+    res_volume:         Volume,
 }
 
 impl HydLoop {
-    const ACCUMULATOR_PRE_CHARGE: f32 = 1885.0;
-    const ACCUMULATOR_MAX_VOLUME: f32 = 0.241966;
-    const MAX_LOOP_VOLUME: f32 = 1.09985;
+    const ACC_PRE_CHARGE: f32 = 1885.0;
+    const ACC_MAX_VOLUME: f32 = 0.241966;
+    const ACC_3K_PSI_THRESH: f32 = 0.08993;
+    // Moved to struct property:
+    // const MAX_LOOP_VOLUME: f32 = 1.09985; 
 
-    pub fn new(pumps: Vec<&dyn PressureSource> ,color: LoopColor, res_volume: Volume) -> HydLoop {
+    pub fn new(
+        pumps: Vec<&dyn PressureSource>,
+        color: LoopColor,
+        loop_volume: Volume,
+        max_loop_volume: Volume,
+        res_volume: Volume
+    ) -> HydLoop {
         HydLoop {
+            acc_pressure: ACC_PRE_CHARGE,
+            acc_volume: Volume::new::<gallon>(0),
             pumps,
             color,
-            line_pressure:  0,
+            line_pressure: Pressure::new::<psi>(0),
+            loop_volume,
+            max_loop_volume,
             res_volume,
         }
     }
@@ -218,14 +234,60 @@ impl HydLoop {
 
         // Calculations involving accumulator and loop volume
         if delta_vol > 0 {
+            if self.loop_volume < self.max_loop_volume {
+                let vol_diff = self.max_loop_volume - (self.loop_volume + delta_vol);
+                if vol_diff > 0 {
+                    self.loop_volume += delta_vol;
+                    delta_vol = 0;
+                } else {
+                    self.loop_volume = self.max_loop_volume;
+                    delta_vol = vol_diff.abs();
+                }
+            }
 
+            if self.acc_pressure < 3000 && delta_vol > 0 {
+                let press_diff = ACC_3K_PSI_THRESH - (self.acc_volume + delta_vol);
+                if press_diff > 0 {
+                    self.acc_volume += delta_vol;
+                    self.acc_pressure = (ACC_PRE_CHARGE * ACC_MAX_VOLUME) / (ACC_MAX_VOLUME - self.acc_volume);
+                } else {
+                    self.acc_volume = ACC_3K_PSI_THRESH;
+                    self.acc_pressure = 3000;
+                    delta_p = (press_diff.abs() * 250000) / self.loop_volume; // TODO: Investigate (WIP?)
+                    self.loop_volume += press_diff.abs();
+                }
+            } else {
+                delta_p = (press_diff.abs() * 250000) / self.loop_volume; // TODO: Investigate (WIP?)
+                self.loop_volume += delta_vol;
+            }
         } else if delta_vol < 0 {
+            if self.acc_volume > 0 {
+                let vol_sum = delta_vol + self.acc_volume;
+                if vol_sum > 0 {
+                    delta_vol = 0;
+                    delta_p -= 2: // TODO: replace this WIP placeholder load
+                    self.acc_volume += delta_vol; // TODO: is this necessary? delta_vol was just zeroed out...
+                    self.acc_pressure = (ACC_PRE_CHARGE * ACC_MAX_VOLUME) / (ACC_MAX_VOLUME - self.acc_volume);
+                } else {
+                    delta_vol = vol_sum;
+                    self.acc_volume = 0;
+                    self.acc_pressure = ACC_PRE_CHARGE;
+                }
+            }
 
+            let vol_diff = self.loop_volume + delta_vol - self.max_loop_volume;
+            if vol_diff > 0 {
+                delta_p = (delta_vol * 250000) / self.loop_volume; // TODO: investigate magic number
+            } else {
+                self.line_pressure = 0;
+            }
+
+            self.loop_volume = cmp::max(self.loop_volume + delta_vol, 0);
         }
 
         // Update loop pressure
         if delta_p != 0 {
-
+            self.line_pressure = cmp::max(self.line_pressure + delta_p, 0);
         }
     }
 }
