@@ -134,12 +134,20 @@ pub enum PtuState {
 
 // Trait common to all hydraulic pumps
 pub trait PressureSource {
+    fn get_delta_vol(&self) -> Volume {
+        self.delta_vol
+    }
+
     fn get_flow(&self) -> VolumeRate {
         self.flow
     }
 
     fn get_displacement(&self) -> Volume {
         self.displacement
+    }
+
+    fn is_active(&self) -> bool {
+        self.active
     }
 }
 
@@ -148,6 +156,7 @@ pub trait PressureSource {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct HydLoop {
+    pumps:          Vec<&dyn PressureSource>,
     color:          LoopColor,
     line_pressure:  Pressure,
     res_volume:     Volume,
@@ -156,17 +165,15 @@ pub struct HydLoop {
 impl HydLoop {
     const ACCUMULATOR_PRE_CHARGE: f32 = 1885.0;
     const ACCUMULATOR_MAX_VOLUME: f32 = 0.241966;
+    const MAX_LOOP_VOLUME: f32 = 1.09985;
 
-    pub fn new(color: LoopColor, res_volume: Volume) -> HydLoop {
+    pub fn new(pumps: Vec<&dyn PressureSource> ,color: LoopColor, res_volume: Volume) -> HydLoop {
         HydLoop {
+            pumps,
             color,
             line_pressure:  0,
             res_volume,
         }
-    }
-
-    pub fn pressurized_by<T: PressureSource + ?Sized>(&mut self, pumps: Vec<&T>) {
-
     }
 
     pub fn get_pressure(&self) -> Pressure {
@@ -189,7 +196,25 @@ impl HydLoop {
     }
 
     pub fn update(&mut self) {
+        // Get total volume output of hydraulic pumps this tick
+        // TODO: Implement hydraulic "load" subtraction?
+        let delta_vol = Volume::new::<gallon>(0);
+        let delta_p = Pressure::new::<psi>(0);
+        for pump in self.pumps {
+            delta_vol += pump.get_delta_vol();
+        }
 
+        // Calculations involving accumulator and loop volume
+        if delta_vol > 0 {
+
+        } else if delta_vol < 0 {
+
+        }
+
+        // Update loop pressure
+        if delta_p != 0 {
+
+        }
     }
 }
 
