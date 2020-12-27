@@ -159,7 +159,7 @@ pub trait PressureSource {
 pub struct HydLoop {
     acc_pressure: Pressure,
     acc_volume: Volume,
-    pumps: Vec<&dyn PressureSource>,
+    pumps: Vec<Box<dyn PressureSource>>,
     color: LoopColor,
     line_pressure: Pressure,
     loop_volume: Volume,
@@ -175,7 +175,7 @@ impl HydLoop {
     // const MAX_LOOP_VOLUME: f32 = 1.09985;
 
     pub fn new(
-        pumps: Vec<&dyn PressureSource>,
+        pumps: Vec<Box<dyn PressureSource>>,
         color: LoopColor,
         loop_volume: Volume,
         max_loop_volume: Volume,
@@ -202,22 +202,22 @@ impl HydLoop {
     }
 
     pub fn draw_res_fluid(&mut self, amount: Volume) -> Volume {
-        let drawn = amount;
+        let mut drawn = amount;
         if amount > self.res_volume {
             drawn = self.res_volume;
             self.res_volume = Volume::new::<gallon>(0.);
         } else {
             self.res_volume -= drawn;
         }
-        drawn;
+        drawn
     }
 
     pub fn update(&mut self) {
         // Get total volume output of hydraulic pumps this tick
         // TODO: Implement hydraulic "load" subtraction?
-        let delta_vol = Volume::new::<gallon>(0.);
-        let delta_p = Pressure::new::<psi>(0.);
-        for pump in self.pumps {
+        let mut delta_vol = Volume::new::<gallon>(0.);
+        let mut delta_p = Pressure::new::<psi>(0.);
+        for pump in self.pumps.iter_mut() {
             delta_vol += pump.get_delta_vol();
         }
 
@@ -237,7 +237,6 @@ impl HydLoop {
             if self.acc_pressure < Pressure::new::<psi>(3000.)
                 && delta_vol > Volume::new::<gallon>(0.)
             {
-                // TODO: rename press_diff
                 let vol_diff = Volume::new::<gallon>(HydLoop::ACC_3K_PSI_THRESH)
                     - (self.acc_volume + delta_vol);
                 if vol_diff > Volume::new::<gallon>(0.) {
@@ -248,11 +247,16 @@ impl HydLoop {
                 } else {
                     self.acc_volume = Volume::new::<gallon>(HydLoop::ACC_3K_PSI_THRESH);
                     self.acc_pressure = Pressure::new::<psi>(3000.);
-                    delta_p = (vol_diff.abs() * 250000.) / self.loop_volume; // TODO: Investigate (WIP?)
+                    delta_p = Pressure::new::<psi>(
+                        (vol_diff.abs().get::<gallon>() * 250000.)
+                            / self.loop_volume.get::<gallon>(),
+                    );
                     self.loop_volume += vol_diff.abs();
                 }
             } else {
-                delta_p = (delta_vol * 250000) / self.loop_volume; // TODO: Investigate (WIP?)
+                delta_p = Pressure::new::<psi>(
+                    (delta_vol.get::<gallon>() * 250000.) / self.loop_volume.get::<gallon>(),
+                );
                 self.loop_volume += delta_vol;
             }
         } else if delta_vol < Volume::new::<gallon>(0.) {
@@ -274,7 +278,10 @@ impl HydLoop {
 
             let vol_diff = self.loop_volume + delta_vol - self.max_loop_volume;
             if vol_diff > Volume::new::<gallon>(0.) {
-                delta_p = (delta_vol * Volume::new::<gallon>(250000.)) / self.loop_volume; // TODO: investigate magic number
+                // TODO: investigate magic number
+                delta_p = Pressure::new::<psi>(
+                    (delta_vol.get::<gallon>() * 250000.) / self.loop_volume.get::<gallon>(),
+                );
             } else {
                 self.line_pressure = Pressure::new::<psi>(0.);
             }
@@ -301,6 +308,7 @@ pub struct ElectricPump {
     rpm: f32,
 }
 impl ElectricPump {
+    const CNV_IN3_TO_GAL: f32 = 231.0;
     const EPUMP_SPOOLUP_TIME: f32 = 2.0;
     const EPUMP_DISP_MULTIPLIER: f32 = -0.02104;
     const EPUMP_DISP_SCALAR: f32 = 6.3646;
@@ -323,7 +331,7 @@ impl ElectricPump {
         self.active = false;
     }
 
-    pub fn update(&mut self, context: &UpdateContext, line: &HydLoop) {
+    pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop) {
         // Pump startup/shutdown process
         if self.active {
             self.rpm += 7600.0f32.max(
@@ -339,10 +347,12 @@ impl ElectricPump {
         if line.get_pressure() < Pressure::new::<psi>(2900.) {
             self.displacement = Volume::new::<gallon>(0.263);
         } else {
-            self.displacement = Volume::new::<gallon>(0.).max(
-                line.get_pressure() * Quantity::new::<f32>(ElectricPump::EPUMP_DISP_MULTIPLIER)
-                    + Volume::new::<gallon>(ElectricPump::EPUMP_DISP_SCALAR),
+            let disp_calc = Volume::new::<gallon>(
+                line.get_pressure().get::<psi>() * ElectricPump::EPUMP_DISP_MULTIPLIER
+                    + ElectricPump::EPUMP_DISP_SCALAR,
             );
+
+            self.displacement = Volume::new::<gallon>(0.).max(disp_calc);
         }
 
         // Calculate flow
@@ -396,15 +406,16 @@ impl EngineDrivenPump {
         }
     }
 
-    pub fn update(&mut self, context: &UpdateContext, line: &HydLoop) {
+    pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop) {
         // Calculate displacement
         if line.get_pressure() < Pressure::new::<psi>(2900.) {
             self.displacement = Volume::new::<gallon>(2.4);
         } else {
-            self.displacement = Volume::new::<gallon>(0.).max(
-                line.get_pressure() * EngineDrivenPump::EDP_DISP_MULTIPLIER
-                    + Volume::new::<gallon>(EngineDrivenPump::EDP_DISP_SCALAR),
+            let disp_calc = Volume::new::<gallon>(
+                line.get_pressure().get::<psi>() * EngineDrivenPump::EDP_DISP_MULTIPLIER
+                    + EngineDrivenPump::EDP_DISP_SCALAR,
             );
+            self.displacement = Volume::new::<gallon>(0.).max(disp_calc);
         }
 
         // Calculate flow
