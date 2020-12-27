@@ -1,10 +1,11 @@
 use std::time::Duration;
 
 use uom::si::{
-    f32::*, length::foot, pressure::psi, time::second, velocity::knot, volume::gallon, volume_rate::gallon_per_second,
+    f32::*, length::foot, pressure::psi, time::second, velocity::knot, volume::gallon,
+    volume_rate::gallon_per_second,
 };
 
-use crate::{ 
+use crate::{
     overhead::{NormalAltnPushButton, OnOffPushButton},
     shared::{Engine, UpdateContext},
     visitor::Visitable,
@@ -567,14 +568,10 @@ mod tests {
     use super::*;
 
     #[cfg(test)]
-    mod loop_tests {
-
-    }
+    mod loop_tests {}
 
     #[cfg(test)]
-    mod epump_tests {
-
-    }
+    mod epump_tests {}
 
     #[cfg(test)]
     mod edp_tests {
