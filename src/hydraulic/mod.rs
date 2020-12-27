@@ -1,8 +1,10 @@
+use std::time::Duration;
+
 use uom::si::{
-    f32::*, pressure::psi, time::second, volume::gallon, volume_rate::gallon_per_second,
+    f32::*, length::foot, pressure::psi, time::second, velocity::knot, volume::gallon, volume_rate::gallon_per_second,
 };
 
-use crate::{
+use crate::{ 
     overhead::{NormalAltnPushButton, OnOffPushButton},
     shared::{Engine, UpdateContext},
     visitor::Visitable,
@@ -546,13 +548,13 @@ impl Actuator {
 // BLEED AIR SRC DEFINITION
 ////////////////////////////////////////////////////////////////////////////////
 
-pub struct BleedAirSource {
+pub struct BleedAir {
     b_type: BleedSrcType,
 }
 
-impl BleedAirSource {
-    pub fn new(b_type: BleedSrcType) -> BleedAirSource {
-        BleedAirSource { b_type }
+impl BleedAir {
+    pub fn new(b_type: BleedSrcType) -> BleedAir {
+        BleedAir { b_type }
     }
 }
 
@@ -561,4 +563,66 @@ impl BleedAirSource {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+
+    #[cfg(test)]
+    mod loop_tests {
+
+    }
+
+    #[cfg(test)]
+    mod epump_tests {
+
+    }
+
+    #[cfg(test)]
+    mod edp_tests {
+        use super::*;
+        use uom::si::ratio::percent;
+
+        #[test]
+        fn starts_inactive() {
+            assert!(engine_driven_pump().is_active() == false);
+        }
+
+        #[test]
+        fn check_displacement_under_2900_psi() {
+            let eng = engine(Ratio::new::<percent>(0.6));
+            let mut edp = engine_driven_pump();
+            let mut line = hydraulic_loop();
+            line.loop_pressure = Pressure::new::<psi>(2800.);
+            edp.update(&context(Duration::from_millis(25)), &mut line, &eng);
+            assert!(edp.displacement == Volume::new::<gallon>(2.4));
+        }
+
+        fn hydraulic_loop() -> HydLoop {
+            HydLoop::new(
+                Vec::new(),
+                LoopColor::Green,
+                Volume::new::<gallon>(1.),
+                Volume::new::<gallon>(1.09985),
+                Volume::new::<gallon>(3.7),
+            )
+        }
+
+        fn engine_driven_pump() -> EngineDrivenPump {
+            EngineDrivenPump::new()
+        }
+
+        fn engine(n2: Ratio) -> Engine {
+            let mut engine = Engine::new();
+            engine.n2 = n2;
+
+            engine
+        }
+
+        fn context(delta_time: Duration) -> UpdateContext {
+            UpdateContext::new(
+                delta_time,
+                Velocity::new::<knot>(250.),
+                Length::new::<foot>(5000.),
+            )
+        }
+    }
+}
