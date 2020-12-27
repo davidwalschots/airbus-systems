@@ -1,8 +1,9 @@
+use std::f32::consts;
 use std::time::Duration;
 
 use uom::si::{
-    f32::*, length::foot, pressure::psi, time::second, velocity::knot, volume::gallon,
-    volume_rate::gallon_per_second,
+    f32::*, length::foot, pressure::psi, ratio::percent, time::second, velocity::knot,
+    volume::cubic_inch, volume::gallon, volume_rate::gallon_per_second,
 };
 
 use crate::{
@@ -151,6 +152,19 @@ pub trait PressureSource {
     fn get_flow(&self) -> VolumeRate;
     fn get_displacement(&self) -> Volume;
     fn is_active(&self) -> bool;
+
+    fn calculate_displacement(pressure: Pressure, max_displacement: Volume) -> Volume {
+        let numerator_term = -1. * max_displacement.get::<cubic_inch>();
+        let exponent_term = -0.25 * (pressure.get::<psi>() - 2990.0);
+        let denominator_term = (1. + consts::E.powf(exponent_term)).powf(0.04);
+        Volume::new::<cubic_inch>(
+            numerator_term / denominator_term + max_displacement.get::<cubic_inch>(),
+        )
+    }
+
+    fn calculate_flow(rpm: f32, displacement: Volume) -> VolumeRate {
+        VolumeRate::new::<gallon_per_second>(rpm * displacement.get::<cubic_inch>() / 231.0 / 60.0)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -293,7 +307,7 @@ impl HydLoop {
                 self.loop_pressure = Pressure::new::<psi>(0.);
             }
 
-            self.loop_volume - Volume::new::<gallon>(0.).max(self.loop_volume + delta_vol);
+            self.loop_volume = Volume::new::<gallon>(0.).max(self.loop_volume + delta_vol);
         }
 
         // Update loop pressure
@@ -315,16 +329,16 @@ pub struct ElectricPump {
     rpm: f32,
 }
 impl ElectricPump {
-    const CONVERSION_CUBIC_INCHES_TO_GAL: f32 = 231.0;
     const SPOOLUP_TIME: f32 = 2.0;
     const DISPLACEMENT_MULTIPLIER: f32 = -0.02104;
     const DISPLACEMENT_SCALAR: f32 = 6.3646;
+    const MAX_DISPLACEMENT: f32 = 0.263;
 
     pub fn new() -> ElectricPump {
         ElectricPump {
             active: false,
             delta_vol: Volume::new::<gallon>(0.),
-            displacement: Volume::new::<gallon>(0.263),
+            displacement: Volume::new::<cubic_inch>(ElectricPump::MAX_DISPLACEMENT),
             flow: VolumeRate::new::<gallon_per_second>(0.),
             rpm: 0.,
         }
@@ -349,21 +363,13 @@ impl ElectricPump {
         }
 
         // Calculate displacement
-        if line.get_pressure() < Pressure::new::<psi>(2900.) {
-            self.displacement = Volume::new::<gallon>(0.263);
-        } else {
-            let disp_calc = Volume::new::<gallon>(
-                line.get_pressure().get::<psi>() * ElectricPump::DISPLACEMENT_MULTIPLIER
-                    + ElectricPump::DISPLACEMENT_SCALAR,
-            );
-
-            self.displacement = Volume::new::<gallon>(0.).max(disp_calc);
-        }
+        self.displacement = ElectricPump::calculate_displacement(
+            line.get_pressure(),
+            Volume::new::<cubic_inch>(ElectricPump::MAX_DISPLACEMENT),
+        );
 
         // Calculate flow
-        self.flow = self.rpm * self.displacement
-            / ElectricPump::CONVERSION_CUBIC_INCHES_TO_GAL
-            / Time::new::<second>(60.);
+        self.flow = ElectricPump::calculate_flow(self.rpm, self.displacement);
         self.delta_vol = self.flow * Time::new::<second>(context.delta.as_secs_f32());
 
         // Update reservoir
@@ -396,39 +402,32 @@ pub struct EngineDrivenPump {
     flow: VolumeRate,
 }
 impl EngineDrivenPump {
-    const CONVERSION_CUBIC_INCHES_TO_GAL: f32 = 231.0;
-    const MAX_RPM: f32 = 4000.;
     const DISPLACEMENT_MULTIPLIER: f32 = -0.192;
     const DISPLACEMENT_SCALAR: f32 = 58.08;
     const LEAP_1A26_MAX_N2_RPM: f32 = 16645.0;
+    const MAX_DISPLACEMENT: f32 = 2.4;
+    const MAX_RPM: f32 = 4000.;
 
     pub fn new() -> EngineDrivenPump {
         EngineDrivenPump {
             active: false,
             delta_vol: Volume::new::<gallon>(0.),
-            displacement: Volume::new::<gallon>(2.4),
+            displacement: Volume::new::<cubic_inch>(EngineDrivenPump::MAX_DISPLACEMENT),
             flow: VolumeRate::new::<gallon_per_second>(0.),
         }
     }
 
     pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop, engine: &Engine) {
         // Calculate displacement
-        if line.get_pressure() < Pressure::new::<psi>(2900.) {
-            self.displacement = Volume::new::<gallon>(2.4);
-        } else {
-            let disp_calc = Volume::new::<gallon>(
-                line.get_pressure().get::<psi>() * EngineDrivenPump::DISPLACEMENT_MULTIPLIER
-                    + EngineDrivenPump::DISPLACEMENT_SCALAR,
-            );
-            self.displacement = Volume::new::<gallon>(0.).max(disp_calc);
-        }
+        self.displacement = EngineDrivenPump::calculate_displacement(
+            line.get_pressure(),
+            Volume::new::<cubic_inch>(EngineDrivenPump::MAX_DISPLACEMENT),
+        );
 
         // Calculate flow
-        self.flow = (engine.n2 / EngineDrivenPump::LEAP_1A26_MAX_N2_RPM)
-            * EngineDrivenPump::MAX_RPM
-            * self.displacement
-            / EngineDrivenPump::CONVERSION_CUBIC_INCHES_TO_GAL
-            / Time::new::<second>(60.);
+        let edp_rpm = (engine.n2.get::<percent>() / EngineDrivenPump::LEAP_1A26_MAX_N2_RPM)
+            * EngineDrivenPump::MAX_RPM;
+        self.flow = EngineDrivenPump::calculate_flow(edp_rpm, self.displacement);
         self.delta_vol = self.flow * Time::new::<second>(context.delta.as_secs_f32());
 
         // Update reservoir
@@ -468,13 +467,13 @@ impl PtuPump {
         PtuPump {
             active: false,
             delta_vol: Volume::new::<gallon>(0.),
-            displacement: Volume::new::<gallon>(0.),
+            displacement: Volume::new::<cubic_inch>(0.),
             flow: VolumeRate::new::<gallon_per_second>(0.),
             state: PtuState::Off,
         }
     }
 
-    pub fn update(&mut self) {}
+    pub fn update(&mut self, line: &mut HydLoop) {}
 }
 impl PressureSource for PtuPump {
     fn get_delta_vol(&self) -> Volume {
@@ -505,7 +504,7 @@ impl RatPump {
         RatPump {
             active: false,
             delta_vol: Volume::new::<gallon>(0.),
-            displacement: Volume::new::<gallon>(0.),
+            displacement: Volume::new::<cubic_inch>(0.),
             flow: VolumeRate::new::<gallon_per_second>(0.),
         }
     }
@@ -590,7 +589,7 @@ mod tests {
             let mut line = hydraulic_loop();
             line.loop_pressure = Pressure::new::<psi>(2800.);
             edp.update(&context(Duration::from_millis(25)), &mut line, &eng);
-            assert!(edp.displacement == Volume::new::<gallon>(2.4));
+            assert!(edp.displacement == Volume::new::<cubic_inch>(2.4));
         }
 
         fn hydraulic_loop() -> HydLoop {
