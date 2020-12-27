@@ -157,14 +157,14 @@ pub trait PressureSource {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct HydLoop {
-    acc_pressure: Pressure,
-    acc_volume: Volume,
+    accumulator_pressure: Pressure,
+    accumulator_volume: Volume,
     pumps: Vec<Box<dyn PressureSource>>,
     color: LoopColor,
-    line_pressure: Pressure,
+    loop_pressure: Pressure,
     loop_volume: Volume,
     max_loop_volume: Volume,
-    res_volume: Volume,
+    reservoir_volume: Volume,
 }
 
 impl HydLoop {
@@ -179,35 +179,35 @@ impl HydLoop {
         color: LoopColor,
         loop_volume: Volume,
         max_loop_volume: Volume,
-        res_volume: Volume,
+        reservoir_volume: Volume,
     ) -> HydLoop {
         HydLoop {
-            acc_pressure: Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE),
-            acc_volume: Volume::new::<gallon>(0.),
+            accumulator_pressure: Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE),
+            accumulator_volume: Volume::new::<gallon>(0.),
             pumps,
             color,
-            line_pressure: Pressure::new::<psi>(0.),
+            loop_pressure: Pressure::new::<psi>(0.),
             loop_volume,
             max_loop_volume,
-            res_volume,
+            reservoir_volume,
         }
     }
 
     pub fn get_pressure(&self) -> Pressure {
-        self.line_pressure
+        self.loop_pressure
     }
 
-    pub fn get_res_volume(&self) -> Volume {
-        self.res_volume
+    pub fn get_reservoir_volume(&self) -> Volume {
+        self.reservoir_volume
     }
 
     pub fn draw_res_fluid(&mut self, amount: Volume) -> Volume {
         let mut drawn = amount;
-        if amount > self.res_volume {
-            drawn = self.res_volume;
-            self.res_volume = Volume::new::<gallon>(0.);
+        if amount > self.reservoir_volume {
+            drawn = self.reservoir_volume;
+            self.reservoir_volume = Volume::new::<gallon>(0.);
         } else {
-            self.res_volume -= drawn;
+            self.reservoir_volume -= drawn;
         }
         drawn
     }
@@ -234,20 +234,22 @@ impl HydLoop {
                 }
             }
 
-            if self.acc_pressure < Pressure::new::<psi>(3000.)
+            if self.accumulator_pressure < Pressure::new::<psi>(3000.)
                 && delta_vol > Volume::new::<gallon>(0.)
             {
                 let vol_diff = Volume::new::<gallon>(HydLoop::ACCUMULATOR_3K_PSI_THRESHOLD)
-                    - (self.acc_volume + delta_vol);
+                    - (self.accumulator_volume + delta_vol);
                 if vol_diff > Volume::new::<gallon>(0.) {
-                    self.acc_volume += delta_vol;
-                    self.acc_pressure = (Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE)
-                        * Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME))
-                        / (Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME)
-                            - self.acc_volume);
+                    self.accumulator_volume += delta_vol;
+                    self.accumulator_pressure =
+                        (Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE)
+                            * Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME))
+                            / (Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME)
+                                - self.accumulator_volume);
                 } else {
-                    self.acc_volume = Volume::new::<gallon>(HydLoop::ACCUMULATOR_3K_PSI_THRESHOLD);
-                    self.acc_pressure = Pressure::new::<psi>(3000.);
+                    self.accumulator_volume =
+                        Volume::new::<gallon>(HydLoop::ACCUMULATOR_3K_PSI_THRESHOLD);
+                    self.accumulator_pressure = Pressure::new::<psi>(3000.);
                     delta_p = Pressure::new::<psi>(
                         (vol_diff.abs().get::<gallon>() * 250000.)
                             / self.loop_volume.get::<gallon>(),
@@ -261,20 +263,22 @@ impl HydLoop {
                 self.loop_volume += delta_vol;
             }
         } else if delta_vol < Volume::new::<gallon>(0.) {
-            if self.acc_volume > Volume::new::<gallon>(0.) {
-                let vol_sum = delta_vol + self.acc_volume;
+            if self.accumulator_volume > Volume::new::<gallon>(0.) {
+                let vol_sum = delta_vol + self.accumulator_volume;
                 if vol_sum > Volume::new::<gallon>(0.) {
                     delta_vol = Volume::new::<gallon>(0.);
                     delta_p -= Pressure::new::<psi>(2.); // TODO: replace this WIP placeholder load
-                    self.acc_volume += delta_vol; // TODO: is this necessary? delta_vol was just zeroed out...
-                    self.acc_pressure = (Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE)
-                        * Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME))
-                        / (Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME)
-                            - self.acc_volume);
+                    self.accumulator_volume += delta_vol; // TODO: is this necessary? delta_vol was just zeroed out...
+                    self.accumulator_pressure =
+                        (Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE)
+                            * Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME))
+                            / (Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME)
+                                - self.accumulator_volume);
                 } else {
                     delta_vol = vol_sum;
-                    self.acc_volume = Volume::new::<gallon>(0.);
-                    self.acc_pressure = Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE);
+                    self.accumulator_volume = Volume::new::<gallon>(0.);
+                    self.accumulator_pressure =
+                        Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE);
                 }
             }
 
@@ -285,7 +289,7 @@ impl HydLoop {
                     (delta_vol.get::<gallon>() * 250000.) / self.loop_volume.get::<gallon>(),
                 );
             } else {
-                self.line_pressure = Pressure::new::<psi>(0.);
+                self.loop_pressure = Pressure::new::<psi>(0.);
             }
 
             self.loop_volume - Volume::new::<gallon>(0.).max(self.loop_volume + delta_vol);
@@ -293,7 +297,7 @@ impl HydLoop {
 
         // Update loop pressure
         if delta_p != Pressure::new::<psi>(0.) {
-            self.line_pressure = Pressure::new::<psi>(0.).max(self.line_pressure + delta_p);
+            self.loop_pressure = Pressure::new::<psi>(0.).max(self.loop_pressure + delta_p);
         }
     }
 }
