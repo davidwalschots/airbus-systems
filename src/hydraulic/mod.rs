@@ -199,7 +199,7 @@ impl HydLoop {
         self.reservoir_volume
     }
 
-    pub fn draw_res_fluid(&mut self, amount: Volume) -> Volume {
+    pub fn draw_reservoir_fluid(&mut self, amount: Volume) -> Volume {
         let mut drawn = amount;
         if amount > self.reservoir_volume {
             drawn = self.reservoir_volume;
@@ -364,7 +364,7 @@ impl ElectricPump {
         self.delta_vol = self.flow * Time::new::<second>(context.delta.as_secs_f32());
 
         // Update reservoir
-        let amount_drawn = line.draw_res_fluid(self.delta_vol);
+        let amount_drawn = line.draw_reservoir_fluid(self.delta_vol);
         self.delta_vol = self.delta_vol.min(amount_drawn);
     }
 }
@@ -421,14 +421,15 @@ impl EngineDrivenPump {
         }
 
         // Calculate flow
-        self.flow =
-            (engine.n2 / EngineDrivenPump::LEAP_1A26_MAX_N2_RPM) * EngineDrivenPump::MAX_RPM * self.displacement
-                / EngineDrivenPump::CONVERSION_CUBIC_INCHES_TO_GAL
-                / Time::new::<second>(60.);
+        self.flow = (engine.n2 / EngineDrivenPump::LEAP_1A26_MAX_N2_RPM)
+            * EngineDrivenPump::MAX_RPM
+            * self.displacement
+            / EngineDrivenPump::CONVERSION_CUBIC_INCHES_TO_GAL
+            / Time::new::<second>(60.);
         self.delta_vol = self.flow * Time::new::<second>(context.delta.as_secs_f32());
 
         // Update reservoir
-        let amount_drawn = line.draw_res_fluid(self.delta_vol);
+        let amount_drawn = line.draw_reservoir_fluid(self.delta_vol);
         self.delta_vol = self.delta_vol.min(amount_drawn);
     }
 }
