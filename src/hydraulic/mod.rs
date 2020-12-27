@@ -1,5 +1,3 @@
-use std::cmp;
-
 use uom::si::{
     f32::*, pressure::psi, time::second, volume::gallon, volume_rate::gallon_per_second,
 };
@@ -168,9 +166,9 @@ pub struct HydLoop {
 }
 
 impl HydLoop {
-    pub const ACCUMULATOR_PRE_CHARGE: f32 = 1885.0;
-    pub const ACCUMULATOR_MAX_VOLUME: f32 = 0.241966;
-    pub const ACCUMULATOR_3K_PSI_THRESHOLD: f32 = 0.8993;
+    const ACCUMULATOR_PRE_CHARGE: f32 = 1885.0;
+    const ACCUMULATOR_MAX_VOLUME: f32 = 0.241966;
+    const ACCUMULATOR_3K_PSI_THRESHOLD: f32 = 0.8993;
     // Moved to struct property:
     // const MAX_LOOP_VOLUME: f32 = 1.09985;
 
@@ -399,8 +397,7 @@ impl EngineDrivenPump {
     const MAX_RPM: f32 = 4000.;
     const DISPLACEMENT_MULTIPLIER: f32 = -0.192;
     const DISPLACEMENT_SCALAR: f32 = 58.08;
-
-    const ENG_PCT_MAX_RPM: f32 = 65.00; // TODO: DUMMY PLACEHOLDER - get real N1!
+    const LEAP_1A26_MAX_N2_RPM: f32 = 16645.0;
 
     pub fn new() -> EngineDrivenPump {
         EngineDrivenPump {
@@ -411,7 +408,7 @@ impl EngineDrivenPump {
         }
     }
 
-    pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop) {
+    pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop, engine: &Engine) {
         // Calculate displacement
         if line.get_pressure() < Pressure::new::<psi>(2900.) {
             self.displacement = Volume::new::<gallon>(2.4);
@@ -425,7 +422,7 @@ impl EngineDrivenPump {
 
         // Calculate flow
         self.flow =
-            EngineDrivenPump::ENG_PCT_MAX_RPM * EngineDrivenPump::MAX_RPM * self.displacement
+            (engine.n2 / EngineDrivenPump::LEAP_1A26_MAX_N2_RPM) * EngineDrivenPump::MAX_RPM * self.displacement
                 / EngineDrivenPump::CONVERSION_CUBIC_INCHES_TO_GAL
                 / Time::new::<second>(60.);
         self.delta_vol = self.flow * Time::new::<second>(context.delta.as_secs_f32());
