@@ -168,9 +168,9 @@ pub struct HydLoop {
 }
 
 impl HydLoop {
-    pub const ACC_PRE_CHARGE: f32 = 1885.0;
-    pub const ACC_MAX_VOLUME: f32 = 0.241966;
-    pub const ACC_3K_PSI_THRESH: f32 = 0.8993;
+    pub const ACCUMULATOR_PRE_CHARGE: f32 = 1885.0;
+    pub const ACCUMULATOR_MAX_VOLUME: f32 = 0.241966;
+    pub const ACCUMULATOR_3K_PSI_THRESHOLD: f32 = 0.8993;
     // Moved to struct property:
     // const MAX_LOOP_VOLUME: f32 = 1.09985;
 
@@ -182,7 +182,7 @@ impl HydLoop {
         res_volume: Volume,
     ) -> HydLoop {
         HydLoop {
-            acc_pressure: Pressure::new::<psi>(HydLoop::ACC_PRE_CHARGE),
+            acc_pressure: Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE),
             acc_volume: Volume::new::<gallon>(0.),
             pumps,
             color,
@@ -237,15 +237,16 @@ impl HydLoop {
             if self.acc_pressure < Pressure::new::<psi>(3000.)
                 && delta_vol > Volume::new::<gallon>(0.)
             {
-                let vol_diff = Volume::new::<gallon>(HydLoop::ACC_3K_PSI_THRESH)
+                let vol_diff = Volume::new::<gallon>(HydLoop::ACCUMULATOR_3K_PSI_THRESHOLD)
                     - (self.acc_volume + delta_vol);
                 if vol_diff > Volume::new::<gallon>(0.) {
                     self.acc_volume += delta_vol;
-                    self.acc_pressure = (Pressure::new::<psi>(HydLoop::ACC_PRE_CHARGE)
-                        * Volume::new::<gallon>(HydLoop::ACC_MAX_VOLUME))
-                        / (Volume::new::<gallon>(HydLoop::ACC_MAX_VOLUME) - self.acc_volume);
+                    self.acc_pressure = (Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE)
+                        * Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME))
+                        / (Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME)
+                            - self.acc_volume);
                 } else {
-                    self.acc_volume = Volume::new::<gallon>(HydLoop::ACC_3K_PSI_THRESH);
+                    self.acc_volume = Volume::new::<gallon>(HydLoop::ACCUMULATOR_3K_PSI_THRESHOLD);
                     self.acc_pressure = Pressure::new::<psi>(3000.);
                     delta_p = Pressure::new::<psi>(
                         (vol_diff.abs().get::<gallon>() * 250000.)
@@ -266,13 +267,14 @@ impl HydLoop {
                     delta_vol = Volume::new::<gallon>(0.);
                     delta_p -= Pressure::new::<psi>(2.); // TODO: replace this WIP placeholder load
                     self.acc_volume += delta_vol; // TODO: is this necessary? delta_vol was just zeroed out...
-                    self.acc_pressure = (Pressure::new::<psi>(HydLoop::ACC_PRE_CHARGE)
-                        * Volume::new::<gallon>(HydLoop::ACC_MAX_VOLUME))
-                        / (Volume::new::<gallon>(HydLoop::ACC_MAX_VOLUME) - self.acc_volume);
+                    self.acc_pressure = (Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE)
+                        * Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME))
+                        / (Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME)
+                            - self.acc_volume);
                 } else {
                     delta_vol = vol_sum;
                     self.acc_volume = Volume::new::<gallon>(0.);
-                    self.acc_pressure = Pressure::new::<psi>(HydLoop::ACC_PRE_CHARGE);
+                    self.acc_pressure = Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE);
                 }
             }
 
@@ -308,10 +310,10 @@ pub struct ElectricPump {
     rpm: f32,
 }
 impl ElectricPump {
-    const CNV_IN3_TO_GAL: f32 = 231.0;
-    const EPUMP_SPOOLUP_TIME: f32 = 2.0;
-    const EPUMP_DISP_MULTIPLIER: f32 = -0.02104;
-    const EPUMP_DISP_SCALAR: f32 = 6.3646;
+    const CONVERSION_CUBIC_INCHES_TO_GAL: f32 = 231.0;
+    const SPOOLUP_TIME: f32 = 2.0;
+    const DISPLACEMENT_MULTIPLIER: f32 = -0.02104;
+    const DISPLACEMENT_SCALAR: f32 = 6.3646;
 
     pub fn new() -> ElectricPump {
         ElectricPump {
@@ -334,13 +336,11 @@ impl ElectricPump {
     pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop) {
         // Pump startup/shutdown process
         if self.active {
-            self.rpm += 7600.0f32.max(
-                (7600. / ElectricPump::EPUMP_SPOOLUP_TIME) * (context.delta.as_secs_f32() * 10.),
-            );
+            self.rpm += 7600.0f32
+                .max((7600. / ElectricPump::SPOOLUP_TIME) * (context.delta.as_secs_f32() * 10.));
         } else {
-            self.rpm -= 7600.0f32.max(
-                (7600. / ElectricPump::EPUMP_SPOOLUP_TIME) * (context.delta.as_secs_f32() * 10.),
-            );
+            self.rpm -= 7600.0f32
+                .max((7600. / ElectricPump::SPOOLUP_TIME) * (context.delta.as_secs_f32() * 10.));
         }
 
         // Calculate displacement
@@ -348,16 +348,17 @@ impl ElectricPump {
             self.displacement = Volume::new::<gallon>(0.263);
         } else {
             let disp_calc = Volume::new::<gallon>(
-                line.get_pressure().get::<psi>() * ElectricPump::EPUMP_DISP_MULTIPLIER
-                    + ElectricPump::EPUMP_DISP_SCALAR,
+                line.get_pressure().get::<psi>() * ElectricPump::DISPLACEMENT_MULTIPLIER
+                    + ElectricPump::DISPLACEMENT_SCALAR,
             );
 
             self.displacement = Volume::new::<gallon>(0.).max(disp_calc);
         }
 
         // Calculate flow
-        self.flow =
-            self.rpm * self.displacement / ElectricPump::CNV_IN3_TO_GAL / Time::new::<second>(60.);
+        self.flow = self.rpm * self.displacement
+            / ElectricPump::CONVERSION_CUBIC_INCHES_TO_GAL
+            / Time::new::<second>(60.);
         self.delta_vol = self.flow * Time::new::<second>(context.delta.as_secs_f32());
 
         // Update reservoir
@@ -390,10 +391,10 @@ pub struct EngineDrivenPump {
     flow: VolumeRate,
 }
 impl EngineDrivenPump {
-    const CNV_IN3_TO_GAL: f32 = 231.0;
-    const EDP_MAX_RPM: f32 = 4000.;
-    const EDP_DISP_MULTIPLIER: f32 = -0.192;
-    const EDP_DISP_SCALAR: f32 = 58.08;
+    const CONVERSION_CUBIC_INCHES_TO_GAL: f32 = 231.0;
+    const MAX_RPM: f32 = 4000.;
+    const DISPLACEMENT_MULTIPLIER: f32 = -0.192;
+    const DISPLACEMENT_SCALAR: f32 = 58.08;
 
     const ENG_PCT_MAX_RPM: f32 = 65.00; // TODO: DUMMY PLACEHOLDER - get real N1!
 
@@ -412,16 +413,16 @@ impl EngineDrivenPump {
             self.displacement = Volume::new::<gallon>(2.4);
         } else {
             let disp_calc = Volume::new::<gallon>(
-                line.get_pressure().get::<psi>() * EngineDrivenPump::EDP_DISP_MULTIPLIER
-                    + EngineDrivenPump::EDP_DISP_SCALAR,
+                line.get_pressure().get::<psi>() * EngineDrivenPump::DISPLACEMENT_MULTIPLIER
+                    + EngineDrivenPump::DISPLACEMENT_SCALAR,
             );
             self.displacement = Volume::new::<gallon>(0.).max(disp_calc);
         }
 
         // Calculate flow
         self.flow =
-            EngineDrivenPump::ENG_PCT_MAX_RPM * EngineDrivenPump::EDP_MAX_RPM * self.displacement
-                / EngineDrivenPump::CNV_IN3_TO_GAL
+            EngineDrivenPump::ENG_PCT_MAX_RPM * EngineDrivenPump::MAX_RPM * self.displacement
+                / EngineDrivenPump::CONVERSION_CUBIC_INCHES_TO_GAL
                 / Time::new::<second>(60.);
         self.delta_vol = self.flow * Time::new::<second>(context.delta.as_secs_f32());
 
