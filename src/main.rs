@@ -10,6 +10,7 @@ use uom::si::{
 
 mod a320;
 mod electrical;
+mod hydraulic;
 mod overhead;
 mod shared;
 mod visitor;
