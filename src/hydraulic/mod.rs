@@ -330,8 +330,6 @@ pub struct ElectricPump {
 }
 impl ElectricPump {
     const SPOOLUP_TIME: f32 = 2.0;
-    const DISPLACEMENT_MULTIPLIER: f32 = -0.02104;
-    const DISPLACEMENT_SCALAR: f32 = 6.3646;
     const MAX_DISPLACEMENT: f32 = 0.263;
 
     pub fn new() -> ElectricPump {
@@ -354,12 +352,12 @@ impl ElectricPump {
 
     pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop) {
         // Pump startup/shutdown process
+        let delta_rpm = 7600.0f32
+            .max((7600. / ElectricPump::SPOOLUP_TIME) * (context.delta.as_secs_f32() * 10.));
         if self.active {
-            self.rpm += 7600.0f32
-                .max((7600. / ElectricPump::SPOOLUP_TIME) * (context.delta.as_secs_f32() * 10.));
+            self.rpm += delta_rpm;
         } else {
-            self.rpm -= 7600.0f32
-                .max((7600. / ElectricPump::SPOOLUP_TIME) * (context.delta.as_secs_f32() * 10.));
+            self.rpm -= delta_rpm;
         }
 
         // Calculate displacement
@@ -402,8 +400,6 @@ pub struct EngineDrivenPump {
     flow: VolumeRate,
 }
 impl EngineDrivenPump {
-    const DISPLACEMENT_MULTIPLIER: f32 = -0.192;
-    const DISPLACEMENT_SCALAR: f32 = 58.08;
     const LEAP_1A26_MAX_N2_RPM: f32 = 16645.0;
     const MAX_DISPLACEMENT: f32 = 2.4;
     const MAX_RPM: f32 = 4000.;
@@ -473,7 +469,7 @@ impl PtuPump {
         }
     }
 
-    pub fn update(&mut self, line: &mut HydLoop) {}
+    pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop) {}
 }
 impl PressureSource for PtuPump {
     fn get_delta_vol(&self) -> Volume {
@@ -500,16 +496,33 @@ pub struct RatPump {
     flow: VolumeRate,
 }
 impl RatPump {
+    const MAX_DISPLACEMENT: f32 = 1.15;
+    const NORMAL_RPM: f32 = 6000.;
+
     pub fn new() -> RatPump {
         RatPump {
             active: false,
             delta_vol: Volume::new::<gallon>(0.),
-            displacement: Volume::new::<cubic_inch>(0.),
+            displacement: Volume::new::<cubic_inch>(RatPump::MAX_DISPLACEMENT),
             flow: VolumeRate::new::<gallon_per_second>(0.),
         }
     }
 
-    pub fn update(&mut self) {}
+    pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop) {
+        // Calculate displacement
+        self.displacement = RatPump::calculate_displacement(
+            line.get_pressure(),
+            Volume::new::<cubic_inch>(ElectricPump::MAX_DISPLACEMENT),
+        );
+
+        // Calculate flow
+        self.flow = ElectricPump::calculate_flow(RatPump::NORMAL_RPM, self.displacement);
+        self.delta_vol = self.flow * Time::new::<second>(context.delta.as_secs_f32());
+
+        // Update reservoir
+        let amount_drawn = line.draw_reservoir_fluid(self.delta_vol);
+        self.delta_vol = self.delta_vol.min(amount_drawn);
+    }
 }
 impl PressureSource for RatPump {
     fn get_delta_vol(&self) -> Volume {
