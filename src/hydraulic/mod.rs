@@ -228,13 +228,9 @@ impl HydLoop {
             delta_vol += p.get_delta_vol();
         }
 
-        // println!("---------Delta vol before sub: {}", delta_vol.get::<gallon>());
-
-        // WIP: Placeholder load
+        // Apply "load" to system
         delta_vol -= Volume::new::<gallon>(0.004);
         self.reservoir_volume += Volume::new::<gallon>(0.004);
-
-        // println!("---------Delta vol after sub: {}", delta_vol.get::<gallon>());
 
         // Calculations involving accumulator and loop volume
         if delta_vol.get::<gallon>() > 0.0 {
@@ -279,7 +275,6 @@ impl HydLoop {
             }
         } else if delta_vol.get::<gallon>() < 0.0 {
             if self.accumulator_volume.get::<gallon>() > 0.0 {
-                // println!("---DEBUG: delta_vol < 0, decreasing accumulator volume...");
                 let vol_sum = delta_vol + self.accumulator_volume;
                 if vol_sum > Volume::new::<gallon>(0.) {
                     self.accumulator_volume += delta_vol;
@@ -343,13 +338,6 @@ impl Pump {
         let flow = Pump::calculate_flow(rpm, displacement);
         let delta_vol = flow * Time::new::<second>(context.delta.as_secs_f32());
 
-        // TODO: Remove debug statements
-        // println!("--- EDP Displacement: {}", displacement.get::<cubic_inch>());
-        // println!(
-        //     "--- Volume displaced this tick: {}",
-        //     delta_vol.get::<gallon>()
-        // );
-
         let amount_drawn = line.get_usable_reservoir_fluid(delta_vol);
         self.reservoir_fluid_used = amount_drawn;
         self.delta_vol = delta_vol.min(amount_drawn);
@@ -405,10 +393,10 @@ impl ElectricPump {
         // Pump startup/shutdown process
         if self.active && self.rpm < 7600.0 {
             self.rpm += 7600.0f32
-            .min((7600. / ElectricPump::SPOOLUP_TIME) * (context.delta.as_secs_f32() * 10.));
+                .min((7600. / ElectricPump::SPOOLUP_TIME) * (context.delta.as_secs_f32() * 10.));
         } else if !self.active && self.rpm > 0.0 {
             self.rpm -= 7600.0f32
-            .min((7600. / ElectricPump::SPOOLDOWN_TIME) * (context.delta.as_secs_f32() * 10.));
+                .min((7600. / ElectricPump::SPOOLDOWN_TIME) * (context.delta.as_secs_f32() * 10.));
         }
 
         self.pump.update(context, line, self.rpm);
