@@ -10,7 +10,7 @@ use uom::si::{
 
 use crate::{
     overhead::OnOffPushButton,
-    shared::{Engine, UpdateContext},
+    shared::{AuxiliaryPowerUnit, Engine, UpdateContext},
     visitor::Visitable,
 };
 
@@ -401,7 +401,7 @@ pub struct ApuGenerator {
 }
 
 impl ApuGenerator {
-    pub const APU_SPEED_POWER_OUTPUT_THRESHOLD: f32 = 57.5;
+    pub const APU_N1_POWER_OUTPUT_THRESHOLD: f32 = 87.0;
 
     pub fn new() -> ApuGenerator {
         ApuGenerator {
@@ -410,8 +410,7 @@ impl ApuGenerator {
     }
 
     pub fn update(&mut self, apu: &AuxiliaryPowerUnit) {
-        const POWER_OUTPUT_THRESHOLD: f32 = 57.5;
-        if apu.speed > Ratio::new::<percent>(ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD) {
+        if apu.n1 > Ratio::new::<percent>(ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD) {
             self.output = Current::Alternating(
                 PowerSource::ApuGenerator,
                 Frequency::new::<hertz>(400.),
@@ -427,26 +426,6 @@ impl ApuGenerator {
 impl PowerConductor for ApuGenerator {
     fn output(&self) -> Current {
         self.output
-    }
-}
-
-pub struct AuxiliaryPowerUnit {
-    pub speed: Ratio,
-}
-
-impl AuxiliaryPowerUnit {
-    pub fn new() -> AuxiliaryPowerUnit {
-        AuxiliaryPowerUnit {
-            speed: Ratio::new::<percent>(0.),
-        }
-    }
-
-    pub fn update(&mut self, context: &UpdateContext) {}
-}
-
-impl Visitable for AuxiliaryPowerUnit {
-    fn accept(&mut self, visitor: &mut Box<dyn crate::visitor::MutableVisitor>) {
-        visitor.visit_auxiliary_power_unit(self);
     }
 }
 
@@ -1301,20 +1280,20 @@ mod tests {
 
         fn apu(speed: Ratio) -> AuxiliaryPowerUnit {
             let mut apu = AuxiliaryPowerUnit::new();
-            apu.speed = speed;
+            apu.n1 = speed;
 
             apu
         }
 
         fn update_above_threshold(generator: &mut ApuGenerator) {
             generator.update(&apu(Ratio::new::<percent>(
-                ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD + 1.,
+                ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD + 1.,
             )));
         }
 
         fn update_below_threshold(generator: &mut ApuGenerator) {
             generator.update(&apu(Ratio::new::<percent>(
-                ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD - 1.,
+                ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD - 1.,
             )));
         }
     }

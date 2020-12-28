@@ -1,8 +1,6 @@
 use crate::{
-    electrical::{
-        ApuGenerator, AuxiliaryPowerUnit, Contactor, EngineGenerator, ExternalPowerSource,
-    },
-    shared::Engine,
+    electrical::{ApuGenerator, Contactor, EngineGenerator, ExternalPowerSource},
+    shared::{AuxiliaryPowerUnit, Engine},
 };
 
 pub trait MutableVisitor {

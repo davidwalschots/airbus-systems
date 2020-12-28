@@ -5,12 +5,12 @@ use uom::si::{
 
 use crate::{
     electrical::{
-        ApuGenerator, AuxiliaryPowerUnit, Battery, Contactor, ElectricalBus, EmergencyGenerator,
-        EngineGenerator, ExternalPowerSource, IntegratedDriveGenerator, PowerConductor, Powerable,
-        StaticInverter, TransformerRectifier,
+        ApuGenerator, Battery, Contactor, ElectricalBus, EmergencyGenerator, EngineGenerator,
+        ExternalPowerSource, IntegratedDriveGenerator, PowerConductor, Powerable, StaticInverter,
+        TransformerRectifier,
     },
     overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
-    shared::{DelayedTrueLogicGate, Engine, UpdateContext},
+    shared::{AuxiliaryPowerUnit, DelayedTrueLogicGate, Engine, UpdateContext},
     visitor::Visitable,
 };
 
@@ -1954,14 +1954,14 @@ mod a320_electrical_circuit_tests {
 
         fn new_stopped_apu() -> AuxiliaryPowerUnit {
             let mut apu = AuxiliaryPowerUnit::new();
-            apu.speed = Ratio::new::<percent>(0.);
+            apu.n1 = Ratio::new::<percent>(0.);
 
             apu
         }
 
         fn new_running_apu() -> AuxiliaryPowerUnit {
             let mut apu = AuxiliaryPowerUnit::new();
-            apu.speed = Ratio::new::<percent>(ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD + 1.);
+            apu.n1 = Ratio::new::<percent>(ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD + 1.);
 
             apu
         }

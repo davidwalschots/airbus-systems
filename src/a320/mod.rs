@@ -5,8 +5,8 @@ mod hydraulic;
 pub use hydraulic::*;
 
 use crate::{
-    electrical::{AuxiliaryPowerUnit, ExternalPowerSource},
-    shared::{Engine, UpdateContext},
+    electrical::ExternalPowerSource,
+    shared::{AuxiliaryPowerUnit, Engine, UpdateContext},
     visitor::{MutableVisitor, Visitable},
 };
 
