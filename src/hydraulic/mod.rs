@@ -381,7 +381,8 @@ pub struct ElectricPump {
     pump: Pump,
 }
 impl ElectricPump {
-    const SPOOLUP_TIME: f32 = 2.0;
+    const SPOOLUP_TIME: f32 = 4.0;
+    const SPOOLDOWN_TIME: f32 = 8.0;
     const MAX_DISPLACEMENT: f32 = 0.263;
 
     pub fn new() -> ElectricPump {
@@ -402,12 +403,12 @@ impl ElectricPump {
 
     pub fn update(&mut self, context: &UpdateContext, line: &HydLoop) {
         // Pump startup/shutdown process
-        let delta_rpm = 7600.0f32
-            .max((7600. / ElectricPump::SPOOLUP_TIME) * (context.delta.as_secs_f32() * 10.));
-        if self.active {
-            self.rpm += delta_rpm;
-        } else {
-            self.rpm -= delta_rpm;
+        if self.active && self.rpm < 7600.0 {
+            self.rpm += 7600.0f32
+            .min((7600. / ElectricPump::SPOOLUP_TIME) * (context.delta.as_secs_f32() * 10.));
+        } else if !self.active && self.rpm > 0.0 {
+            self.rpm -= 7600.0f32
+            .min((7600. / ElectricPump::SPOOLDOWN_TIME) * (context.delta.as_secs_f32() * 10.));
         }
 
         self.pump.update(context, line, self.rpm);
@@ -541,7 +542,7 @@ mod tests {
     #[test]
     fn green_loop_edp_simulation() {
         let mut edp1 = engine_driven_pump();
-        let mut green_loop = hydraulic_loop();
+        let mut green_loop = hydraulic_loop(LoopColor::Green);
         edp1.active = true;
 
         let init_n2 = Ratio::new::<percent>(0.25);
@@ -575,13 +576,53 @@ mod tests {
         assert!(true)
     }
 
-    fn hydraulic_loop() -> HydLoop {
+    #[test]
+    fn yellow_loop_epump_simulation() {
+        let mut epump = electric_pump();
+        let mut yellow_loop = hydraulic_loop(LoopColor::Yellow);
+        epump.active = true;
+
+        let ct = context(Duration::from_millis(50));
+        for x in 0..800 {
+            if x == 400 {
+                epump.active = false;
+            }
+            epump.update(&ct, &yellow_loop);
+            yellow_loop.update(vec![&epump], Vec::new(), Vec::new());
+            if x % 20 == 0 {
+                println!("Iteration {}", x);
+                println!("-------------------------------------------");
+                println!("---PSI: {}", yellow_loop.loop_pressure.get::<psi>());
+                println!("---RPM: {}", epump.rpm);
+                println!(
+                    "--------Reservoir Volume (g): {}",
+                    yellow_loop.reservoir_volume.get::<gallon>()
+                );
+                println!(
+                    "--------Loop Volume (g): {}",
+                    yellow_loop.loop_volume.get::<gallon>()
+                );
+                println!(
+                    "--------Acc Volume (g): {}",
+                    yellow_loop.accumulator_volume.get::<gallon>()
+                );
+            }
+        }
+
+        assert!(true)
+    }
+
+    fn hydraulic_loop(loop_color: LoopColor) -> HydLoop {
         HydLoop::new(
-            LoopColor::Green,
+            loop_color,
             Volume::new::<gallon>(1.),
             Volume::new::<gallon>(1.09985),
             Volume::new::<gallon>(3.7),
         )
+    }
+
+    fn electric_pump() -> ElectricPump {
+        ElectricPump::new()
     }
 
     fn engine_driven_pump() -> EngineDrivenPump {
@@ -653,7 +694,7 @@ mod tests {
         fn get_edp_actual_delta_vol_when(n2: Ratio, pressure: Pressure, time: Duration) -> Volume {
             let eng = engine(n2);
             let mut edp = engine_driven_pump();
-            let mut line = hydraulic_loop();
+            let mut line = hydraulic_loop(LoopColor::Green);
             line.loop_pressure = pressure;
             edp.update(&context(time), &line, &eng);
             edp.get_delta_vol()
