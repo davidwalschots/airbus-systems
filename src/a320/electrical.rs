@@ -1,11 +1,13 @@
 use std::time::Duration;
-use uom::si::{f32::*, length::foot, ratio::percent, velocity::knot};
+use uom::si::{
+    f32::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
+};
 
 use crate::{
     electrical::{
         ApuGenerator, AuxiliaryPowerUnit, Battery, Contactor, ElectricalBus, EmergencyGenerator,
-        EngineGenerator, ExternalPowerSource, PowerConductor, Powerable, StaticInverter,
-        TransformerRectifier,
+        EngineGenerator, ExternalPowerSource, IntegratedDriveGenerator, PowerConductor, Powerable,
+        StaticInverter, TransformerRectifier,
     },
     overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
     shared::{DelayedTrueLogicGate, Engine, UpdateContext},
@@ -129,8 +131,8 @@ impl A320Electrical {
         hydraulic: &A320Hydraulic,
         overhead: &A320ElectricalOverheadPanel,
     ) {
-        self.engine_1_gen.update(engine1, &overhead.idg_1);
-        self.engine_2_gen.update(engine2, &overhead.idg_2);
+        self.engine_1_gen.update(context, engine1, &overhead.idg_1);
+        self.engine_2_gen.update(context, engine2, &overhead.idg_2);
         self.apu_gen.update(apu);
         self.emergency_gen.update(
             // ON GROUND BAT ONLY SPEED <= 100 kts scenario. We'll probably need to move this logic into
@@ -1868,9 +1870,10 @@ mod a320_electrical_circuit_tests {
 
         fn run(mut self) -> ElectricalCircuitTester {
             let context = UpdateContext::new(
-                Duration::from_millis(1),
+                Duration::from_secs(1),
                 self.airspeed,
                 self.above_ground_level,
+                ThermodynamicTemperature::new::<degree_celsius>(0.),
             );
             self.elec.update(
                 &context,
@@ -1892,6 +1895,7 @@ mod a320_electrical_circuit_tests {
                 Duration::from_secs(0),
                 self.airspeed,
                 self.above_ground_level,
+                ThermodynamicTemperature::new::<degree_celsius>(0.),
             );
             self.elec.update(
                 &context,
@@ -1903,7 +1907,12 @@ mod a320_electrical_circuit_tests {
                 &self.overhead,
             );
 
-            let context = UpdateContext::new(delta, self.airspeed, self.above_ground_level);
+            let context = UpdateContext::new(
+                delta,
+                self.airspeed,
+                self.above_ground_level,
+                ThermodynamicTemperature::new::<degree_celsius>(0.),
+            );
             self.elec.update(
                 &context,
                 &self.engine1,
@@ -1929,8 +1938,9 @@ mod a320_electrical_circuit_tests {
 
         fn new_running_engine() -> Engine {
             let mut engine = Engine::new();
-            engine.n2 =
-                Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD + 1.);
+            engine.n2 = Ratio::new::<percent>(
+                IntegratedDriveGenerator::ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD + 1.,
+            );
 
             engine
         }
