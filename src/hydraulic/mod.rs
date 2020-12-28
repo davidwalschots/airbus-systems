@@ -335,13 +335,6 @@ impl Pump {
         let flow = Pump::calculate_flow(rpm, displacement);
         let delta_vol = flow * Time::new::<second>(context.delta.as_secs_f32());
 
-        // TODO: Remove debug statements
-        println!("--- EDP Displacement: {}", displacement.get::<cubic_inch>());
-        println!(
-            "--- Volume displaced this tick: {}",
-            delta_vol.get::<gallon>()
-        );
-
         let amount_drawn = line.get_usable_reservoir_fluid(delta_vol);
         self.reservoir_fluid_used = amount_drawn;
         self.delta_vol = delta_vol.min(amount_drawn);
@@ -536,27 +529,29 @@ mod tests {
         let mut green_loop = hydraulic_loop();
         edp1.active = true;
 
-        let init_n2 = Ratio::new::<percent>(0.25);
+        let init_n2 = Ratio::new::<percent>(0.1);
         let engine1 = engine(init_n2);
-        let ct = context(Duration::from_millis(200));
-        for x in 0..100 {
-            println!("Iteration {}", x);
-            println!("-------------------------------------------");
+        let ct = context(Duration::from_millis(10));
+        for x in 0..10000 {
             edp1.update(&ct, &green_loop, &engine1);
             green_loop.update(Vec::new(), vec![&edp1], Vec::new());
-            println!("---PSI: {}", green_loop.loop_pressure.get::<psi>());
-            println!(
-                "--------Reservoir Volume (g): {}",
-                green_loop.reservoir_volume.get::<gallon>()
-            );
-            println!(
-                "--------Loop Volume (g): {}",
-                green_loop.loop_volume.get::<gallon>()
-            );
-            println!(
-                "--------Acc Volume (g): {}",
-                green_loop.accumulator_volume.get::<gallon>()
-            );
+            if x % 100 == 0 {
+                println!("Iteration {}", x);
+                println!("-------------------------------------------");
+                println!("---PSI: {}", green_loop.loop_pressure.get::<psi>());
+                println!(
+                    "--------Reservoir Volume (g): {}",
+                    green_loop.reservoir_volume.get::<gallon>()
+                );
+                println!(
+                    "--------Loop Volume (g): {}",
+                    green_loop.loop_volume.get::<gallon>()
+                );
+                println!(
+                    "--------Acc Volume (g): {}",
+                    green_loop.accumulator_volume.get::<gallon>()
+                );
+            }
         }
 
         assert!(true)
