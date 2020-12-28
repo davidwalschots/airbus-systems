@@ -410,8 +410,7 @@ impl EngineDrivenPump {
     }
 
     pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop, engine: &Engine) {
-        let rpm = (engine.n2.get::<percent>() / EngineDrivenPump::LEAP_1A26_MAX_N2_RPM)
-            * EngineDrivenPump::MAX_RPM;
+        let rpm = engine.n2.get::<percent>() * EngineDrivenPump::MAX_RPM;
 
         self.pump.update(context, line, rpm);
     }
@@ -512,6 +511,35 @@ impl BleedAir {
 mod tests {
     use super::*;
 
+    fn hydraulic_loop() -> HydLoop {
+        HydLoop::new(
+            Vec::new(),
+            LoopColor::Green,
+            Volume::new::<gallon>(1.),
+            Volume::new::<gallon>(1.09985),
+            Volume::new::<gallon>(3.7),
+        )
+    }
+
+    fn engine_driven_pump() -> EngineDrivenPump {
+        EngineDrivenPump::new()
+    }
+
+    fn engine(n2: Ratio) -> Engine {
+        let mut engine = Engine::new();
+        engine.n2 = n2;
+
+        engine
+    }
+
+    fn context(delta_time: Duration) -> UpdateContext {
+        UpdateContext::new(
+            delta_time,
+            Velocity::new::<knot>(250.),
+            Length::new::<foot>(5000.),
+        )
+    }
+
     #[cfg(test)]
     mod loop_tests {}
 
@@ -525,46 +553,57 @@ mod tests {
 
         #[test]
         fn starts_inactive() {
-            assert!(engine_driven_pump().is_active() == false);
+            assert!(engine_driven_pump().active == false);
         }
 
         #[test]
-        fn check_displacement_under_2900_psi() {
-            let eng = engine(Ratio::new::<percent>(0.6));
+        fn max_flow_under_2500_psi_after_25ms() {
+            let n2 = Ratio::new::<percent>(0.6);
+            let pressure = Pressure::new::<psi>(2400.);
+            let time = Duration::from_millis(25);
+            let displacement = Volume::new::<cubic_inch>(EngineDrivenPump::MAX_DISPLACEMENT);
+            assert!(delta_vol_equality_check(n2, displacement, pressure, time))
+        }
+
+        #[test]
+        fn zero_flow_above_3000_psi_after_25ms() {
+            let n2 = Ratio::new::<percent>(0.6);
+            let pressure = Pressure::new::<psi>(3100.);
+            let time = Duration::from_millis(25);
+            let displacement = Volume::new::<cubic_inch>(0.);
+            assert!(delta_vol_equality_check(n2, displacement, pressure, time))
+        }
+
+        fn delta_vol_equality_check(
+            n2: Ratio,
+            displacement: Volume,
+            pressure: Pressure,
+            time: Duration,
+        ) -> bool {
+            let actual = get_edp_actual_delta_vol_when(n2, pressure, time);
+            let predicted = get_edp_predicted_delta_vol_when(n2, displacement, time);
+            println!("Actual: {}", actual.get::<gallon>());
+            println!("Predicted: {}", predicted.get::<gallon>());
+            actual == predicted
+        }
+
+        fn get_edp_actual_delta_vol_when(n2: Ratio, pressure: Pressure, time: Duration) -> Volume {
+            let eng = engine(n2);
             let mut edp = engine_driven_pump();
             let mut line = hydraulic_loop();
-            line.loop_pressure = Pressure::new::<psi>(2800.);
-            edp.update(&context(Duration::from_millis(25)), &mut line, &eng);
-            assert!(edp.displacement == Volume::new::<cubic_inch>(2.4));
+            line.loop_pressure = pressure;
+            edp.update(&context(time), &mut line, &eng);
+            edp.get_delta_vol()
         }
 
-        fn hydraulic_loop() -> HydLoop {
-            HydLoop::new(
-                Vec::new(),
-                LoopColor::Green,
-                Volume::new::<gallon>(1.),
-                Volume::new::<gallon>(1.09985),
-                Volume::new::<gallon>(3.7),
-            )
-        }
-
-        fn engine_driven_pump() -> EngineDrivenPump {
-            EngineDrivenPump::new()
-        }
-
-        fn engine(n2: Ratio) -> Engine {
-            let mut engine = Engine::new();
-            engine.n2 = n2;
-
-            engine
-        }
-
-        fn context(delta_time: Duration) -> UpdateContext {
-            UpdateContext::new(
-                delta_time,
-                Velocity::new::<knot>(250.),
-                Length::new::<foot>(5000.),
-            )
+        fn get_edp_predicted_delta_vol_when(
+            n2: Ratio,
+            displacement: Volume,
+            time: Duration,
+        ) -> Volume {
+            let edp_rpm = n2.get::<percent>() * EngineDrivenPump::MAX_RPM;
+            let expected_flow = Pump::calculate_flow(edp_rpm, displacement);
+            expected_flow * Time::new::<second>(time.as_secs_f32())
         }
     }
 }
