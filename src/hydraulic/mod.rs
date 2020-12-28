@@ -215,7 +215,6 @@ impl HydLoop {
         let mut delta_p = Pressure::new::<psi>(0.);
 
         // Get total volume output of hydraulic pumps this tick
-        // TODO: Implement hydraulic "load" subtraction?
         for p in electric_pumps {
             self.reservoir_volume -= p.pump.reservoir_fluid_used;
             delta_vol += p.get_delta_vol();
@@ -228,6 +227,14 @@ impl HydLoop {
             self.reservoir_volume -= p.pump.reservoir_fluid_used;
             delta_vol += p.get_delta_vol();
         }
+
+        // println!("---------Delta vol before sub: {}", delta_vol.get::<gallon>());
+
+        // WIP: Placeholder load
+        delta_vol -= Volume::new::<gallon>(0.004);
+        self.reservoir_volume += Volume::new::<gallon>(0.004);
+
+        // println!("---------Delta vol after sub: {}", delta_vol.get::<gallon>());
 
         // Calculations involving accumulator and loop volume
         if delta_vol.get::<gallon>() > 0.0 {
@@ -260,23 +267,24 @@ impl HydLoop {
                         Volume::new::<gallon>(HydLoop::ACCUMULATOR_3K_PSI_THRESHOLD);
                     self.accumulator_pressure = Pressure::new::<psi>(3000.);
                     delta_p = Pressure::new::<psi>(
-                        (vol_diff.abs() * 25000.) / self.loop_volume.get::<gallon>(),
+                        (vol_diff.abs() * 5000.) / self.loop_volume.get::<gallon>(),
                     );
                     self.loop_volume += Volume::new::<gallon>(vol_diff.abs());
                 }
             } else {
                 delta_p = Pressure::new::<psi>(
-                    (delta_vol.get::<gallon>() * 25000.) / self.loop_volume.get::<gallon>(),
+                    (delta_vol.get::<gallon>() * 5000.) / self.loop_volume.get::<gallon>(),
                 );
                 self.loop_volume += delta_vol;
             }
         } else if delta_vol.get::<gallon>() < 0.0 {
-            if self.accumulator_volume > Volume::new::<gallon>(0.) {
+            if self.accumulator_volume.get::<gallon>() > 0.0 {
+                // println!("---DEBUG: delta_vol < 0, decreasing accumulator volume...");
                 let vol_sum = delta_vol + self.accumulator_volume;
                 if vol_sum > Volume::new::<gallon>(0.) {
+                    self.accumulator_volume += delta_vol;
                     delta_vol = Volume::new::<gallon>(0.);
                     delta_p -= Pressure::new::<psi>(2.); // TODO: replace this WIP placeholder load
-                    self.accumulator_volume += delta_vol; // TODO: is this necessary? delta_vol was just zeroed out...
                     self.accumulator_pressure =
                         (Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE)
                             * Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME))
@@ -293,9 +301,9 @@ impl HydLoop {
             let vol_diff = self.loop_volume.get::<gallon>() + delta_vol.get::<gallon>()
                 - self.max_loop_volume.get::<gallon>();
             if vol_diff > 0.0 {
-                // TODO: investigate magic number
+                // TODO: investigate magic number 5000.
                 delta_p = Pressure::new::<psi>(
-                    (delta_vol.get::<gallon>() * 25000.) / self.loop_volume.get::<gallon>(),
+                    (delta_vol.get::<gallon>() * 5000.) / self.loop_volume.get::<gallon>(),
                 );
             } else {
                 self.loop_pressure = Pressure::new::<psi>(0.);
@@ -334,6 +342,13 @@ impl Pump {
 
         let flow = Pump::calculate_flow(rpm, displacement);
         let delta_vol = flow * Time::new::<second>(context.delta.as_secs_f32());
+
+        // TODO: Remove debug statements
+        // println!("--- EDP Displacement: {}", displacement.get::<cubic_inch>());
+        // println!(
+        //     "--- Volume displaced this tick: {}",
+        //     delta_vol.get::<gallon>()
+        // );
 
         let amount_drawn = line.get_usable_reservoir_fluid(delta_vol);
         self.reservoir_fluid_used = amount_drawn;
@@ -529,13 +544,16 @@ mod tests {
         let mut green_loop = hydraulic_loop();
         edp1.active = true;
 
-        let init_n2 = Ratio::new::<percent>(0.1);
-        let engine1 = engine(init_n2);
-        let ct = context(Duration::from_millis(10));
-        for x in 0..10000 {
+        let init_n2 = Ratio::new::<percent>(1.0);
+        let mut engine1 = engine(init_n2);
+        let ct = context(Duration::from_millis(25));
+        for x in 0..400 {
+            if x == 200 {
+                engine1.n2 = Ratio::new::<percent>(0.0);
+            }
             edp1.update(&ct, &green_loop, &engine1);
             green_loop.update(Vec::new(), vec![&edp1], Vec::new());
-            if x % 100 == 0 {
+            if x % 10 == 0 {
                 println!("Iteration {}", x);
                 println!("-------------------------------------------");
                 println!("---PSI: {}", green_loop.loop_pressure.get::<psi>());
