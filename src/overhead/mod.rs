@@ -1,3 +1,4 @@
+#[derive(PartialEq)]
 pub enum OnOffPushButtonState {
     On,
     Off,
@@ -35,22 +36,15 @@ impl OnOffPushButton {
     }
 
     pub fn is_on(&self) -> bool {
-        if let OnOffPushButtonState::On = self.state {
-            true
-        } else {
-            false
-        }
+        self.state == OnOffPushButtonState::On
     }
 
     pub fn is_off(&self) -> bool {
-        if let OnOffPushButtonState::Off = self.state {
-            true
-        } else {
-            false
-        }
+        self.state == OnOffPushButtonState::Off
     }
 }
 
+#[derive(PartialEq)]
 pub enum NormalAltnPushButtonState {
     Normal,
     Altn,
@@ -85,19 +79,54 @@ impl NormalAltnPushButton {
     }
 
     pub fn is_normal(&self) -> bool {
-        if let NormalAltnPushButtonState::Normal = self.state {
-            true
-        } else {
-            false
-        }
+        self.state == NormalAltnPushButtonState::Normal
     }
 
     pub fn is_altn(&self) -> bool {
-        if let NormalAltnPushButtonState::Altn = self.state {
-            true
-        } else {
-            false
+        self.state == NormalAltnPushButtonState::Altn
+    }
+}
+
+#[derive(PartialEq)]
+pub enum AutoOffPushButtonState {
+    Auto,
+    Off,
+}
+
+pub struct AutoOffPushButton {
+    state: AutoOffPushButtonState,
+    fault: bool,
+}
+
+impl AutoOffPushButton {
+    pub fn new_auto() -> AutoOffPushButton {
+        AutoOffPushButton {
+            state: AutoOffPushButtonState::Auto,
+            fault: false,
         }
+    }
+
+    pub fn new_off() -> AutoOffPushButton {
+        AutoOffPushButton {
+            state: AutoOffPushButtonState::Off,
+            fault: false,
+        }
+    }
+
+    pub fn push_auto(&mut self) {
+        self.state = AutoOffPushButtonState::Auto;
+    }
+
+    pub fn push_off(&mut self) {
+        self.state = AutoOffPushButtonState::Off;
+    }
+
+    pub fn is_auto(&self) -> bool {
+        self.state == AutoOffPushButtonState::Auto
+    }
+
+    pub fn is_off(&self) -> bool {
+        self.state == AutoOffPushButtonState::Off
     }
 }
 
@@ -128,5 +157,20 @@ mod normal_altn_push_button_tests {
     #[test]
     fn new_altn_push_button_is_altn() {
         assert!(NormalAltnPushButton::new_altn().is_altn());
+    }
+}
+
+#[cfg(test)]
+mod auto_off_push_button_tests {
+    use super::{AutoOffPushButton, NormalAltnPushButton};
+
+    #[test]
+    fn new_auto_push_button_is_auto() {
+        assert!(AutoOffPushButton::new_auto().is_auto());
+    }
+
+    #[test]
+    fn new_off_push_button_is_off() {
+        assert!(AutoOffPushButton::new_off().is_off());
     }
 }

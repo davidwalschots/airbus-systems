@@ -7,7 +7,7 @@ use crate::{
         EngineGenerator, ExternalPowerSource, PowerConductor, Powerable, StaticInverter,
         TransformerRectifier,
     },
-    overhead::{NormalAltnPushButton, OnOffPushButton},
+    overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
     shared::{DelayedTrueLogicGate, Engine, UpdateContext},
     visitor::Visitable,
 };
@@ -159,12 +159,12 @@ impl A320Electrical {
 
         let apu_or_ext_pwr_provides_power = ext_pwr_provides_power || apu_gen_provides_power;
         self.bus_tie_1_contactor.close_when(
-            overhead.bus_tie_is_on()
+            overhead.bus_tie_is_auto()
                 && ((only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
                     || (apu_or_ext_pwr_provides_power && !gen_1_provides_power)),
         );
         self.bus_tie_2_contactor.close_when(
-            overhead.bus_tie_is_on()
+            overhead.bus_tie_is_auto()
                 && ((only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
                     || (apu_or_ext_pwr_provides_power && !gen_2_provides_power)),
         );
@@ -303,11 +303,11 @@ impl A320Electrical {
         let airspeed_below_100_knots = context.airspeed < Velocity::new::<knot>(100.);
         let batteries_should_supply_bat_bus = ac_bus_1_and_2_unpowered && airspeed_below_100_knots;
         self.battery_1_contactor.close_when(
-            overhead.bat_1_is_on()
+            overhead.bat_1_is_auto()
                 && (!self.battery_1.is_full() || batteries_should_supply_bat_bus),
         );
         self.battery_2_contactor.close_when(
-            overhead.bat_2_is_on()
+            overhead.bat_2_is_auto()
                 && (!self.battery_2.is_full() || batteries_should_supply_bat_bus),
         );
 
@@ -432,16 +432,16 @@ impl Visitable for A320Electrical {
 }
 
 pub struct A320ElectricalOverheadPanel {
-    bat_1: OnOffPushButton,
-    bat_2: OnOffPushButton,
+    bat_1: AutoOffPushButton,
+    bat_2: AutoOffPushButton,
     idg_1: OnOffPushButton,
     idg_2: OnOffPushButton,
     gen_1: OnOffPushButton,
     gen_2: OnOffPushButton,
     apu_gen: OnOffPushButton,
-    bus_tie: OnOffPushButton,
+    bus_tie: AutoOffPushButton,
     ac_ess_feed: NormalAltnPushButton,
-    galy_and_cab: OnOffPushButton,
+    galy_and_cab: AutoOffPushButton,
     ext_pwr: OnOffPushButton,
     commercial: OnOffPushButton,
 }
@@ -449,16 +449,16 @@ pub struct A320ElectricalOverheadPanel {
 impl A320ElectricalOverheadPanel {
     pub fn new() -> A320ElectricalOverheadPanel {
         A320ElectricalOverheadPanel {
-            bat_1: OnOffPushButton::new_on(),
-            bat_2: OnOffPushButton::new_on(),
+            bat_1: AutoOffPushButton::new_auto(),
+            bat_2: AutoOffPushButton::new_auto(),
             idg_1: OnOffPushButton::new_on(),
             idg_2: OnOffPushButton::new_on(),
             gen_1: OnOffPushButton::new_on(),
             gen_2: OnOffPushButton::new_on(),
             apu_gen: OnOffPushButton::new_on(),
-            bus_tie: OnOffPushButton::new_on(),
+            bus_tie: AutoOffPushButton::new_auto(),
             ac_ess_feed: NormalAltnPushButton::new_normal(),
-            galy_and_cab: OnOffPushButton::new_on(),
+            galy_and_cab: AutoOffPushButton::new_auto(),
             ext_pwr: OnOffPushButton::new_on(),
             commercial: OnOffPushButton::new_on(),
         }
@@ -482,8 +482,8 @@ impl A320ElectricalOverheadPanel {
         self.apu_gen.is_on()
     }
 
-    fn bus_tie_is_on(&self) -> bool {
-        self.bus_tie.is_on()
+    fn bus_tie_is_auto(&self) -> bool {
+        self.bus_tie.is_auto()
     }
 
     fn ac_ess_feed_is_normal(&self) -> bool {
@@ -494,12 +494,12 @@ impl A320ElectricalOverheadPanel {
         self.ac_ess_feed.is_altn()
     }
 
-    fn bat_1_is_on(&self) -> bool {
-        self.bat_1.is_on()
+    fn bat_1_is_auto(&self) -> bool {
+        self.bat_1.is_auto()
     }
 
-    fn bat_2_is_on(&self) -> bool {
-        self.bat_2.is_on()
+    fn bat_2_is_auto(&self) -> bool {
+        self.bat_2.is_auto()
     }
 }
 
