@@ -158,7 +158,6 @@ pub trait PressureSource {
 pub struct HydLoop {
     accumulator_pressure: Pressure,
     accumulator_volume: Volume,
-    pumps: Vec<Box<dyn PressureSource>>,
     color: LoopColor,
     loop_pressure: Pressure,
     loop_volume: Volume,
@@ -174,7 +173,6 @@ impl HydLoop {
     // const MAX_LOOP_VOLUME: f32 = 1.09985;
 
     pub fn new(
-        pumps: Vec<Box<dyn PressureSource>>,
         color: LoopColor,
         loop_volume: Volume,
         max_loop_volume: Volume,
@@ -183,7 +181,6 @@ impl HydLoop {
         HydLoop {
             accumulator_pressure: Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE),
             accumulator_volume: Volume::new::<gallon>(0.),
-            pumps,
             color,
             loop_pressure: Pressure::new::<psi>(0.),
             loop_volume,
@@ -200,24 +197,36 @@ impl HydLoop {
         self.reservoir_volume
     }
 
-    pub fn draw_reservoir_fluid(&mut self, amount: Volume) -> Volume {
+    pub fn get_usable_reservoir_fluid(&self, amount: Volume) -> Volume {
         let mut drawn = amount;
         if amount > self.reservoir_volume {
             drawn = self.reservoir_volume;
-            self.reservoir_volume = Volume::new::<gallon>(0.);
-        } else {
-            self.reservoir_volume -= drawn;
         }
         drawn
     }
 
-    pub fn update(&mut self) {
-        // Get total volume output of hydraulic pumps this tick
-        // TODO: Implement hydraulic "load" subtraction?
+    pub fn update(
+        &mut self,
+        electric_pumps: Vec<&ElectricPump>,
+        engine_driven_pumps: Vec<&EngineDrivenPump>,
+        ram_air_pumps: Vec<&RatPump>,
+    ) {
         let mut delta_vol = Volume::new::<gallon>(0.);
         let mut delta_p = Pressure::new::<psi>(0.);
-        for pump in self.pumps.iter_mut() {
-            delta_vol += pump.get_delta_vol();
+
+        // Get total volume output of hydraulic pumps this tick
+        // TODO: Implement hydraulic "load" subtraction?
+        for p in electric_pumps {
+            self.reservoir_volume -= p.pump.reservoir_fluid_used;
+            delta_vol += p.get_delta_vol();
+        }
+        for p in engine_driven_pumps {
+            self.reservoir_volume -= p.pump.reservoir_fluid_used;
+            delta_vol += p.get_delta_vol();
+        }
+        for p in ram_air_pumps {
+            self.reservoir_volume -= p.pump.reservoir_fluid_used;
+            delta_vol += p.get_delta_vol();
         }
 
         // Calculations involving accumulator and loop volume
@@ -307,23 +316,26 @@ impl HydLoop {
 
 pub struct Pump {
     max_displacement: Volume,
+    reservoir_fluid_used: Volume,
     delta_vol: Volume,
 }
 impl Pump {
     fn new(max_displacement: Volume) -> Pump {
         Pump {
             max_displacement,
+            reservoir_fluid_used: Volume::new::<gallon>(0.),
             delta_vol: Volume::new::<gallon>(0.),
         }
     }
 
-    fn update(&mut self, context: &UpdateContext, line: &mut HydLoop, rpm: f32) {
+    fn update(&mut self, context: &UpdateContext, line: &HydLoop, rpm: f32) {
         let displacement = Pump::calculate_displacement(line.get_pressure(), self.max_displacement);
 
         let flow = Pump::calculate_flow(rpm, displacement);
         let delta_vol = flow * Time::new::<second>(context.delta.as_secs_f32());
 
-        let amount_drawn = line.draw_reservoir_fluid(delta_vol);
+        let amount_drawn = line.get_usable_reservoir_fluid(delta_vol);
+        self.reservoir_fluid_used = amount_drawn;
         self.delta_vol = delta_vol.min(amount_drawn);
     }
 
@@ -372,7 +384,7 @@ impl ElectricPump {
         self.active = false;
     }
 
-    pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop) {
+    pub fn update(&mut self, context: &UpdateContext, line: &HydLoop) {
         // Pump startup/shutdown process
         let delta_rpm = 7600.0f32
             .max((7600. / ElectricPump::SPOOLUP_TIME) * (context.delta.as_secs_f32() * 10.));
@@ -409,7 +421,7 @@ impl EngineDrivenPump {
         }
     }
 
-    pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop, engine: &Engine) {
+    pub fn update(&mut self, context: &UpdateContext, line: &HydLoop, engine: &Engine) {
         let rpm = engine.n2.get::<percent>() * EngineDrivenPump::MAX_RPM;
 
         self.pump.update(context, line, rpm);
@@ -441,7 +453,7 @@ impl PtuPump {
         }
     }
 
-    pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop) {}
+    pub fn update(&mut self, context: &UpdateContext, line: &HydLoop) {}
 }
 impl PressureSource for PtuPump {
     fn get_delta_vol(&self) -> Volume {
@@ -464,7 +476,7 @@ impl RatPump {
         }
     }
 
-    pub fn update(&mut self, context: &UpdateContext, line: &mut HydLoop) {
+    pub fn update(&mut self, context: &UpdateContext, line: &HydLoop) {
         self.pump.update(context, line, RatPump::NORMAL_RPM);
     }
 }
@@ -510,10 +522,28 @@ impl BleedAir {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn green_loop_edp_simulation() {
+        let mut edp1 = engine_driven_pump();
+        let mut green_loop = hydraulic_loop();
+        edp1.active = true;
+
+        let init_n2 = Ratio::new::<percent>(0.5);
+        let engine1 = engine(init_n2);
+        let ct = context(Duration::from_millis(500));
+        for x in (0..25) {
+            edp1.update(&ct, &green_loop, &engine1);
+            green_loop.update(Vec::new(), vec![&edp1], Vec::new());
+            println!("{} iterations", x);
+            println!("---PSI: {}", green_loop.get_pressure().get::<psi>());
+            println!("---Reservoir Volume (g): {}", green_loop.get_reservoir_volume().get::<gallon>());
+        }
+
+        assert!(true)
+    }
 
     fn hydraulic_loop() -> HydLoop {
         HydLoop::new(
-            Vec::new(),
             LoopColor::Green,
             Volume::new::<gallon>(1.),
             Volume::new::<gallon>(1.09985),
@@ -592,7 +622,7 @@ mod tests {
             let mut edp = engine_driven_pump();
             let mut line = hydraulic_loop();
             line.loop_pressure = pressure;
-            edp.update(&context(time), &mut line, &eng);
+            edp.update(&context(time), &line, &eng);
             edp.get_delta_vol()
         }
 
