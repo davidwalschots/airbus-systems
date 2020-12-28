@@ -35,7 +35,7 @@ use crate::{
 /// Each cargo door open (3 total) uses 0.2 liters each of yellow hyd fluid
 ///
 ///
-/// EDP (Eaton PV3-240-10C/D/F):
+/// EDP (Eaton PV3-240-10C/D/F (F is neo)):
 /// ------------------------------------------
 /// 37.5 GPM (141.95 L/min)
 /// 3750 RPM
@@ -44,7 +44,7 @@ use crate::{
 /// Displacement: 2.40 in3/rev, 39.3 mL/rev
 ///
 ///
-/// Electric Pump (Eaton MPEV-032-15):
+/// Electric Pump (Eaton MPEV3-032-EA2 (neo) MPEV-032-15 (ceo)):
 /// ------------------------------------------
 /// Uses 115/200 VAC, 400HZ electric motor
 /// 8.5 GPM (32 L/min)
@@ -438,7 +438,7 @@ impl EngineDrivenPump {
     }
 
     pub fn update(&mut self, context: &UpdateContext, line: &HydLoop, engine: &Engine) {
-        let rpm = engine.n2.get::<percent>() * EngineDrivenPump::MAX_RPM;
+        let rpm = (1.0f32.min(4.0 * engine.n2.get::<percent>())) * EngineDrivenPump::MAX_RPM;
 
         self.pump.update(context, line, rpm);
     }
@@ -544,16 +544,16 @@ mod tests {
         let mut green_loop = hydraulic_loop();
         edp1.active = true;
 
-        let init_n2 = Ratio::new::<percent>(1.0);
+        let init_n2 = Ratio::new::<percent>(0.25);
         let mut engine1 = engine(init_n2);
-        let ct = context(Duration::from_millis(25));
+        let ct = context(Duration::from_millis(15));
         for x in 0..400 {
             if x == 200 {
                 engine1.n2 = Ratio::new::<percent>(0.0);
             }
             edp1.update(&ct, &green_loop, &engine1);
             green_loop.update(Vec::new(), vec![&edp1], Vec::new());
-            if x % 10 == 0 {
+            if x % 20 == 0 {
                 println!("Iteration {}", x);
                 println!("-------------------------------------------");
                 println!("---PSI: {}", green_loop.loop_pressure.get::<psi>());
