@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use rand::prelude::*;
-use uom::si::{f64::*, ratio::percent};
+use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
 
 use crate::{overhead::OnOffPushButton, shared::UpdateContext, visitor::Visitable};
 
@@ -30,7 +30,7 @@ impl AuxiliaryPowerUnitOverheadPanel {
 enum AuxiliaryPowerUnitState {
     Shutdown,
     Starting,
-    Started,
+    Running,
 }
 
 #[derive(Debug)]
@@ -39,6 +39,7 @@ pub struct AuxiliaryPowerUnit {
     air_intake_flap: AirIntakeFlap,
     state: AuxiliaryPowerUnitState,
     time_since_start: Duration,
+    exhaust_gas_temperature: ThermodynamicTemperature,
 }
 
 impl AuxiliaryPowerUnit {
@@ -48,6 +49,7 @@ impl AuxiliaryPowerUnit {
             air_intake_flap: AirIntakeFlap::new(),
             state: AuxiliaryPowerUnitState::Shutdown,
             time_since_start: Duration::from_secs(0),
+            exhaust_gas_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
         }
     }
 
@@ -61,19 +63,34 @@ impl AuxiliaryPowerUnit {
         self.air_intake_flap.update(context);
 
         if self.air_intake_flap.is_fully_open() && overhead.start_is_on() {
-            if self.state == AuxiliaryPowerUnitState::Shutdown {
-                self.time_since_start = Duration::from_secs(0);
-                self.state = AuxiliaryPowerUnitState::Starting;
-            }
+            self.execute_startup_sequence(context);
+        }
 
-            if self.state == AuxiliaryPowerUnitState::Starting {
-                self.time_since_start += context.delta;
-                self.n = self.calculate_n();
-                if self.n == Ratio::new::<percent>(100.) {
-                    self.state = AuxiliaryPowerUnitState::Started;
-                    self.time_since_start = Duration::from_secs(0);
-                }
+        self.update_exhaust_gas_temperature(context);
+    }
+
+    fn execute_startup_sequence(&mut self, context: &UpdateContext) {
+        if self.state == AuxiliaryPowerUnitState::Shutdown {
+            self.time_since_start = Duration::from_secs(0);
+            self.state = AuxiliaryPowerUnitState::Starting;
+        }
+
+        if self.state == AuxiliaryPowerUnitState::Starting {
+            self.time_since_start += context.delta;
+            self.n = self.calculate_n();
+            if self.n == Ratio::new::<percent>(100.) {
+                self.state = AuxiliaryPowerUnitState::Running;
+                self.time_since_start = Duration::from_secs(0);
             }
+        }
+    }
+
+    fn update_exhaust_gas_temperature(&mut self, context: &UpdateContext) {
+        if self.state == AuxiliaryPowerUnitState::Starting {
+            self.exhaust_gas_temperature = self.calculate_startup_egt(context);
+        } else if self.state == AuxiliaryPowerUnitState::Running {
+            self.exhaust_gas_temperature =
+                self.calculate_slow_cooldown_to_running_temperature(context);
         }
     }
 
@@ -99,6 +116,43 @@ impl AuxiliaryPowerUnit {
                     + APU_N_CONST)
                     .min(100.),
             )
+        }
+    }
+
+    fn calculate_startup_egt(&self, context: &UpdateContext) -> ThermodynamicTemperature {
+        const APU_N_TEMP_CONST: f64 = -96.565;
+        const APU_N_TEMP_X: f64 = 28.571;
+        const APU_N_TEMP_X2: f64 = 0.0884;
+        const APU_N_TEMP_X3: f64 = -0.0081;
+        const APU_N_TEMP_X4: f64 = 0.00005;
+
+        let n = self.n.get::<percent>();
+
+        let temperature = (APU_N_TEMP_X4 * n.powi(4))
+            + (APU_N_TEMP_X3 * n.powi(3))
+            + (APU_N_TEMP_X2 * n.powi(2))
+            + (APU_N_TEMP_X * n)
+            + APU_N_TEMP_CONST;
+
+        ThermodynamicTemperature::new::<degree_celsius>(
+            temperature.max(context.ambient_temperature.get::<degree_celsius>()),
+        )
+    }
+
+    fn calculate_slow_cooldown_to_running_temperature(
+        &self,
+        context: &UpdateContext,
+    ) -> ThermodynamicTemperature {
+        let mut rng = rand::thread_rng();
+        let random_target_temperature: f64 = 500. - rng.gen_range(0..13) as f64;
+
+        if self.exhaust_gas_temperature.get::<degree_celsius>() > random_target_temperature {
+            self.exhaust_gas_temperature
+                - TemperatureInterval::new::<uom::si::temperature_interval::degree_celsius>(
+                    0.4 * context.delta.as_secs_f64(),
+                )
+        } else {
+            self.exhaust_gas_temperature
         }
     }
 }
@@ -174,12 +228,14 @@ mod tests {
 
     use super::*;
 
+    const AMBIENT_TEMPERATURE: f64 = 0.;
+
     fn context(delta: Duration) -> UpdateContext {
         UpdateContext::new(
             delta,
             Velocity::new::<knot>(250.),
             Length::new::<foot>(5000.),
-            ThermodynamicTemperature::new::<degree_celsius>(0.),
+            ThermodynamicTemperature::new::<degree_celsius>(AMBIENT_TEMPERATURE),
         )
     }
 
@@ -216,6 +272,38 @@ mod tests {
         }
 
         #[test]
+        fn when_apu_not_started_egt_is_ambient() {
+            let mut apu = AuxiliaryPowerUnit::new();
+            let overhead = AuxiliaryPowerUnitOverheadPanel::new();
+            apu.update(&context(Duration::from_secs(1000)), &overhead);
+
+            assert_eq!(
+                apu.exhaust_gas_temperature.get::<degree_celsius>(),
+                AMBIENT_TEMPERATURE
+            );
+        }
+
+        #[test]
+        fn when_apu_starting_max_egt_above_800_degree_celsius() {
+            let mut apu = starting_apu();
+
+            let mut max_egt: f64 = 0.;
+
+            loop {
+                apu.update(&context(Duration::from_secs(1)), &starting_overhead());
+
+                let apu_egt = apu.exhaust_gas_temperature.get::<degree_celsius>();
+                if apu_egt < max_egt {
+                    break;
+                }
+
+                max_egt = apu_egt;
+            }
+
+            assert!(max_egt > 800.);
+        }
+
+        #[test]
         #[ignore]
         fn start_sw_on_light_turns_off_when_n_above_99_5() {
             // Note should also test 2 seconds after reaching 95 the light turns off?
@@ -246,6 +334,25 @@ mod tests {
         #[test]
         #[ignore]
         fn when_apu_shutting_down_at_7_percent_air_inlet_flap_closes() {}
+
+        fn starting_apu() -> AuxiliaryPowerUnit {
+            let mut apu = AuxiliaryPowerUnit::new();
+            let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
+            overhead.master.push_on();
+            apu.update(&context(Duration::from_secs(1000)), &overhead);
+
+            overhead.start.push_on();
+
+            apu
+        }
+
+        fn starting_overhead() -> AuxiliaryPowerUnitOverheadPanel {
+            let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
+            overhead.master.push_on();
+            overhead.start.push_on();
+
+            overhead
+        }
     }
 
     #[cfg(test)]
