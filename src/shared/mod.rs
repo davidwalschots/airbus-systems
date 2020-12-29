@@ -1,9 +1,6 @@
 use std::time::Duration;
 use uom::si::{
-    f32::{Length, Ratio, Velocity},
-    length::foot,
-    ratio::percent,
-    velocity::knot,
+    f32::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
 };
 
 use crate::visitor::Visitable;
@@ -12,14 +9,21 @@ pub struct UpdateContext {
     pub delta: Duration,
     pub airspeed: Velocity,
     pub above_ground_level: Length,
+    pub ambient_temperature: ThermodynamicTemperature,
 }
 
 impl UpdateContext {
-    pub fn new(delta: Duration, airspeed: Velocity, above_ground_level: Length) -> UpdateContext {
+    pub fn new(
+        delta: Duration,
+        airspeed: Velocity,
+        above_ground_level: Length,
+        ambient_temperature: ThermodynamicTemperature,
+    ) -> UpdateContext {
         UpdateContext {
             delta,
             airspeed,
             above_ground_level,
+            ambient_temperature,
         }
     }
 }
@@ -81,6 +85,26 @@ impl Visitable for Engine {
     }
 }
 
+pub struct AuxiliaryPowerUnit {
+    pub n1: Ratio,
+}
+
+impl AuxiliaryPowerUnit {
+    pub fn new() -> AuxiliaryPowerUnit {
+        AuxiliaryPowerUnit {
+            n1: Ratio::new::<percent>(0.),
+        }
+    }
+
+    pub fn update(&mut self, context: &UpdateContext) {}
+}
+
+impl Visitable for AuxiliaryPowerUnit {
+    fn accept(&mut self, visitor: &mut Box<dyn crate::visitor::MutableVisitor>) {
+        visitor.visit_auxiliary_power_unit(self);
+    }
+}
+
 #[cfg(test)]
 mod delayed_true_logic_gate_tests {
     use super::*;
@@ -138,6 +162,7 @@ mod delayed_true_logic_gate_tests {
             delta,
             Velocity::new::<knot>(250.),
             Length::new::<foot>(5000.),
+            ThermodynamicTemperature::new::<degree_celsius>(0.),
         )
     }
 

@@ -1,11 +1,16 @@
+use rand::prelude::*;
+use std::cmp::{max, min};
+use std::time::Duration;
+
 use uom::si::{
     electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f32::*,
-    frequency::hertz, power::watt, ratio::percent,
+    frequency::hertz, length::foot, power::watt, ratio::percent,
+    thermodynamic_temperature::degree_celsius, velocity::knot,
 };
 
 use crate::{
     overhead::OnOffPushButton,
-    shared::{Engine, UpdateContext},
+    shared::{AuxiliaryPowerUnit, Engine, UpdateContext},
     visitor::Visitable,
 };
 
@@ -231,43 +236,163 @@ impl PowerConductor for Contactor {
 
 pub struct EngineGenerator {
     number: u8,
-    output: Current,
+    idg: IntegratedDriveGenerator,
 }
 
 impl EngineGenerator {
-    pub const ENGINE_N2_POWER_OUTPUT_THRESHOLD: f32 = 57.5;
-
     pub fn new(number: u8) -> EngineGenerator {
         EngineGenerator {
             number,
-            output: Current::None,
+            idg: IntegratedDriveGenerator::new(),
         }
     }
 
-    pub fn update(&mut self, engine: &Engine, idg_push_button: &OnOffPushButton) {
-        // TODO: The push button being on or off is still a simplification. Of course we should later simulate the
-        // IDG itself. It would be disconnected the moment the push button is in the off state. Then the logic below would
-        // consider the IDG state itself, instead of the button state.
-        if EngineGenerator::engine_above_threshold(engine) && idg_push_button.is_on() {
-            self.output = Current::Alternating(
-                PowerSource::EngineGenerator(self.number),
-                Frequency::new::<hertz>(400.),
-                ElectricPotential::new::<volt>(115.),
-                ElectricCurrent::new::<ampere>(782.60),
-            );
-        } else {
-            self.output = Current::None
-        }
-    }
-
-    fn engine_above_threshold(engine: &Engine) -> bool {
-        engine.n2 > Ratio::new::<percent>(EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD)
+    pub fn update(
+        &mut self,
+        context: &UpdateContext,
+        engine: &Engine,
+        idg_push_button: &OnOffPushButton,
+    ) {
+        self.idg.update(context, engine, idg_push_button);
     }
 }
 
 impl PowerConductor for EngineGenerator {
     fn output(&self) -> Current {
-        self.output
+        if self.idg.provides_stable_power_output() {
+            Current::Alternating(
+                PowerSource::EngineGenerator(self.number),
+                Frequency::new::<hertz>(400.),
+                ElectricPotential::new::<volt>(115.),
+                ElectricCurrent::new::<ampere>(782.60),
+            )
+        } else {
+            Current::None
+        }
+    }
+}
+
+pub(crate) struct IntegratedDriveGenerator {
+    oil_outlet_temperature: ThermodynamicTemperature,
+    time_above_threshold_in_milliseconds: u64,
+    connected: bool,
+}
+
+impl IntegratedDriveGenerator {
+    pub const ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD: f32 = 59.5;
+    pub const ENGINE_N2_POWER_DOWN_OUTPUT_THRESHOLD: f32 = 56.;
+    const STABILIZATION_TIME_IN_MILLISECONDS: u64 = 500;
+
+    fn new() -> IntegratedDriveGenerator {
+        IntegratedDriveGenerator {
+            oil_outlet_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
+            time_above_threshold_in_milliseconds: 0,
+            connected: true,
+        }
+    }
+
+    fn update(
+        &mut self,
+        context: &UpdateContext,
+        engine: &Engine,
+        idg_push_button: &OnOffPushButton,
+    ) {
+        if idg_push_button.is_off() {
+            // The IDG cannot be reconnected.
+            self.connected = false;
+        }
+
+        self.update_stable_time(context, engine);
+        self.update_temperature(context, self.get_target_temperature(context, engine));
+    }
+
+    fn provides_stable_power_output(&self) -> bool {
+        self.time_above_threshold_in_milliseconds
+            == IntegratedDriveGenerator::STABILIZATION_TIME_IN_MILLISECONDS
+    }
+
+    fn update_stable_time(&mut self, context: &UpdateContext, engine: &Engine) {
+        if !self.connected {
+            self.time_above_threshold_in_milliseconds = 0;
+            return;
+        }
+
+        let mut new_time = self.time_above_threshold_in_milliseconds;
+        if engine.n2
+            >= Ratio::new::<percent>(IntegratedDriveGenerator::ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD)
+            && self.time_above_threshold_in_milliseconds
+                < IntegratedDriveGenerator::STABILIZATION_TIME_IN_MILLISECONDS
+        {
+            new_time = self.time_above_threshold_in_milliseconds + context.delta.as_millis() as u64;
+        } else if engine.n2
+            <= Ratio::new::<percent>(
+                IntegratedDriveGenerator::ENGINE_N2_POWER_DOWN_OUTPUT_THRESHOLD,
+            )
+            && self.time_above_threshold_in_milliseconds > 0
+        {
+            new_time = self.time_above_threshold_in_milliseconds
+                - min(
+                    context.delta.as_millis() as u64,
+                    self.time_above_threshold_in_milliseconds,
+                );
+        }
+
+        self.time_above_threshold_in_milliseconds = clamp(
+            new_time,
+            0,
+            IntegratedDriveGenerator::STABILIZATION_TIME_IN_MILLISECONDS,
+        );
+    }
+
+    fn update_temperature(&mut self, context: &UpdateContext, target: ThermodynamicTemperature) {
+        const IDG_HEATING_COEFFICIENT: f32 = 1.4;
+        const IDG_COOLING_COEFFICIENT: f32 = 0.4;
+
+        let target_temperature = target.get::<degree_celsius>();
+        let mut temperature = self.oil_outlet_temperature.get::<degree_celsius>();
+        temperature += if temperature < target_temperature {
+            IDG_HEATING_COEFFICIENT * context.delta.as_millis() as f32 * 0.001
+        } else {
+            -(IDG_COOLING_COEFFICIENT * context.delta.as_millis() as f32 * 0.001)
+        };
+
+        temperature = clamp(
+            temperature,
+            context.ambient_temperature.get::<degree_celsius>(),
+            target.get::<degree_celsius>(),
+        );
+
+        self.oil_outlet_temperature = ThermodynamicTemperature::new::<degree_celsius>(temperature);
+    }
+
+    fn get_target_temperature(
+        &self,
+        context: &UpdateContext,
+        engine: &Engine,
+    ) -> ThermodynamicTemperature {
+        if !self.connected {
+            return context.ambient_temperature;
+        }
+
+        let mut target_idg = engine.n2.get::<percent>() * 1.8_f32;
+        let ambient_temperature = context.ambient_temperature.get::<degree_celsius>();
+        target_idg += ambient_temperature;
+
+        // TODO improve this function with feedback @komp provides.
+
+        ThermodynamicTemperature::new::<degree_celsius>(target_idg)
+    }
+}
+
+/// Experimental feature copied from Rust stb lib.
+fn clamp<T: PartialOrd>(value: T, min: T, max: T) -> T {
+    assert!(min <= max);
+    if value < min {
+        min
+    } else if value > max {
+        max
+    } else {
+        value
     }
 }
 
@@ -276,7 +401,7 @@ pub struct ApuGenerator {
 }
 
 impl ApuGenerator {
-    pub const APU_SPEED_POWER_OUTPUT_THRESHOLD: f32 = 57.5;
+    pub const APU_N1_POWER_OUTPUT_THRESHOLD: f32 = 87.0;
 
     pub fn new() -> ApuGenerator {
         ApuGenerator {
@@ -285,8 +410,7 @@ impl ApuGenerator {
     }
 
     pub fn update(&mut self, apu: &AuxiliaryPowerUnit) {
-        const POWER_OUTPUT_THRESHOLD: f32 = 57.5;
-        if apu.speed > Ratio::new::<percent>(ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD) {
+        if apu.n1 > Ratio::new::<percent>(ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD) {
             self.output = Current::Alternating(
                 PowerSource::ApuGenerator,
                 Frequency::new::<hertz>(400.),
@@ -302,26 +426,6 @@ impl ApuGenerator {
 impl PowerConductor for ApuGenerator {
     fn output(&self) -> Current {
         self.output
-    }
-}
-
-pub struct AuxiliaryPowerUnit {
-    pub speed: Ratio,
-}
-
-impl AuxiliaryPowerUnit {
-    pub fn new() -> AuxiliaryPowerUnit {
-        AuxiliaryPowerUnit {
-            speed: Ratio::new::<percent>(0.),
-        }
-    }
-
-    pub fn update(&mut self, context: &UpdateContext) {}
-}
-
-impl Visitable for AuxiliaryPowerUnit {
-    fn accept(&mut self, visitor: &mut Box<dyn crate::visitor::MutableVisitor>) {
-        visitor.visit_auxiliary_power_unit(self);
     }
 }
 
@@ -624,6 +728,34 @@ mod tests {
 
     fn apu_generator() -> StubApuGenerator {
         StubApuGenerator {}
+    }
+
+    fn context(delta: Duration) -> UpdateContext {
+        UpdateContext::new(
+            delta,
+            Velocity::new::<knot>(250.),
+            Length::new::<foot>(5000.),
+            ThermodynamicTemperature::new::<degree_celsius>(0.),
+        )
+    }
+
+    fn engine_above_threshold() -> Engine {
+        engine(Ratio::new::<percent>(
+            IntegratedDriveGenerator::ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD + 1.,
+        ))
+    }
+
+    fn engine_below_threshold() -> Engine {
+        engine(Ratio::new::<percent>(
+            IntegratedDriveGenerator::ENGINE_N2_POWER_DOWN_OUTPUT_THRESHOLD - 1.,
+        ))
+    }
+
+    fn engine(n2: Ratio) -> Engine {
+        let mut engine = Engine::new();
+        engine.n2 = n2;
+
+        engine
     }
 
     #[cfg(test)]
@@ -959,7 +1091,7 @@ mod tests {
 
         #[test]
         fn starts_without_output() {
-            assert!(engine_generator().output.is_unpowered());
+            assert!(engine_generator().output().is_unpowered());
         }
 
         #[test]
@@ -968,7 +1100,7 @@ mod tests {
             update_below_threshold(&mut generator);
             update_above_threshold(&mut generator);
 
-            assert!(generator.output.is_powered());
+            assert!(generator.output().is_powered());
         }
 
         #[test]
@@ -977,46 +1109,140 @@ mod tests {
             update_above_threshold(&mut generator);
             update_below_threshold(&mut generator);
 
-            assert!(generator.output.is_unpowered());
+            assert!(generator.output().is_unpowered());
         }
 
         #[test]
         fn when_idg_disconnected_provides_no_output() {
             let mut generator = engine_generator();
-            generator.update(&engine_above_threshold(), &OnOffPushButton::new_off());
+            generator.update(
+                &context(Duration::from_secs(0)),
+                &engine_above_threshold(),
+                &OnOffPushButton::new_off(),
+            );
 
-            assert!(generator.output.is_unpowered());
+            assert!(generator.output().is_unpowered());
         }
 
         fn engine_generator() -> EngineGenerator {
             EngineGenerator::new(1)
         }
 
-        fn engine(n2: Ratio) -> Engine {
-            let mut engine = Engine::new();
-            engine.n2 = n2;
-
-            engine
-        }
-
         fn update_above_threshold(generator: &mut EngineGenerator) {
-            generator.update(&engine_above_threshold(), &OnOffPushButton::new_on());
+            generator.update(
+                &context(Duration::from_secs(1)),
+                &engine_above_threshold(),
+                &OnOffPushButton::new_on(),
+            );
         }
 
         fn update_below_threshold(generator: &mut EngineGenerator) {
-            generator.update(&engine_below_threshold(), &OnOffPushButton::new_on());
+            generator.update(
+                &context(Duration::from_secs(1)),
+                &engine_below_threshold(),
+                &OnOffPushButton::new_on(),
+            );
+        }
+    }
+
+    #[cfg(test)]
+    mod integrated_drive_generator_tests {
+        use super::*;
+
+        fn idg() -> IntegratedDriveGenerator {
+            IntegratedDriveGenerator::new()
         }
 
-        fn engine_above_threshold() -> Engine {
-            engine(Ratio::new::<percent>(
-                EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD + 1.,
-            ))
+        #[test]
+        fn starts_unstable() {
+            assert_eq!(idg().provides_stable_power_output(), false);
         }
 
-        fn engine_below_threshold() -> Engine {
-            engine(Ratio::new::<percent>(
-                EngineGenerator::ENGINE_N2_POWER_OUTPUT_THRESHOLD - 1.,
-            ))
+        #[test]
+        fn becomes_stable_once_engine_above_threshold_for_500_milliseconds() {
+            let mut idg = idg();
+            idg.update(
+                &context(Duration::from_millis(500)),
+                &engine_above_threshold(),
+                &OnOffPushButton::new_on(),
+            );
+
+            assert_eq!(idg.provides_stable_power_output(), true);
+        }
+
+        #[test]
+        fn does_not_become_stable_before_engine_above_threshold_for_500_milliseconds() {
+            let mut idg = idg();
+            idg.update(
+                &context(Duration::from_millis(499)),
+                &engine_above_threshold(),
+                &OnOffPushButton::new_on(),
+            );
+
+            assert_eq!(idg.provides_stable_power_output(), false);
+        }
+
+        #[test]
+        fn cannot_reconnect_once_disconnected() {
+            let mut idg = idg();
+            idg.update(
+                &context(Duration::from_millis(500)),
+                &engine_above_threshold(),
+                &OnOffPushButton::new_off(),
+            );
+
+            idg.update(
+                &context(Duration::from_millis(500)),
+                &engine_above_threshold(),
+                &OnOffPushButton::new_on(),
+            );
+
+            assert_eq!(idg.provides_stable_power_output(), false);
+        }
+
+        #[test]
+        fn running_engine_warms_up_idg() {
+            let mut idg = idg();
+            let starting_temperature = idg.oil_outlet_temperature;
+            idg.update(
+                &context(Duration::from_secs(10)),
+                &engine_above_threshold(),
+                &OnOffPushButton::new_on(),
+            );
+
+            assert!(idg.oil_outlet_temperature > starting_temperature);
+        }
+
+        #[test]
+        fn running_engine_does_not_warm_up_idg_when_disconnected() {
+            let mut idg = idg();
+            let starting_temperature = idg.oil_outlet_temperature;
+            idg.update(
+                &context(Duration::from_secs(10)),
+                &engine_above_threshold(),
+                &OnOffPushButton::new_off(),
+            );
+
+            assert_eq!(idg.oil_outlet_temperature, starting_temperature);
+        }
+
+        #[test]
+        fn shutdown_engine_cools_down_idg() {
+            let mut idg = idg();
+            idg.update(
+                &context(Duration::from_secs(10)),
+                &engine_above_threshold(),
+                &OnOffPushButton::new_on(),
+            );
+            let starting_temperature = idg.oil_outlet_temperature;
+
+            idg.update(
+                &context(Duration::from_secs(10)),
+                &Engine::new(),
+                &OnOffPushButton::new_on(),
+            );
+
+            assert!(idg.oil_outlet_temperature < starting_temperature);
         }
     }
 
@@ -1054,20 +1280,20 @@ mod tests {
 
         fn apu(speed: Ratio) -> AuxiliaryPowerUnit {
             let mut apu = AuxiliaryPowerUnit::new();
-            apu.speed = speed;
+            apu.n1 = speed;
 
             apu
         }
 
         fn update_above_threshold(generator: &mut ApuGenerator) {
             generator.update(&apu(Ratio::new::<percent>(
-                ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD + 1.,
+                ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD + 1.,
             )));
         }
 
         fn update_below_threshold(generator: &mut ApuGenerator) {
             generator.update(&apu(Ratio::new::<percent>(
-                ApuGenerator::APU_SPEED_POWER_OUTPUT_THRESHOLD - 1.,
+                ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD - 1.,
             )));
         }
     }
