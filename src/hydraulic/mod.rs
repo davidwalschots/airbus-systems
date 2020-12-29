@@ -3,8 +3,8 @@ use std::time::Duration;
 use std::cmp::Ordering;
 
 use uom::si::{
-    f32::*, length::foot, pressure::psi, ratio::percent, thermodynamic_temperature::degree_celsius ,time::second, velocity::knot,
-    volume::cubic_inch, volume::gallon, volume_rate::gallon_per_second,
+    f32::*, area::square_meter, mass_density::kilogram_per_cubic_meter, force::newton, length::foot, pressure::pascal, pressure::psi, ratio::percent, thermodynamic_temperature::degree_celsius ,time::second, velocity::knot,
+    volume::cubic_inch, volume::gallon, volume_rate::cubic_meter_per_second, volume_rate::gallon_per_second,
 };
 
 use crate::{
@@ -42,6 +42,10 @@ use crate::{
 /// Blue: 6.5L (1.7 US Gal)
 /// Yellow: 12.5L (3.3 US Gal)
 /// Green: 14.5L (3.8 US Gal)
+/// 
+/// Loops
+/// ------------------------------------------
+/// Max loop volume - green: 1.09985 gallons (double check)
 ///
 ///
 /// EDP (Eaton PV3-240-10C/D/F (F is neo)):
@@ -168,6 +172,7 @@ pub struct HydLoop {
     accumulator_pressure: Pressure,
     accumulator_volume: Volume,
     color: LoopColor,
+    connected_to_ptu: bool,
     loop_pressure: Pressure,
     loop_volume: Volume,
     max_loop_volume: Volume,
@@ -177,13 +182,15 @@ pub struct HydLoop {
 impl HydLoop {
     const ACCUMULATOR_PRE_CHARGE: f32 = 1885.0;
     const ACCUMULATOR_MAX_VOLUME: f32 = 0.241966;
-    const ACCUMULATOR_3K_PSI_THRESHOLD: f32 = 0.8993;
+    const ACCUMULATOR_SETPOINT: f32 = 3000.; // PSI accumulator aims to achieve
+    const ACCUMULATOR_SETPOINT_PSI_THRESHOLD: f32 = 0.8993; // accumulator volume to achieve setpoint
     const BASELINE_LOAD: f32 = 0.02;
-    // Moved to struct property:
-    // const MAX_LOOP_VOLUME: f32 = 1.09985;
+    const HYDRAULIC_FLUID_DENSITY: f32 = 1000.55; // Exxon Hyjet IV, kg/m^3
+    const PIPE_CROSS_SECTION_AREA: f32 = 0.0000785; // in m^2. Inner radius = 5mm
 
     pub fn new(
         color: LoopColor,
+        connected_to_ptu: bool,
         loop_volume: Volume,
         max_loop_volume: Volume,
         reservoir_volume: Volume,
@@ -192,6 +199,7 @@ impl HydLoop {
             accumulator_pressure: Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE),
             accumulator_volume: Volume::new::<gallon>(0.),
             color,
+            connected_to_ptu,
             loop_pressure: Pressure::new::<psi>(0.),
             loop_volume,
             max_loop_volume,
@@ -215,124 +223,81 @@ impl HydLoop {
         drawn
     }
 
-    // pub fn get_baseline_load(&self) -> VolumeRate {
-    //     let baseline = VolumeRate::new::<gallon_per_second>(self.baseline);
-    //     let midpoint = (self.max_loop_volume - self.nominal_loop_volume) / 2.0;
-    //     if self.loop_volume < self.nominal_loop_volume {
-    //         VolumeRate::new::<gallon_per_second>(0.)
-    //     } else if self.loop_volume > self.nominal_loop_volume + midpoint {
-    //         baseline
-    //     } else {
-    //         VolumeRate::new::<gallon_per_second>((baseline/midpoint)*self.loop_volume - (baseline*self.nominal_loop_volume/midpoint))
-    //     }
-    // }
-
     pub fn update(
         &mut self,
+        context: &UpdateContext,
         electric_pumps: Vec<&ElectricPump>,
         engine_driven_pumps: Vec<&EngineDrivenPump>,
         ram_air_pumps: Vec<&RatPump>,
     ) {
+        let mut pressure = Pressure::new::<psi>(0.);
         let mut delta_vol = Volume::new::<gallon>(0.);
-        let mut delta_p = Pressure::new::<psi>(0.);
+        let mut pump_flow_rate_sum = VolumeRate::new::<gallon_per_second>(0.);
 
-        // Get total volume output of hydraulic pumps this tick
-        for p in electric_pumps {
-            self.reservoir_volume -= p.pump.reservoir_fluid_used;
-            delta_vol += p.get_delta_vol();
-        }
         for p in engine_driven_pumps {
-            self.reservoir_volume -= p.pump.reservoir_fluid_used;
             delta_vol += p.get_delta_vol();
+            pump_flow_rate_sum += p.get_delta_vol() / Time::new::<second>(context.delta.as_secs_f32());
+        }
+        for p in electric_pumps {
+            delta_vol += p.get_delta_vol();
+            pump_flow_rate_sum += p.get_delta_vol() / Time::new::<second>(context.delta.as_secs_f32());
         }
         for p in ram_air_pumps {
-            self.reservoir_volume -= p.pump.reservoir_fluid_used;
             delta_vol += p.get_delta_vol();
+            pump_flow_rate_sum += p.get_delta_vol() / Time::new::<second>(context.delta.as_secs_f32());
         }
 
-        // Apply "load" to system
-        delta_vol -= Volume::new::<gallon>(0.004);
-        self.reservoir_volume += Volume::new::<gallon>(0.004);
+        // Draw delta_vol from reservoir
+        delta_vol = self.reservoir_volume.min(delta_vol);
+        self.reservoir_volume -= delta_vol;
 
-        // Calculations involving accumulator and loop volume
-        if delta_vol.get::<gallon>() > 0.0 {
-            if self.loop_volume < self.max_loop_volume {
-                let vol_diff = self.max_loop_volume.get::<gallon>()
-                    - (self.loop_volume.get::<gallon>() + delta_vol.get::<gallon>());
-                if vol_diff > 0.0 {
-                    self.loop_volume += delta_vol;
-                    delta_vol = Volume::new::<gallon>(0.);
-                } else {
-                    self.loop_volume = self.max_loop_volume;
-                    delta_vol = Volume::new::<gallon>(vol_diff.abs());
-                }
-            }
+        // Pressure supplied by engine/electric/ram-air pumps
+        pressure += Pressure::new::<pascal>(0.5 * HydLoop::HYDRAULIC_FLUID_DENSITY * ((1.0 / HydLoop::PIPE_CROSS_SECTION_AREA) * pump_flow_rate_sum.get::<cubic_meter_per_second>()).powf(2.0));
 
-            if self.accumulator_pressure < Pressure::new::<psi>(3000.)
-                && delta_vol > Volume::new::<gallon>(0.)
-            {
-                let vol_diff = HydLoop::ACCUMULATOR_3K_PSI_THRESHOLD
-                    - (self.accumulator_volume.get::<gallon>() + delta_vol.get::<gallon>());
-                if vol_diff > 0.0 {
-                    self.accumulator_volume += delta_vol;
-                    self.accumulator_pressure =
-                        (Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE)
-                            * Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME))
-                            / (Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME)
-                                - self.accumulator_volume);
-                } else {
-                    self.accumulator_volume =
-                        Volume::new::<gallon>(HydLoop::ACCUMULATOR_3K_PSI_THRESHOLD);
-                    self.accumulator_pressure = Pressure::new::<psi>(3000.);
-                    delta_p = Pressure::new::<psi>(
-                        (vol_diff.abs() * 5000.) / self.loop_volume.get::<gallon>(),
-                    );
-                    self.loop_volume += Volume::new::<gallon>(vol_diff.abs());
-                }
-            } else {
-                delta_p = Pressure::new::<psi>(
-                    (delta_vol.get::<gallon>() * 5000.) / self.loop_volume.get::<gallon>(),
-                );
-                self.loop_volume += delta_vol;
-            }
-        } else if delta_vol.get::<gallon>() < 0.0 {
-            if self.accumulator_volume.get::<gallon>() > 0.0 {
-                let vol_sum = delta_vol + self.accumulator_volume;
-                if vol_sum > Volume::new::<gallon>(0.) {
-                    self.accumulator_volume += delta_vol;
-                    delta_vol = Volume::new::<gallon>(0.);
-                    delta_p -= Pressure::new::<psi>(2.); // TODO: replace this WIP placeholder load
-                    self.accumulator_pressure =
-                        (Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE)
-                            * Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME))
-                            / (Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME)
-                                - self.accumulator_volume);
-                } else {
-                    delta_vol = vol_sum;
-                    self.accumulator_volume = Volume::new::<gallon>(0.);
-                    self.accumulator_pressure =
-                        Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE);
-                }
-            }
-
-            let vol_diff = self.loop_volume.get::<gallon>() + delta_vol.get::<gallon>()
-                - self.max_loop_volume.get::<gallon>();
-            if vol_diff > 0.0 {
-                // TODO: investigate magic number 5000.
-                delta_p = Pressure::new::<psi>(
-                    (delta_vol.get::<gallon>() * 5000.) / self.loop_volume.get::<gallon>(),
-                );
-            } else {
-                self.loop_pressure = Pressure::new::<psi>(0.);
-            }
-
-            self.loop_volume = Volume::new::<gallon>(0.).max(self.loop_volume + delta_vol);
+        // If PSI is low, accumulator kicks in and provides flow if available
+        if pressure.get::<psi>() < HydLoop::ACCUMULATOR_SETPOINT && self.accumulator_volume.get::<gallon>() > 0. {
+            // TODO: implement accumulator pressure logic
+            // TODO: add output pressure to `pressure`
+            // TODO: add output volume to `delta_vol` & subtract from `self.accumulator_volume`
+        }
+        
+        // If PSI is high, accumulator kicks in and receives excess flow if able
+        if  pressure.get::<psi>() > HydLoop::ACCUMULATOR_SETPOINT && self.accumulator_volume.get::<gallon>() < HydLoop::ACCUMULATOR_MAX_VOLUME {
+            // TODO: implement accumulator pressure logic
+            // TODO: subtract input pressure from `pressure`
+            // TODO: subtract input volume from `delta_vol` & add to `self.accumulator_volume`
         }
 
-        // Update loop pressure
-        if delta_p != Pressure::new::<psi>(0.) {
-            self.loop_pressure = Pressure::new::<psi>(0.).max(self.loop_pressure + delta_p);
+        // If `self.loop_volume` is less than `self.max_loop_volume`, draw from `delta_vol` to fill loop
+        if self.loop_volume < self.max_loop_volume {
+            let difference = self.max_loop_volume - self.loop_volume;
+            let delta_loop_vol = delta_vol.min(difference);
+            delta_vol -= delta_loop_vol;
+            self.loop_volume += delta_loop_vol;
         }
+
+        // TODO: implement PTU pump logic
+        // If PSI difference from other line is greater than 500 PSI, draw from PTU
+        // Check if PTU isn't off or failed first, and other valid conditions
+
+        // If `self.pressure` is low, then draw from `self.loop_volume`
+        if self.loop_pressure.get::<psi>() <= 14.5 && self.loop_volume.get::<gallon>() > 0. {
+            let max_delta_loop_vol = VolumeRate::new::<gallon_per_second>(0.5) * Time::new::<second>(context.delta.as_secs_f32());
+            let delta_loop_vol = self.loop_volume.min(max_delta_loop_vol);
+            self.loop_volume -= delta_loop_vol;
+            delta_vol += delta_loop_vol;
+        }
+
+        // TODO: implement actuator (landing gear & cargo door) volume usage (both input and output) logic
+
+        // TODO: implement pressure decrement from actuator usage
+        // For each actuator, subtract its pressure (force * area) from self.loop_pressure
+
+        // If delta_vol is greater than reservoir volume, we screwed up somewhere
+        self.reservoir_volume += delta_vol;
+
+        // Update pressure
+        self.loop_pressure = pressure;
     }
 }
 
@@ -460,34 +425,6 @@ impl PressureSource for EngineDrivenPump {
     }
 }
 
-// PTU "pump" affects 2 hydraulic lines, not just 1
-// Need to find a way to specify displacements for multiple lines
-pub struct PtuPump {
-    active: bool,
-    delta_vol: Volume,
-    displacement: Volume,
-    flow: VolumeRate,
-    state: PtuState,
-}
-impl PtuPump {
-    pub fn new() -> PtuPump {
-        PtuPump {
-            active: false,
-            delta_vol: Volume::new::<gallon>(0.),
-            displacement: Volume::new::<cubic_inch>(0.),
-            flow: VolumeRate::new::<gallon_per_second>(0.),
-            state: PtuState::Off,
-        }
-    }
-
-    pub fn update(&mut self, context: &UpdateContext, line: &HydLoop) {}
-}
-impl PressureSource for PtuPump {
-    fn get_delta_vol(&self) -> Volume {
-        self.delta_vol
-    }
-}
-
 pub struct RatPump {
     active: bool,
     pump: Pump,
@@ -519,9 +456,16 @@ impl PressureSource for RatPump {
 
 pub struct Actuator {
     a_type: ActuatorType,
+    active: bool,
+    affected_by_gravity: bool,
+    area: Area,
     line: HydLoop,
+    neutral_is_zero: bool,
+    stall_load: Force,
+    volume_used_at_max_deflection: Volume,
 }
 
+// TODO
 impl Actuator {
     pub fn new(a_type: ActuatorType, line: HydLoop) -> Actuator {
         Actuator { a_type, line }
