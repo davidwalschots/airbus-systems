@@ -9,8 +9,9 @@ use uom::si::{
 };
 
 use crate::{
+    apu::AuxiliaryPowerUnit,
     overhead::OnOffPushButton,
-    shared::{AuxiliaryPowerUnit, Engine, UpdateContext},
+    shared::{Engine, UpdateContext},
     visitor::Visitable,
 };
 

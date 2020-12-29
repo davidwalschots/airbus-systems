@@ -4,13 +4,14 @@ use uom::si::{
 };
 
 use crate::{
+    apu::AuxiliaryPowerUnit,
     electrical::{
         ApuGenerator, Battery, Contactor, ElectricalBus, EmergencyGenerator, EngineGenerator,
         ExternalPowerSource, IntegratedDriveGenerator, PowerConductor, Powerable, StaticInverter,
         TransformerRectifier,
     },
     overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
-    shared::{AuxiliaryPowerUnit, DelayedTrueLogicGate, Engine, UpdateContext},
+    shared::{DelayedTrueLogicGate, Engine, UpdateContext},
     visitor::Visitable,
 };
 

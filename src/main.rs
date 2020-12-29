@@ -5,6 +5,7 @@ use std::time::Duration;
 use uom::si::{f64::*, length::foot, thermodynamic_temperature::degree_celsius, velocity::knot};
 
 mod a320;
+mod apu;
 mod electrical;
 mod overhead;
 mod shared;
