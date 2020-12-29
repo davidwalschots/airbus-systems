@@ -1,11 +1,13 @@
+use std::time::Duration;
+
 use rand::prelude::*;
 use uom::si::{f64::*, ratio::percent};
 
 use crate::{overhead::OnOffPushButton, shared::UpdateContext, visitor::Visitable};
 
 pub struct AuxiliaryPowerUnitOverheadPanel {
-    master: OnOffPushButton,
-    start: OnOffPushButton,
+    pub master: OnOffPushButton,
+    pub start: OnOffPushButton,
 }
 impl AuxiliaryPowerUnitOverheadPanel {
     pub fn new() -> AuxiliaryPowerUnitOverheadPanel {
@@ -18,11 +20,25 @@ impl AuxiliaryPowerUnitOverheadPanel {
     fn master_is_on(&self) -> bool {
         self.master.is_on()
     }
+
+    fn start_is_on(&self) -> bool {
+        self.start.is_on()
+    }
 }
 
+#[derive(Debug, PartialEq)]
+enum AuxiliaryPowerUnitState {
+    Shutdown,
+    Starting,
+    Started,
+}
+
+#[derive(Debug)]
 pub struct AuxiliaryPowerUnit {
     pub n: Ratio,
     air_intake_flap: AirIntakeFlap,
+    state: AuxiliaryPowerUnitState,
+    time_since_start: Duration,
 }
 
 impl AuxiliaryPowerUnit {
@@ -30,6 +46,8 @@ impl AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
             n: Ratio::new::<percent>(0.),
             air_intake_flap: AirIntakeFlap::new(),
+            state: AuxiliaryPowerUnitState::Shutdown,
+            time_since_start: Duration::from_secs(0),
         }
     }
 
@@ -41,6 +59,47 @@ impl AuxiliaryPowerUnit {
         }
 
         self.air_intake_flap.update(context);
+
+        if self.air_intake_flap.is_fully_open() && overhead.start_is_on() {
+            if self.state == AuxiliaryPowerUnitState::Shutdown {
+                self.time_since_start = Duration::from_secs(0);
+                self.state = AuxiliaryPowerUnitState::Starting;
+            }
+
+            if self.state == AuxiliaryPowerUnitState::Starting {
+                self.time_since_start += context.delta;
+                self.n = self.calculate_n();
+                if self.n == Ratio::new::<percent>(100.) {
+                    self.state = AuxiliaryPowerUnitState::Started;
+                    self.time_since_start = Duration::from_secs(0);
+                }
+            }
+        }
+    }
+
+    fn calculate_n(&self) -> Ratio {
+        const APU_N_X: f64 = 2.375010484;
+        const APU_N_X2: f64 = 0.034236847;
+        const APU_N_X3: f64 = -0.007404136;
+        const APU_N_X4: f64 = 0.000254;
+        const APU_N_X5: f64 = -0.000002438;
+        const APU_N_CONST: f64 = 0.;
+
+        let time_since_start = self.time_since_start.as_secs_f64();
+        if time_since_start > 60. {
+            // Protect against the formula returning decreasing results when a lot of time is skipped (if delta > 13s).
+            Ratio::new::<percent>(100.)
+        } else {
+            Ratio::new::<percent>(
+                ((APU_N_X5 * time_since_start.powi(5))
+                    + (APU_N_X4 * time_since_start.powi(4))
+                    + (APU_N_X3 * time_since_start.powi(3))
+                    + (APU_N_X2 * time_since_start.powi(2))
+                    + (APU_N_X * time_since_start)
+                    + APU_N_CONST)
+                    .min(100.),
+            )
+        }
     }
 }
 
@@ -50,12 +109,13 @@ impl Visitable for AuxiliaryPowerUnit {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum AirIntakeFlapTarget {
     Open,
     Closed,
 }
 
+#[derive(Debug)]
 struct AirIntakeFlap {
     state: Ratio,
     target: AirIntakeFlapTarget,
@@ -100,6 +160,10 @@ impl AirIntakeFlap {
     fn close(&mut self) {
         self.target = AirIntakeFlapTarget::Closed;
     }
+
+    fn is_fully_open(&self) -> bool {
+        self.state == Ratio::new::<percent>(100.)
+    }
 }
 
 #[cfg(test)]
@@ -135,8 +199,21 @@ mod tests {
         }
 
         #[test]
-        #[ignore]
-        fn when_start_sw_on_when_air_intake_flap_fully_open_starting_sequence_commences() {}
+        fn when_start_sw_on_when_air_intake_flap_fully_open_starting_sequence_commences() {
+            let mut apu = AuxiliaryPowerUnit::new();
+            let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
+            overhead.master.push_on();
+            apu.update(&context(Duration::from_secs(1000)), &overhead);
+
+            overhead.start.push_on();
+            const APPROXIMATE_STARTUP_TIME: u64 = 48;
+            apu.update(
+                &context(Duration::from_secs(APPROXIMATE_STARTUP_TIME)),
+                &overhead,
+            );
+
+            assert_eq!(apu.n.get::<percent>(), 100.);
+        }
 
         #[test]
         #[ignore]
@@ -214,6 +291,22 @@ mod tests {
             flap.update(&context(Duration::from_secs(1000)));
 
             assert_eq!(flap.state.get::<percent>(), 100.);
+        }
+
+        #[test]
+        fn is_fully_open_returns_false_when_closed() {
+            let flap = AirIntakeFlap::new();
+
+            assert_eq!(flap.is_fully_open(), false)
+        }
+
+        #[test]
+        fn is_fully_open_returns_true_when_open() {
+            let mut flap = AirIntakeFlap::new();
+            flap.open();
+            flap.update(&context(Duration::from_secs(1000)));
+
+            assert_eq!(flap.is_fully_open(), true)
         }
     }
 }
