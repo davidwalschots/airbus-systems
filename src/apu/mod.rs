@@ -90,7 +90,7 @@ impl AirIntakeFlap {
     }
 
     fn get_flap_change_for_delta(&self, context: &UpdateContext) -> f64 {
-        100. * (context.delta.as_millis() as f64 * 0.001 / self.delay as f64)
+        100. * (context.delta.as_secs_f64() / self.delay as f64)
     }
 
     fn open(&mut self) {

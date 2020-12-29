@@ -352,9 +352,9 @@ impl IntegratedDriveGenerator {
         let target_temperature = target.get::<degree_celsius>();
         let mut temperature = self.oil_outlet_temperature.get::<degree_celsius>();
         temperature += if temperature < target_temperature {
-            IDG_HEATING_COEFFICIENT * context.delta.as_millis() as f64 * 0.001
+            IDG_HEATING_COEFFICIENT * context.delta.as_secs_f64()
         } else {
-            -(IDG_COOLING_COEFFICIENT * context.delta.as_millis() as f64 * 0.001)
+            -(IDG_COOLING_COEFFICIENT * context.delta.as_secs_f64())
         };
 
         temperature = clamp(
