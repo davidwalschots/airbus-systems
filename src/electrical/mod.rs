@@ -3,7 +3,7 @@ use std::cmp::{max, min};
 use std::time::Duration;
 
 use uom::si::{
-    electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f32::*,
+    electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f64::*,
     frequency::hertz, length::foot, power::watt, ratio::percent,
     thermodynamic_temperature::degree_celsius, velocity::knot,
 };
@@ -279,8 +279,8 @@ pub(crate) struct IntegratedDriveGenerator {
 }
 
 impl IntegratedDriveGenerator {
-    pub const ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD: f32 = 59.5;
-    pub const ENGINE_N2_POWER_DOWN_OUTPUT_THRESHOLD: f32 = 56.;
+    pub const ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD: f64 = 59.5;
+    pub const ENGINE_N2_POWER_DOWN_OUTPUT_THRESHOLD: f64 = 56.;
     const STABILIZATION_TIME_IN_MILLISECONDS: u64 = 500;
 
     fn new() -> IntegratedDriveGenerator {
@@ -345,15 +345,15 @@ impl IntegratedDriveGenerator {
     }
 
     fn update_temperature(&mut self, context: &UpdateContext, target: ThermodynamicTemperature) {
-        const IDG_HEATING_COEFFICIENT: f32 = 1.4;
-        const IDG_COOLING_COEFFICIENT: f32 = 0.4;
+        const IDG_HEATING_COEFFICIENT: f64 = 1.4;
+        const IDG_COOLING_COEFFICIENT: f64 = 0.4;
 
         let target_temperature = target.get::<degree_celsius>();
         let mut temperature = self.oil_outlet_temperature.get::<degree_celsius>();
         temperature += if temperature < target_temperature {
-            IDG_HEATING_COEFFICIENT * context.delta.as_millis() as f32 * 0.001
+            IDG_HEATING_COEFFICIENT * context.delta.as_millis() as f64 * 0.001
         } else {
-            -(IDG_COOLING_COEFFICIENT * context.delta.as_millis() as f32 * 0.001)
+            -(IDG_COOLING_COEFFICIENT * context.delta.as_millis() as f64 * 0.001)
         };
 
         temperature = clamp(
@@ -374,7 +374,7 @@ impl IntegratedDriveGenerator {
             return context.ambient_temperature;
         }
 
-        let mut target_idg = engine.n2.get::<percent>() * 1.8_f32;
+        let mut target_idg = engine.n2.get::<percent>() * 1.8;
         let ambient_temperature = context.ambient_temperature.get::<degree_celsius>();
         target_idg += ambient_temperature;
 
@@ -401,7 +401,7 @@ pub struct ApuGenerator {
 }
 
 impl ApuGenerator {
-    pub const APU_N1_POWER_OUTPUT_THRESHOLD: f32 = 87.0;
+    pub const APU_N1_POWER_OUTPUT_THRESHOLD: f64 = 87.0;
 
     pub fn new() -> ApuGenerator {
         ApuGenerator {
@@ -608,7 +608,7 @@ pub struct Battery {
 }
 
 impl Battery {
-    const MAX_ELECTRIC_CHARGE_AMPERE_HOURS: f32 = 23.0;
+    const MAX_ELECTRIC_CHARGE_AMPERE_HOURS: f64 = 23.0;
 
     pub fn full(number: u8) -> Battery {
         Battery::new(

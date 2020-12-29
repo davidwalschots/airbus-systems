@@ -1,6 +1,6 @@
 use std::time::Duration;
 use uom::si::{
-    f32::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
+    f64::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
 };
 
 use crate::visitor::Visitable;
