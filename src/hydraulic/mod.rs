@@ -1,8 +1,9 @@
 use std::f32::consts;
 use std::time::Duration;
+use std::cmp::Ordering;
 
 use uom::si::{
-    f32::*, length::foot, pressure::psi, ratio::percent, time::second, velocity::knot,
+    f32::*, length::foot, pressure::psi, ratio::percent, thermodynamic_temperature::degree_celsius ,time::second, velocity::knot,
     volume::cubic_inch, volume::gallon, volume_rate::gallon_per_second,
 };
 
@@ -33,6 +34,14 @@ use crate::{
 ///
 /// Each MLG door open (2 total) uses 0.25 liters each of green hyd fluid
 /// Each cargo door open (3 total) uses 0.2 liters each of yellow hyd fluid
+/// 
+/// Reservoirs
+/// ------------------------------------------
+/// Normal Qty:
+/// -----------
+/// Blue: 6.5L (1.7 US Gal)
+/// Yellow: 12.5L (3.3 US Gal)
+/// Green: 14.5L (3.8 US Gal)
 ///
 ///
 /// EDP (Eaton PV3-240-10C/D/F (F is neo)):
@@ -169,6 +178,7 @@ impl HydLoop {
     const ACCUMULATOR_PRE_CHARGE: f32 = 1885.0;
     const ACCUMULATOR_MAX_VOLUME: f32 = 0.241966;
     const ACCUMULATOR_3K_PSI_THRESHOLD: f32 = 0.8993;
+    const BASELINE_LOAD: f32 = 0.02;
     // Moved to struct property:
     // const MAX_LOOP_VOLUME: f32 = 1.09985;
 
@@ -204,6 +214,18 @@ impl HydLoop {
         }
         drawn
     }
+
+    // pub fn get_baseline_load(&self) -> VolumeRate {
+    //     let baseline = VolumeRate::new::<gallon_per_second>(self.baseline);
+    //     let midpoint = (self.max_loop_volume - self.nominal_loop_volume) / 2.0;
+    //     if self.loop_volume < self.nominal_loop_volume {
+    //         VolumeRate::new::<gallon_per_second>(0.)
+    //     } else if self.loop_volume > self.nominal_loop_volume + midpoint {
+    //         baseline
+    //     } else {
+    //         VolumeRate::new::<gallon_per_second>((baseline/midpoint)*self.loop_volume - (baseline*self.nominal_loop_volume/midpoint))
+    //     }
+    // }
 
     pub fn update(
         &mut self,
@@ -629,6 +651,7 @@ mod tests {
             delta_time,
             Velocity::new::<knot>(250.),
             Length::new::<foot>(5000.),
+            ThermodynamicTemperature::new::<degree_celsius>(25.0),
         )
     }
 
@@ -649,10 +672,10 @@ mod tests {
         }
 
         #[test]
-        fn max_flow_under_2500_psi_after_25ms() {
+        fn max_flow_under_2500_psi_after_100ms() {
             let n2 = Ratio::new::<percent>(0.6);
-            let pressure = Pressure::new::<psi>(2400.);
-            let time = Duration::from_millis(25);
+            let pressure = Pressure::new::<psi>(2000.);
+            let time = Duration::from_millis(100);
             let displacement = Volume::new::<cubic_inch>(EngineDrivenPump::MAX_DISPLACEMENT);
             assert!(delta_vol_equality_check(n2, displacement, pressure, time))
         }
@@ -693,7 +716,7 @@ mod tests {
             displacement: Volume,
             time: Duration,
         ) -> Volume {
-            let edp_rpm = n2.get::<percent>() * EngineDrivenPump::MAX_RPM;
+            let edp_rpm = (1.0f32.min(4.0 * n2.get::<percent>())) * EngineDrivenPump::MAX_RPM;
             let expected_flow = Pump::calculate_flow(edp_rpm, displacement);
             expected_flow * Time::new::<second>(time.as_secs_f32())
         }
