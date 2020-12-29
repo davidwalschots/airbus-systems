@@ -411,7 +411,7 @@ impl ApuGenerator {
     }
 
     pub fn update(&mut self, apu: &AuxiliaryPowerUnit) {
-        if apu.n1 > Ratio::new::<percent>(ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD) {
+        if apu.n > Ratio::new::<percent>(ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD) {
             self.output = Current::Alternating(
                 PowerSource::ApuGenerator,
                 Frequency::new::<hertz>(400.),
@@ -1281,7 +1281,7 @@ mod tests {
 
         fn apu(speed: Ratio) -> AuxiliaryPowerUnit {
             let mut apu = AuxiliaryPowerUnit::new();
-            apu.n1 = speed;
+            apu.n = speed;
 
             apu
         }

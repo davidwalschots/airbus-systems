@@ -5,7 +5,7 @@ mod hydraulic;
 pub use hydraulic::*;
 
 use crate::{
-    apu::AuxiliaryPowerUnit,
+    apu::{AuxiliaryPowerUnit, AuxiliaryPowerUnitOverheadPanel},
     electrical::ExternalPowerSource,
     shared::{Engine, UpdateContext},
     visitor::{MutableVisitor, Visitable},
@@ -15,6 +15,7 @@ pub struct A320 {
     engine_1: Engine,
     engine_2: Engine,
     apu: AuxiliaryPowerUnit,
+    apu_overhead: AuxiliaryPowerUnitOverheadPanel,
     ext_pwr: ExternalPowerSource,
     electrical: A320Electrical,
     electrical_overhead: A320ElectricalOverheadPanel,
@@ -27,6 +28,7 @@ impl A320 {
             engine_1: Engine::new(),
             engine_2: Engine::new(),
             apu: AuxiliaryPowerUnit::new(),
+            apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
             ext_pwr: ExternalPowerSource::new(),
             electrical: A320Electrical::new(),
             electrical_overhead: A320ElectricalOverheadPanel::new(),
@@ -37,7 +39,7 @@ impl A320 {
     pub fn update(&mut self, context: &UpdateContext) {
         self.engine_1.update(context);
         self.engine_2.update(context);
-        self.apu.update(context);
+        self.apu.update(context, &self.apu_overhead);
         self.ext_pwr.update(context);
         self.electrical_overhead.update(context);
         // Note that soon multiple systems will depend on each other, thus we can expect multiple update functions per type,

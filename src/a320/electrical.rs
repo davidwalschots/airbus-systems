@@ -1955,14 +1955,14 @@ mod a320_electrical_circuit_tests {
 
         fn new_stopped_apu() -> AuxiliaryPowerUnit {
             let mut apu = AuxiliaryPowerUnit::new();
-            apu.n1 = Ratio::new::<percent>(0.);
+            apu.n = Ratio::new::<percent>(0.);
 
             apu
         }
 
         fn new_running_apu() -> AuxiliaryPowerUnit {
             let mut apu = AuxiliaryPowerUnit::new();
-            apu.n1 = Ratio::new::<percent>(ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD + 1.);
+            apu.n = Ratio::new::<percent>(ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD + 1.);
 
             apu
         }
