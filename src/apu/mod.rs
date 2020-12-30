@@ -39,17 +39,29 @@ pub struct AuxiliaryPowerUnit {
     air_intake_flap: AirIntakeFlap,
     state: AuxiliaryPowerUnitState,
     time_since_start: Duration,
-    exhaust_gas_temperature: ThermodynamicTemperature,
+    egt: ThermodynamicTemperature,
+    egt_warning: ThermodynamicTemperature,
+    egt_max: ThermodynamicTemperature,
 }
 
 impl AuxiliaryPowerUnit {
+    const EGT_WARNING_MAX_TEMPERATURE: f64 = 1200.;
+    const EGT_MAX_ABOVE_WARNING: f64 = 33.;
+
     pub fn new() -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
             n: Ratio::new::<percent>(0.),
             air_intake_flap: AirIntakeFlap::new(),
             state: AuxiliaryPowerUnitState::Shutdown,
             time_since_start: Duration::from_secs(0),
-            exhaust_gas_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
+            egt: ThermodynamicTemperature::new::<degree_celsius>(0.),
+            egt_warning: ThermodynamicTemperature::new::<degree_celsius>(
+                AuxiliaryPowerUnit::EGT_WARNING_MAX_TEMPERATURE,
+            ),
+            egt_max: ThermodynamicTemperature::new::<degree_celsius>(
+                AuxiliaryPowerUnit::EGT_WARNING_MAX_TEMPERATURE
+                    + AuxiliaryPowerUnit::EGT_MAX_ABOVE_WARNING,
+            ),
         }
     }
 
@@ -66,7 +78,11 @@ impl AuxiliaryPowerUnit {
             self.execute_startup_sequence(context);
         }
 
-        self.update_exhaust_gas_temperature(context);
+        self.egt = self.calculate_exhaust_gas_temperature(context);
+        self.egt_warning = self.calculate_exhaust_gas_warning_temperature();
+        self.egt_max = ThermodynamicTemperature::new::<degree_celsius>(
+            self.egt_warning.get::<degree_celsius>() + AuxiliaryPowerUnit::EGT_MAX_ABOVE_WARNING,
+        );
     }
 
     fn execute_startup_sequence(&mut self, context: &UpdateContext) {
@@ -85,13 +101,28 @@ impl AuxiliaryPowerUnit {
         }
     }
 
-    fn update_exhaust_gas_temperature(&mut self, context: &UpdateContext) {
+    fn calculate_exhaust_gas_temperature(
+        &self,
+        context: &UpdateContext,
+    ) -> ThermodynamicTemperature {
         if self.state == AuxiliaryPowerUnitState::Starting {
-            self.exhaust_gas_temperature = self.calculate_startup_egt(context);
+            self.calculate_startup_egt(context)
         } else if self.state == AuxiliaryPowerUnitState::Running {
-            self.exhaust_gas_temperature =
-                self.calculate_slow_cooldown_to_running_temperature(context);
+            self.calculate_slow_cooldown_to_running_temperature(context)
+        } else {
+            self.egt
         }
+    }
+
+    fn calculate_exhaust_gas_warning_temperature(&self) -> ThermodynamicTemperature {
+        let x = match self.n.get::<percent>() {
+            n if n < 11. => 1200.,
+            n if n <= 15. => (-50. * n) + 1750.,
+            n if n <= 65. => (-3. * n) + 1045.,
+            n => (-30. / 7. * n) + 1128.6,
+        };
+
+        ThermodynamicTemperature::new::<degree_celsius>(x)
     }
 
     fn calculate_n(&self) -> Ratio {
@@ -146,13 +177,13 @@ impl AuxiliaryPowerUnit {
         let mut rng = rand::thread_rng();
         let random_target_temperature: f64 = 500. - rng.gen_range(0..13) as f64;
 
-        if self.exhaust_gas_temperature.get::<degree_celsius>() > random_target_temperature {
-            self.exhaust_gas_temperature
+        if self.egt.get::<degree_celsius>() > random_target_temperature {
+            self.egt
                 - TemperatureInterval::new::<uom::si::temperature_interval::degree_celsius>(
                     0.4 * context.delta.as_secs_f64(),
                 )
         } else {
-            self.exhaust_gas_temperature
+            self.egt
         }
     }
 }
@@ -241,6 +272,8 @@ mod tests {
 
     #[cfg(test)]
     mod apu_tests {
+        use approx::{assert_relative_eq, relative_eq};
+
         use super::*;
 
         #[test]
@@ -277,14 +310,11 @@ mod tests {
             let overhead = AuxiliaryPowerUnitOverheadPanel::new();
             apu.update(&context(Duration::from_secs(1000)), &overhead);
 
-            assert_eq!(
-                apu.exhaust_gas_temperature.get::<degree_celsius>(),
-                AMBIENT_TEMPERATURE
-            );
+            assert_eq!(apu.egt.get::<degree_celsius>(), AMBIENT_TEMPERATURE);
         }
 
         #[test]
-        fn when_apu_starting_max_egt_above_800_degree_celsius() {
+        fn when_apu_starting_egt_reaches_above_800_degree_celsius() {
             let mut apu = starting_apu();
 
             let mut max_egt: f64 = 0.;
@@ -292,7 +322,7 @@ mod tests {
             loop {
                 apu.update(&context(Duration::from_secs(1)), &starting_overhead());
 
-                let apu_egt = apu.exhaust_gas_temperature.get::<degree_celsius>();
+                let apu_egt = apu.egt.get::<degree_celsius>();
                 if apu_egt < max_egt {
                     break;
                 }
@@ -301,6 +331,20 @@ mod tests {
             }
 
             assert!(max_egt > 800.);
+        }
+
+        #[test]
+        fn egt_max_always_33_above_egt_warn() {
+            let mut apu = starting_apu();
+
+            for _ in 1..=100 {
+                apu.update(&context(Duration::from_secs(1)), &starting_overhead());
+
+                assert_relative_eq!(
+                    apu.egt_max.get::<degree_celsius>(),
+                    apu.egt_warning.get::<degree_celsius>() + 33.
+                );
+            }
         }
 
         #[test]
