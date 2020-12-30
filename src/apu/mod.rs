@@ -21,143 +21,78 @@ impl AuxiliaryPowerUnitOverheadPanel {
         self.master.is_on()
     }
 
+    fn master_is_off(&self) -> bool {
+        self.master.is_off()
+    }
+
     fn start_is_on(&self) -> bool {
         self.start.is_on()
     }
 }
 
 #[derive(Debug, PartialEq)]
-enum AuxiliaryPowerUnitState {
-    Shutdown,
-    Starting,
-    Running,
+struct ApuExhaustGasTemperature {
+    value: ThermodynamicTemperature,
+    warning: ThermodynamicTemperature,
+    maximum: ThermodynamicTemperature,
 }
+impl ApuExhaustGasTemperature {
+    const WARNING_MAX_TEMPERATURE: f64 = 1200.;
+    const MAX_ABOVE_WARNING: f64 = 33.;
 
-#[derive(Debug)]
-pub struct AuxiliaryPowerUnit {
-    pub n: Ratio,
-    air_intake_flap: AirIntakeFlap,
-    state: AuxiliaryPowerUnitState,
-    time_since_start: Duration,
-    egt: ThermodynamicTemperature,
-    egt_warning: ThermodynamicTemperature,
-    egt_max: ThermodynamicTemperature,
-}
-
-impl AuxiliaryPowerUnit {
-    const EGT_WARNING_MAX_TEMPERATURE: f64 = 1200.;
-    const EGT_MAX_ABOVE_WARNING: f64 = 33.;
-
-    pub fn new() -> AuxiliaryPowerUnit {
-        AuxiliaryPowerUnit {
-            n: Ratio::new::<percent>(0.),
-            air_intake_flap: AirIntakeFlap::new(),
-            state: AuxiliaryPowerUnitState::Shutdown,
-            time_since_start: Duration::from_secs(0),
-            egt: ThermodynamicTemperature::new::<degree_celsius>(0.),
-            egt_warning: ThermodynamicTemperature::new::<degree_celsius>(
-                AuxiliaryPowerUnit::EGT_WARNING_MAX_TEMPERATURE,
+    fn new() -> ApuExhaustGasTemperature {
+        ApuExhaustGasTemperature {
+            value: ThermodynamicTemperature::new::<degree_celsius>(0.),
+            warning: ThermodynamicTemperature::new::<degree_celsius>(
+                ApuExhaustGasTemperature::WARNING_MAX_TEMPERATURE,
             ),
-            egt_max: ThermodynamicTemperature::new::<degree_celsius>(
-                AuxiliaryPowerUnit::EGT_WARNING_MAX_TEMPERATURE
-                    + AuxiliaryPowerUnit::EGT_MAX_ABOVE_WARNING,
+            maximum: ThermodynamicTemperature::new::<degree_celsius>(
+                ApuExhaustGasTemperature::WARNING_MAX_TEMPERATURE
+                    + ApuExhaustGasTemperature::MAX_ABOVE_WARNING,
             ),
         }
     }
 
-    pub fn update(&mut self, context: &UpdateContext, overhead: &AuxiliaryPowerUnitOverheadPanel) {
-        if overhead.master_is_on() {
-            self.air_intake_flap.open();
-        } else {
-            self.air_intake_flap.close();
-        }
-
-        self.air_intake_flap.update(context);
-
-        if self.air_intake_flap.is_fully_open() && overhead.start_is_on() {
-            self.execute_startup_sequence(context);
-        }
-
-        self.egt = self.calculate_exhaust_gas_temperature(context);
-        self.egt_warning = self.calculate_exhaust_gas_warning_temperature();
-        self.egt_max = ThermodynamicTemperature::new::<degree_celsius>(
-            self.egt_warning.get::<degree_celsius>() + AuxiliaryPowerUnit::EGT_MAX_ABOVE_WARNING,
-        );
-    }
-
-    fn execute_startup_sequence(&mut self, context: &UpdateContext) {
-        if self.state == AuxiliaryPowerUnitState::Shutdown {
-            self.time_since_start = Duration::from_secs(0);
-            self.state = AuxiliaryPowerUnitState::Starting;
-        }
-
-        if self.state == AuxiliaryPowerUnitState::Starting {
-            self.time_since_start += context.delta;
-            self.n = self.calculate_n();
-            if self.n == Ratio::new::<percent>(100.) {
-                self.state = AuxiliaryPowerUnitState::Running;
-                self.time_since_start = Duration::from_secs(0);
-            }
-        }
-    }
-
-    fn calculate_exhaust_gas_temperature(
+    fn recalculate(
         &self,
+        n: Ratio,
+        state: &AuxiliaryPowerUnitState,
+        context: &UpdateContext,
+    ) -> ApuExhaustGasTemperature {
+        let warning = self.calculate_exhaust_gas_warning_temperature(n);
+
+        ApuExhaustGasTemperature {
+            value: self.calculate_egt(n, state, context),
+            warning,
+            maximum: ThermodynamicTemperature::new::<degree_celsius>(
+                warning.get::<degree_celsius>() + ApuExhaustGasTemperature::MAX_ABOVE_WARNING,
+            ),
+        }
+    }
+
+    fn calculate_egt(
+        &self,
+        n: Ratio,
+        state: &AuxiliaryPowerUnitState,
         context: &UpdateContext,
     ) -> ThermodynamicTemperature {
-        if self.state == AuxiliaryPowerUnitState::Starting {
-            self.calculate_startup_egt(context)
-        } else if self.state == AuxiliaryPowerUnitState::Running {
-            self.calculate_slow_cooldown_to_running_temperature(context)
-        } else {
-            self.egt
+        match state {
+            AuxiliaryPowerUnitState::Starting { .. } => self.calculate_startup_egt(n, context),
+            AuxiliaryPowerUnitState::Running { .. } => {
+                self.calculate_slow_cooldown_to_running_temperature(context)
+            }
+            _ => self.value,
         }
     }
 
-    fn calculate_exhaust_gas_warning_temperature(&self) -> ThermodynamicTemperature {
-        let x = match self.n.get::<percent>() {
-            n if n < 11. => 1200.,
-            n if n <= 15. => (-50. * n) + 1750.,
-            n if n <= 65. => (-3. * n) + 1045.,
-            n => (-30. / 7. * n) + 1128.6,
-        };
-
-        ThermodynamicTemperature::new::<degree_celsius>(x)
-    }
-
-    fn calculate_n(&self) -> Ratio {
-        const APU_N_X: f64 = 2.375010484;
-        const APU_N_X2: f64 = 0.034236847;
-        const APU_N_X3: f64 = -0.007404136;
-        const APU_N_X4: f64 = 0.000254;
-        const APU_N_X5: f64 = -0.000002438;
-        const APU_N_CONST: f64 = 0.;
-
-        let time_since_start = self.time_since_start.as_secs_f64();
-        if time_since_start > 60. {
-            // Protect against the formula returning decreasing results when a lot of time is skipped (if delta > 13s).
-            Ratio::new::<percent>(100.)
-        } else {
-            Ratio::new::<percent>(
-                ((APU_N_X5 * time_since_start.powi(5))
-                    + (APU_N_X4 * time_since_start.powi(4))
-                    + (APU_N_X3 * time_since_start.powi(3))
-                    + (APU_N_X2 * time_since_start.powi(2))
-                    + (APU_N_X * time_since_start)
-                    + APU_N_CONST)
-                    .min(100.),
-            )
-        }
-    }
-
-    fn calculate_startup_egt(&self, context: &UpdateContext) -> ThermodynamicTemperature {
+    fn calculate_startup_egt(&self, n: Ratio, context: &UpdateContext) -> ThermodynamicTemperature {
         const APU_N_TEMP_CONST: f64 = -96.565;
         const APU_N_TEMP_X: f64 = 28.571;
         const APU_N_TEMP_X2: f64 = 0.0884;
         const APU_N_TEMP_X3: f64 = -0.0081;
         const APU_N_TEMP_X4: f64 = 0.00005;
 
-        let n = self.n.get::<percent>();
+        let n = n.get::<percent>();
 
         let temperature = (APU_N_TEMP_X4 * n.powi(4))
             + (APU_N_TEMP_X3 * n.powi(3))
@@ -177,14 +112,154 @@ impl AuxiliaryPowerUnit {
         let mut rng = rand::thread_rng();
         let random_target_temperature: f64 = 500. - rng.gen_range(0..13) as f64;
 
-        if self.egt.get::<degree_celsius>() > random_target_temperature {
-            self.egt
+        if self.value.get::<degree_celsius>() > random_target_temperature {
+            self.value
                 - TemperatureInterval::new::<uom::si::temperature_interval::degree_celsius>(
                     0.4 * context.delta.as_secs_f64(),
                 )
         } else {
-            self.egt
+            self.value
         }
+    }
+
+    fn calculate_exhaust_gas_warning_temperature(&self, n: Ratio) -> ThermodynamicTemperature {
+        let x = match n.get::<percent>() {
+            n if n < 11. => 1200.,
+            n if n <= 15. => (-50. * n) + 1750.,
+            n if n <= 65. => (-3. * n) + 1045.,
+            n => (-30. / 7. * n) + 1128.6,
+        };
+
+        ThermodynamicTemperature::new::<degree_celsius>(x)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum AuxiliaryPowerUnitShutdownReason {
+    Manual,
+    Automatic, // Will be split further later into all kinds of reasons for automatic shutdown.
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum AuxiliaryPowerUnitState {
+    Shutdown {
+        reason: AuxiliaryPowerUnitShutdownReason,
+    },
+    Starting {
+        since: Duration,
+    },
+    Running,
+    ShuttingDown {
+        since: Duration,
+        reason: AuxiliaryPowerUnitShutdownReason,
+    },
+}
+
+#[derive(Debug)]
+pub struct AuxiliaryPowerUnit {
+    pub n: Ratio,
+    air_intake_flap: AirIntakeFlap,
+    state: AuxiliaryPowerUnitState,
+    egt: ApuExhaustGasTemperature,
+}
+
+impl AuxiliaryPowerUnit {
+    pub fn new() -> AuxiliaryPowerUnit {
+        AuxiliaryPowerUnit {
+            n: Ratio::new::<percent>(0.),
+            air_intake_flap: AirIntakeFlap::new(),
+            state: AuxiliaryPowerUnitState::Shutdown {
+                reason: AuxiliaryPowerUnitShutdownReason::Manual,
+            },
+            egt: ApuExhaustGasTemperature::new(),
+        }
+    }
+
+    pub fn update(&mut self, context: &UpdateContext, overhead: &AuxiliaryPowerUnitOverheadPanel) {
+        if overhead.master_is_on() {
+            self.air_intake_flap.open();
+        }
+
+        self.air_intake_flap.update(context);
+
+        self.state = self.update_state(context, overhead);
+        self.egt = self.egt.recalculate(self.n, &self.state, context);
+    }
+
+    fn update_state(
+        &mut self,
+        context: &UpdateContext,
+        overhead: &AuxiliaryPowerUnitOverheadPanel,
+    ) -> AuxiliaryPowerUnitState {
+        match &self.state {
+            AuxiliaryPowerUnitState::Shutdown { .. }
+                if self.air_intake_flap.is_fully_open()
+                    && overhead.master_is_on()
+                    && overhead.start_is_on() =>
+            {
+                self.n = AuxiliaryPowerUnit::calculate_n(context.delta);
+                AuxiliaryPowerUnitState::Starting {
+                    since: context.delta,
+                }
+            }
+            AuxiliaryPowerUnitState::Shutdown { reason } => {
+                AuxiliaryPowerUnitState::Shutdown { reason: *reason }
+            }
+            AuxiliaryPowerUnitState::Starting {
+                since: time_since_start,
+            } if self.n.get::<percent>() < 100. => {
+                let time_since_start = *time_since_start + context.delta;
+                self.n = AuxiliaryPowerUnit::calculate_n(time_since_start);
+                AuxiliaryPowerUnitState::Starting {
+                    since: time_since_start,
+                }
+            }
+            AuxiliaryPowerUnitState::Starting { .. } if self.n.get::<percent>() == 100. => {
+                AuxiliaryPowerUnitState::Running
+            }
+            AuxiliaryPowerUnitState::Running { .. } if overhead.master_is_off() => {
+                AuxiliaryPowerUnitState::ShuttingDown {
+                    since: Duration::from_secs(0),
+                    reason: AuxiliaryPowerUnitShutdownReason::Manual,
+                }
+            }
+            AuxiliaryPowerUnitState::ShuttingDown {
+                since: time_since_shutdown,
+                reason,
+            } if self.n.get::<percent>() > 0. => AuxiliaryPowerUnitState::ShuttingDown {
+                since: *time_since_shutdown + context.delta,
+                reason: *reason,
+            },
+            AuxiliaryPowerUnitState::ShuttingDown { reason, .. }
+                if self.n.get::<percent>() == 0. =>
+            {
+                AuxiliaryPowerUnitState::Shutdown { reason: *reason }
+            }
+            x => *x,
+        }
+    }
+
+    fn calculate_n(time_since_start: Duration) -> Ratio {
+        const APU_N_X: f64 = 2.375010484;
+        const APU_N_X2: f64 = 0.034236847;
+        const APU_N_X3: f64 = -0.007404136;
+        const APU_N_X4: f64 = 0.000254;
+        const APU_N_X5: f64 = -0.000002438;
+        const APU_N_CONST: f64 = 0.;
+
+        // Protect against the formula returning decreasing results when a lot of time is skipped.
+        const TIME_LIMIT: f64 = 50.;
+        let time_since_start = time_since_start.as_secs_f64().min(TIME_LIMIT);
+
+        Ratio::new::<percent>(
+            ((APU_N_X5 * time_since_start.powi(5))
+                + (APU_N_X4 * time_since_start.powi(4))
+                + (APU_N_X3 * time_since_start.powi(3))
+                + (APU_N_X2 * time_since_start.powi(2))
+                + (APU_N_X * time_since_start)
+                + APU_N_CONST)
+                .min(100.),
+        )
     }
 }
 
@@ -310,7 +385,7 @@ mod tests {
             let overhead = AuxiliaryPowerUnitOverheadPanel::new();
             apu.update(&context(Duration::from_secs(1000)), &overhead);
 
-            assert_eq!(apu.egt.get::<degree_celsius>(), AMBIENT_TEMPERATURE);
+            assert_eq!(apu.egt.value.get::<degree_celsius>(), AMBIENT_TEMPERATURE);
         }
 
         #[test]
@@ -322,7 +397,7 @@ mod tests {
             loop {
                 apu.update(&context(Duration::from_secs(1)), &starting_overhead());
 
-                let apu_egt = apu.egt.get::<degree_celsius>();
+                let apu_egt = apu.egt.value.get::<degree_celsius>();
                 if apu_egt < max_egt {
                     break;
                 }
@@ -341,8 +416,8 @@ mod tests {
                 apu.update(&context(Duration::from_secs(1)), &starting_overhead());
 
                 assert_relative_eq!(
-                    apu.egt_max.get::<degree_celsius>(),
-                    apu.egt_warning.get::<degree_celsius>() + 33.
+                    apu.egt.maximum.get::<degree_celsius>(),
+                    apu.egt.warning.get::<degree_celsius>() + 33.
                 );
             }
         }
