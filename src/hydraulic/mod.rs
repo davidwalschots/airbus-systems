@@ -4,9 +4,10 @@ use std::time::Duration;
 
 use uom::si::{
     area::square_meter, f32::*, force::newton, length::foot, length::meter,
-    mass_density::kilogram_per_cubic_meter, pressure::pascal, pressure::psi, ratio::percent,
-    thermodynamic_temperature::degree_celsius, time::second, velocity::knot, volume::cubic_inch,
-    volume::gallon, volume_rate::cubic_meter_per_second, volume_rate::gallon_per_second,
+    mass_density::kilogram_per_cubic_meter, pressure::atmosphere, pressure::pascal, pressure::psi,
+    ratio::percent, thermodynamic_temperature::degree_celsius, time::second, velocity::knot,
+    volume::cubic_inch, volume::gallon, volume_rate::cubic_meter_per_second,
+    volume_rate::gallon_per_second,
 };
 
 use crate::{
@@ -186,28 +187,28 @@ pub trait PressureSource {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct HydLoop {
-    accumulator_pressure: Pressure,
-    accumulator_volume: Volume,
+    accumulator_gas_pressure: Pressure,
+    accumulator_gas_volume: Volume,
+    accumulator_fluid_volume: Volume,
     color: LoopColor,
     connected_to_ptu: bool,
     loop_length: Length,
     loop_pressure: Pressure,
     loop_volume: Volume,
     max_loop_volume: Volume,
+    ptu_active: bool,
     reservoir_volume: Volume,
 }
 
 impl HydLoop {
-    const ACCUMULATOR_PRE_CHARGE: f32 = 1885.0;
-    const ACCUMULATOR_MAX_VOLUME: f32 = 0.241966;
-    const ACCUMULATOR_SETPOINT: f32 = 3000.; // PSI accumulator aims to achieve
-    const ACCUMULATOR_SETPOINT_PSI_THRESHOLD: f32 = 0.8993; // accumulator volume to achieve setpoint
-    const BASELINE_LOAD: f32 = 0.02;
+    const ACCUMULATOR_GAS_NRT: f32 = 128.26; // nRT: n=5.2423, R=0.08206, T=298.15K
+    const ACCUMULATOR_GAS_PRE_CHARGE: f32 = 1885.0; // Nitrogen PSI
+    const ACCUMULATOR_MAX_VOLUME: f32 = 0.264; // in gallons
     const HYDRAULIC_FLUID_DENSITY: f32 = 1000.55; // Exxon Hyjet IV, kg/m^3
     const HYDRAULIC_FLUID_KINEMATIC_VISCOSITY: f32 = 0.045; // approximate value for ~20C,  m^2/s
     const HYDRAULIC_FLUID_DYNAMIC_VISCOSITY: f32 = 45.02; // kg / (m * s)
     const PIPE_INNER_DIAMETER: f32 = 0.01; // meters
-    const PIPE_CROSS_SECTION_AREA: f32 = 0.0000785; //m^2
+    const PIPE_CROSS_SECTION_AREA: f32 = 0.0000785; // m^2
 
     pub fn new(
         color: LoopColor,
@@ -218,14 +219,16 @@ impl HydLoop {
         reservoir_volume: Volume,
     ) -> HydLoop {
         HydLoop {
-            accumulator_pressure: Pressure::new::<psi>(HydLoop::ACCUMULATOR_PRE_CHARGE),
-            accumulator_volume: Volume::new::<gallon>(0.),
+            accumulator_gas_pressure: Pressure::new::<psi>(HydLoop::ACCUMULATOR_GAS_PRE_CHARGE),
+            accumulator_gas_volume: Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME),
+            accumulator_fluid_volume: Volume::new::<gallon>(0.),
             color,
             connected_to_ptu,
             loop_length,
             loop_pressure: Pressure::new::<psi>(0.),
             loop_volume,
             max_loop_volume,
+            ptu_active: false,
             reservoir_volume,
         }
     }
@@ -288,7 +291,6 @@ impl HydLoop {
         self.reservoir_volume -= delta_vol;
 
         // println!("==> Pressure before initial calculation: {}", pressure.get::<psi>());
-
         // Pressure supplied by engine/electric/ram-air pumps
         pressure += Pressure::new::<pascal>(
             0.5 * HydLoop::HYDRAULIC_FLUID_DENSITY
@@ -296,33 +298,100 @@ impl HydLoop {
                     * pump_flow_rate_sum.get::<cubic_meter_per_second>())
                 .powf(2.0),
         );
-
         // println!("==> Pressure after initial calculation: {}", pressure.get::<psi>());
 
-        // If PSI is low, accumulator kicks in and provides flow if available
-        if pressure.get::<psi>() < HydLoop::ACCUMULATOR_SETPOINT
-            && self.accumulator_volume.get::<gallon>() > 0.
-        {
-            // TODO: implement accumulator pressure logic (Boyle's law / PV=nRT)
-            // TODO: add output pressure to `pressure`
-            // TODO: add output volume to `delta_vol` & subtract from `self.accumulator_volume`
-        }
+        // TODO: Pressure relief valve logic
+        // Opens at >= 3436 PSI
+        // Closes again at <= 3190 PSI
 
-        // If PSI is high, accumulator kicks in and receives excess flow if able
-        if pressure.get::<psi>() > HydLoop::ACCUMULATOR_SETPOINT
-            && self.accumulator_volume.get::<gallon>() < HydLoop::ACCUMULATOR_MAX_VOLUME
+        // TODO: Limit input/output flow per tick of accumulator
+        // If PSI is low, accumulator kicks in and provides flow if available
+        if pressure.get::<psi>() < self.accumulator_gas_pressure.get::<psi>()
+            && self.accumulator_fluid_volume.get::<gallon>() > 0.
         {
-            // TODO: implement accumulator pressure logic (Boyle's law / PV=nRT)
-            // TODO: subtract input pressure from `pressure`
-            // TODO: subtract input volume from `delta_vol` & add to `self.accumulator_volume`
+            // Calculate amount of hydraulic fluid to disperse from accumulator
+            self.accumulator_gas_volume = Volume::new::<gallon>(
+                ((HydLoop::ACCUMULATOR_GAS_PRE_CHARGE + 14.7) * HydLoop::ACCUMULATOR_MAX_VOLUME
+                    / (pressure.get::<psi>() + 14.7))
+                    .min(HydLoop::ACCUMULATOR_MAX_VOLUME),
+            );
+            self.accumulator_gas_pressure = pressure;
+            let original_fluid_vol = self.accumulator_fluid_volume;
+            self.accumulator_fluid_volume = Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME)
+                - self.accumulator_gas_volume;
+
+            // Calculate resulting pressure and volume to add back to circuit
+            let acc_delta_vol = original_fluid_vol - self.accumulator_fluid_volume;
+            let acc_flow_rate = VolumeRate::new::<gallon_per_second>(
+                acc_delta_vol.get::<gallon>() / context.delta.as_secs_f32(),
+            );
+            delta_vol += acc_delta_vol;
+            pressure += Pressure::new::<pascal>(
+                0.5 * HydLoop::HYDRAULIC_FLUID_DENSITY
+                    * ((1.0 / HydLoop::PIPE_CROSS_SECTION_AREA)
+                        * acc_flow_rate.get::<cubic_meter_per_second>())
+                    .powf(2.0),
+            );
+        }
+        // If PSI is high, accumulator kicks in and receives excess flow if able
+        if pressure.get::<psi>() > self.accumulator_gas_pressure.get::<psi>()
+            && self.accumulator_fluid_volume.get::<gallon>() < HydLoop::ACCUMULATOR_MAX_VOLUME
+        {
+            let acc_delta_p = pressure - self.accumulator_gas_pressure;
+            let acc_delta_flow = VolumeRate::new::<cubic_meter_per_second>(
+                HydLoop::PIPE_CROSS_SECTION_AREA
+                    * (acc_delta_p.get::<pascal>() / (0.5 * HydLoop::HYDRAULIC_FLUID_DENSITY))
+                        .powf(0.5),
+            );
+
+            // The amount of fluid the accumulator can take in
+            let acc_delta_vol = Volume::new::<gallon>(
+                acc_delta_flow.get::<gallon_per_second>() * context.delta.as_secs_f32(),
+            )
+            .min(delta_vol)
+            .min(
+                Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME)
+                    - self.accumulator_fluid_volume,
+            );
+
+            // Update accumulator figures
+            self.accumulator_fluid_volume += acc_delta_vol;
+            self.accumulator_gas_volume -= acc_delta_vol.max(self.accumulator_gas_volume);
+            self.accumulator_gas_pressure = Pressure::new::<psi>(
+                ((HydLoop::ACCUMULATOR_GAS_PRE_CHARGE + 14.7) * HydLoop::ACCUMULATOR_MAX_VOLUME
+                    / self.accumulator_gas_volume.get::<gallon>().max(0.01))
+                    - 14.7,
+            );
+
+            // Calculate resulting pressure and volume to subtract from circuit
+            let acc_flow_rate = acc_delta_vol / Time::new::<second>(context.delta.as_secs_f32());
+            delta_vol -= acc_delta_vol;
+            pressure -= Pressure::new::<pascal>(
+                0.5 * HydLoop::HYDRAULIC_FLUID_DENSITY
+                    * ((1.0 / HydLoop::PIPE_CROSS_SECTION_AREA)
+                        * acc_flow_rate.get::<cubic_meter_per_second>()),
+            )
         }
 
         // TODO: Check if PTU isn't off or failed first, and other valid conditions
         if self.connected_to_ptu && ptu_connected_loop.len() > 0 {
             // Our pressure is >=500 PSI less than other loop, so PTU will act as a pump
-            if ptu_connected_loop[0].loop_pressure.get::<psi>() >= pressure.get::<psi>() + 500.0 {}
+            if self.ptu_active
+                && ptu_connected_loop[0].loop_pressure.get::<psi>() >= pressure.get::<psi>() + 200.0
+            {
+            } else if ptu_connected_loop[0].loop_pressure.get::<psi>()
+                >= pressure.get::<psi>() + 500.0
+            {
+            }
+
             // Our pressure is >=500 PSI greater than other loop, so PTU will act as a motor
-            if ptu_connected_loop[0].loop_pressure.get::<psi>() <= pressure.get::<psi>() - 500.0 {}
+            if self.ptu_active
+                && ptu_connected_loop[0].loop_pressure.get::<psi>() <= pressure.get::<psi>() - 200.0
+            {
+            } else if ptu_connected_loop[0].loop_pressure.get::<psi>()
+                <= pressure.get::<psi>() - 500.0
+            {
+            }
         }
 
         // If `self.loop_volume` is less than `self.max_loop_volume`, draw from `delta_vol` to fill loop
@@ -342,22 +411,7 @@ impl HydLoop {
             delta_vol += delta_loop_vol;
         }
 
-        // // Pressure drop-off due to pipe length (laminar flow)
-        // let second_term = (HydLoop::HYDRAULIC_FLUID_DYNAMIC_VISCOSITY
-        //     * pump_flow_rate_sum.get::<cubic_meter_per_second>())
-        //     / HydLoop::PIPE_INNER_DIAMETER.powf(4.0);
-        // let pressure_loss_per_meter = Pressure::new::<pascal>(128.0 / consts::PI) * second_term;
-        // let total_pressure_loss = Pressure::new::<psi>(
-        //     pressure_loss_per_meter.get::<psi>() * self.loop_length.get::<meter>(),
-        // );
-        // pressure -= total_pressure_loss;
-
-        // Second attempt:
-        // let pipe_backpressure = Pressure::new::<psi>(350.0 * context.delta.as_secs_f32());
-        // let delta_p = pressure.min(pipe_backpressure);
-        // pressure -= delta_p;
-
-        // Third attempt:
+        // Pressure drop-off from hydraulic tubing length
         let current_flow_rate = VolumeRate::new::<cubic_meter_per_second>(
             HydLoop::PIPE_CROSS_SECTION_AREA
                 * ((2.0 * pressure.get::<pascal>()) / HydLoop::HYDRAULIC_FLUID_DENSITY).powf(0.5),
@@ -376,7 +430,6 @@ impl HydLoop {
         pressure -= pressure.min(pressure_loss);
 
         // TODO: implement actuator (landing gear & cargo door) volume usage (both input and output) logic
-
         // TODO: implement pressure decrement from actuator usage
         // For each actuator, subtract its pressure (force * area) from `pressure`
 
