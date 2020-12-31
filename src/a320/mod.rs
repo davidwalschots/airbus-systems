@@ -14,8 +14,8 @@ use crate::{
 pub struct A320 {
     engine_1: Engine,
     engine_2: Engine,
-    apu: AuxiliaryPowerUnit,
-    apu_overhead: AuxiliaryPowerUnitOverheadPanel,
+    pub apu: AuxiliaryPowerUnit,
+    pub apu_overhead: AuxiliaryPowerUnitOverheadPanel,
     ext_pwr: ExternalPowerSource,
     electrical: A320Electrical,
     electrical_overhead: A320ElectricalOverheadPanel,
