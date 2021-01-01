@@ -410,33 +410,43 @@ impl HydLoop {
         }
 
         // If PSI is low, accumulator kicks in and provides flow if available
+        // If PSI is high, accumulator kicks in and receives excess flow if able
+        // TODO: Limit input flow per tick of accumulator
         // TODO: Limit output flow per tick of accumulator
         if pressure.get::<psi>() < self.accumulator_gas_pressure.get::<psi>()
             && self.accumulator_fluid_volume.get::<gallon>() > 0.
         {
-            // Calculate amount of hydraulic fluid to disperse from accumulator
-            self.accumulator_gas_volume = Volume::new::<gallon>(
-                ((HydLoop::ACCUMULATOR_GAS_PRE_CHARGE + 14.7) * HydLoop::ACCUMULATOR_MAX_VOLUME
-                    / (pressure.get::<psi>() + 14.7))
-                    .min(HydLoop::ACCUMULATOR_MAX_VOLUME),
-            );
-            self.accumulator_gas_pressure = pressure;
-            let original_fluid_vol = self.accumulator_fluid_volume;
-            self.accumulator_fluid_volume = Volume::new::<gallon>(HydLoop::ACCUMULATOR_MAX_VOLUME)
-                - self.accumulator_gas_volume;
+            let acc_delta_p = self.accumulator_gas_pressure - pressure;
+            let acc_delta_flow = HydLoop::pressure_to_flow(acc_delta_p);
 
+            // The amount of fluid the accumulator can release
+            let acc_delta_vol = Volume::new::<gallon>(
+                acc_delta_flow.get::<gallon_per_second>() * context.delta.as_secs_f32(),
+            )
+            .min(self.accumulator_fluid_volume);
+
+            println!("==>acc_delta_vol: {} liters", acc_delta_vol.get::<liter>());
+
+            // Update accumulator figures
+            println!("==>acc_fluid_vol before dispersion: {} liters", self.accumulator_fluid_volume.get::<liter>());
+            self.accumulator_fluid_volume -= acc_delta_vol;
+            println!("==>acc_fluid_vol after dispersion: {} liters", self.accumulator_fluid_volume.get::<liter>());
+            self.accumulator_gas_volume += acc_delta_vol;
+            self.accumulator_gas_pressure = Pressure::new::<psi>(
+                ((HydLoop::ACCUMULATOR_GAS_PRE_CHARGE + 14.7) * HydLoop::ACCUMULATOR_MAX_VOLUME
+                    / self.accumulator_gas_volume.get::<gallon>().max(0.01))
+                    - 14.7,
+            );
+
+            println!("==>delta_vol before dispersion: {} liters", delta_vol.get::<liter>());
             // Calculate resulting pressure and volume to add back to circuit
-            let acc_delta_vol = original_fluid_vol - self.accumulator_fluid_volume;
             let acc_flow_rate = VolumeRate::new::<gallon_per_second>(
                 acc_delta_vol.get::<gallon>() / context.delta.as_secs_f32(),
             );
             delta_vol += acc_delta_vol;
+            println!("==>delta_vol after dispersion: {} liters", delta_vol.get::<liter>());
             pressure += HydLoop::flow_to_pressure(acc_flow_rate);
-        }
-
-        // If PSI is high, accumulator kicks in and receives excess flow if able
-        // TODO: Limit input flow per tick of accumulator
-        if pressure.get::<psi>() > self.accumulator_gas_pressure.get::<psi>()
+        } else if pressure.get::<psi>() > self.accumulator_gas_pressure.get::<psi>()
             && self.accumulator_fluid_volume.get::<gallon>() < HydLoop::ACCUMULATOR_MAX_VOLUME
         {
             let acc_delta_p = pressure - self.accumulator_gas_pressure;
@@ -710,11 +720,12 @@ mod tests {
 
         let init_n2 = Ratio::new::<percent>(0.5);
         let mut engine1 = engine(init_n2);
-        let ct = context(Duration::from_millis(30));
-        for x in 0..120 {
-            if x == 200 {
-                engine1.n2 = Ratio::new::<percent>(0.0);
-            }
+        let ct = context(Duration::from_millis(50));
+        for x in 0..100 {
+            // if x == 50 {
+            //     // engine1.n2 = Ratio::new::<percent>(0.0);
+            //     green_loop.loop_pressure = Pressure::new::<psi>(1500.);
+            // }
             println!("Iteration {}", x);
             println!("-------------------------------------------");
             edp1.update(&ct, &green_loop, &engine1);
@@ -731,18 +742,22 @@ mod tests {
                     "--------Loop Volume (g): {}",
                     green_loop.loop_volume.get::<gallon>()
                 );
-                println!(
-                    "--------Acc Fluid Volume (L): {}",
-                    green_loop.accumulator_fluid_volume.get::<liter>()
-                );
-                println!(
-                    "--------Acc Gas Volume (L): {}",
-                    green_loop.accumulator_gas_volume.get::<liter>()
-                );
+                // println!(
+                //     "--------Acc Fluid Volume (L): {}",
+                //     green_loop.accumulator_fluid_volume.get::<liter>()
+                // );
+                // println!(
+                //     "--------Acc Gas Volume (L): {}",
+                //     green_loop.accumulator_gas_volume.get::<liter>()
+                // );
                 println!(
                     "--------Acc Gas Pressure (psi): {}",
                     green_loop.accumulator_gas_pressure.get::<psi>()
                 );
+                // println!(
+                //     "--------Pressure Relief Valve Open: {}",
+                //     green_loop.prv_open
+                // );
             }
         }
 
