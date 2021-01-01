@@ -416,7 +416,8 @@ impl HydLoop {
         if pressure.get::<psi>() < self.accumulator_gas_pressure.get::<psi>()
             && self.accumulator_fluid_volume.get::<gallon>() > 0.
         {
-            let acc_delta_p = self.accumulator_gas_pressure - pressure;
+            // Temp: Dividing acc_delta_p by 2 for smaller over/undershoots
+            let acc_delta_p = (self.accumulator_gas_pressure - pressure) / 2.0;
             let acc_delta_flow = HydLoop::pressure_to_flow(acc_delta_p);
 
             // The amount of fluid the accumulator can release
@@ -449,7 +450,8 @@ impl HydLoop {
         } else if pressure.get::<psi>() > self.accumulator_gas_pressure.get::<psi>()
             && self.accumulator_fluid_volume.get::<gallon>() < HydLoop::ACCUMULATOR_MAX_VOLUME
         {
-            let acc_delta_p = pressure - self.accumulator_gas_pressure;
+            // Temp: Dividing acc_delta_p by 2 for smaller over/undershoots
+            let acc_delta_p = (pressure - self.accumulator_gas_pressure) / 2.0;
             let acc_delta_flow = HydLoop::pressure_to_flow(acc_delta_p);
 
             // The amount of fluid the accumulator can take in
@@ -721,7 +723,7 @@ mod tests {
         let init_n2 = Ratio::new::<percent>(0.5);
         let mut engine1 = engine(init_n2);
         let ct = context(Duration::from_millis(50));
-        for x in 0..100 {
+        for x in 0..80 {
             // if x == 50 {
             //     // engine1.n2 = Ratio::new::<percent>(0.0);
             //     green_loop.loop_pressure = Pressure::new::<psi>(1500.);
