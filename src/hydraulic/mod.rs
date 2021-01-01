@@ -6,7 +6,7 @@ use uom::si::{
     area::square_meter, f32::*, force::newton, length::foot, length::meter,
     mass_density::kilogram_per_cubic_meter, pressure::atmosphere, pressure::pascal, pressure::psi,
     ratio::percent, thermodynamic_temperature::degree_celsius, time::second, velocity::knot,
-    volume::cubic_inch, volume::gallon, volume_rate::cubic_meter_per_second,
+    volume::cubic_inch, volume::gallon, volume::liter, volume_rate::cubic_meter_per_second,
     volume_rate::gallon_per_second,
 };
 
@@ -454,7 +454,7 @@ impl HydLoop {
 
             // Update accumulator figures
             self.accumulator_fluid_volume += acc_delta_vol;
-            self.accumulator_gas_volume -= acc_delta_vol.max(self.accumulator_gas_volume);
+            self.accumulator_gas_volume -= acc_delta_vol.min(self.accumulator_gas_volume);
             self.accumulator_gas_pressure = Pressure::new::<psi>(
                 ((HydLoop::ACCUMULATOR_GAS_PRE_CHARGE + 14.7) * HydLoop::ACCUMULATOR_MAX_VOLUME
                     / self.accumulator_gas_volume.get::<gallon>().max(0.01))
@@ -710,17 +710,18 @@ mod tests {
 
         let init_n2 = Ratio::new::<percent>(0.5);
         let mut engine1 = engine(init_n2);
-        let ct = context(Duration::from_millis(50));
-        for x in 0..400 {
+        let ct = context(Duration::from_millis(30));
+        for x in 0..120 {
             if x == 200 {
                 engine1.n2 = Ratio::new::<percent>(0.0);
             }
             println!("Iteration {}", x);
+            println!("-------------------------------------------");
             edp1.update(&ct, &green_loop, &engine1);
             green_loop.update(&ct, Vec::new(), vec![&edp1], Vec::new(), Vec::new());
-            if x % 20 == 0 {
+            if x % 1 == 0 {
                 // println!("Iteration {}", x);
-                println!("-------------------------------------------");
+                // println!("-------------------------------------------");
                 println!("---PSI: {}", green_loop.loop_pressure.get::<psi>());
                 println!(
                     "--------Reservoir Volume (g): {}",
@@ -731,8 +732,16 @@ mod tests {
                     green_loop.loop_volume.get::<gallon>()
                 );
                 println!(
-                    "--------Acc Volume (g): {}",
-                    green_loop.accumulator_fluid_volume.get::<gallon>()
+                    "--------Acc Fluid Volume (L): {}",
+                    green_loop.accumulator_fluid_volume.get::<liter>()
+                );
+                println!(
+                    "--------Acc Gas Volume (L): {}",
+                    green_loop.accumulator_gas_volume.get::<liter>()
+                );
+                println!(
+                    "--------Acc Gas Pressure (psi): {}",
+                    green_loop.accumulator_gas_pressure.get::<psi>()
                 );
             }
         }
