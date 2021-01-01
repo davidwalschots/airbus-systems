@@ -20,8 +20,6 @@ use crate::{
 // - Priority valve
 // - Engine fire shutoff valve
 // - Leak measurement valve
-// - Roll accumulator
-// - PTU Rework
 // - RAT pump implementation
 // - Connecting electric pumps to electric sources
 // - Connecting RAT pump/blue loop to emergency generator
@@ -274,17 +272,15 @@ impl HydLoop {
     pub fn flow_to_pressure(flow: VolumeRate) -> Pressure {
         Pressure::new::<pascal>(
             0.5 * HydLoop::HYDRAULIC_FLUID_DENSITY
-                * ((1.0 / HydLoop::PIPE_CROSS_SECTION_AREA)
-                    * flow.get::<cubic_meter_per_second>())
-                .powf(2.0),
+                * ((1.0 / HydLoop::PIPE_CROSS_SECTION_AREA) * flow.get::<cubic_meter_per_second>())
+                    .powf(2.0),
         )
     }
 
     pub fn pressure_to_flow(pressure: Pressure) -> VolumeRate {
         VolumeRate::new::<cubic_meter_per_second>(
             HydLoop::PIPE_CROSS_SECTION_AREA
-                * (pressure.get::<pascal>() / (0.5 * HydLoop::HYDRAULIC_FLUID_DENSITY))
-                    .powf(0.5),
+                * (pressure.get::<pascal>() / (0.5 * HydLoop::HYDRAULIC_FLUID_DENSITY)).powf(0.5),
         )
     }
 
@@ -316,14 +312,14 @@ impl HydLoop {
                 p.get_delta_vol() / Time::new::<second>(context.delta.as_secs_f32());
         }
 
-        println!(
-            "==> Delta vol from pumps (g): {}",
-            delta_vol.get::<gallon>()
-        );
-        println!(
-            "==> Flow rate from pumps (g/s): {}",
-            pump_flow_rate_sum.get::<gallon_per_second>()
-        );
+        // println!(
+        //     "==> Delta vol from pumps (g): {}",
+        //     delta_vol.get::<gallon>()
+        // );
+        // println!(
+        //     "==> Flow rate from pumps (g/s): {}",
+        //     pump_flow_rate_sum.get::<gallon_per_second>()
+        // );
 
         // Draw delta_vol from reservoir
         delta_vol = self.reservoir_volume.min(delta_vol);
@@ -339,42 +335,54 @@ impl HydLoop {
         // TODO: Should it check against `pressure` or `self.loop_pressure`?
         if self.connected_to_ptu && ptu_connected_loop.len() > 0 {
             // PTU is powering our loop
-            if self.ptu_active || ptu_connected_loop[0].loop_pressure.get::<psi>()
-                >= self.loop_pressure.get::<psi>() + 500.0
+            if self.ptu_active
+                || ptu_connected_loop[0].loop_pressure.get::<psi>()
+                    >= self.loop_pressure.get::<psi>() + 500.0
             {
                 if !self.ptu_active {
                     self.ptu_active = true;
                 }
- 
-                let ptu_delta_vol = self.get_usable_reservoir_fluid(self.get_ptu_flow(false, pressure) * Time::new::<second>(context.delta.as_secs_f32()));
-                let ptu_delta_flow = ptu_delta_vol / Time::new::<second>(context.delta.as_secs_f32());
+
+                let ptu_delta_vol = self.get_usable_reservoir_fluid(
+                    self.get_ptu_flow(false, pressure)
+                        * Time::new::<second>(context.delta.as_secs_f32()),
+                );
+                let ptu_delta_flow =
+                    ptu_delta_vol / Time::new::<second>(context.delta.as_secs_f32());
                 let ptu_delta_p = HydLoop::flow_to_pressure(ptu_delta_flow);
 
                 delta_vol += ptu_delta_vol;
-                pressure += ptu_delta_p;             
+                pressure += ptu_delta_p;
             }
-            if ptu_connected_loop[0].loop_pressure.get::<psi>()
-                <= self.loop_pressure.get::<psi>() && self.ptu_active {
+            if ptu_connected_loop[0].loop_pressure.get::<psi>() <= self.loop_pressure.get::<psi>()
+                && self.ptu_active
+            {
                 self.ptu_active = false;
             }
 
             // PTU is powering the other loop
-            if self.ptu_active || ptu_connected_loop[0].loop_pressure.get::<psi>()
-                <= self.loop_pressure.get::<psi>() - 500.0
+            if self.ptu_active
+                || ptu_connected_loop[0].loop_pressure.get::<psi>()
+                    <= self.loop_pressure.get::<psi>() - 500.0
             {
                 if !self.ptu_active {
                     self.ptu_active = true;
                 }
 
-                let ptu_delta_vol = delta_vol.min(self.get_ptu_flow(true, pressure) * Time::new::<second>(context.delta.as_secs_f32()));
-                let ptu_delta_flow = ptu_delta_vol / Time::new::<second>(context.delta.as_secs_f32());
+                let ptu_delta_vol = delta_vol.min(
+                    self.get_ptu_flow(true, pressure)
+                        * Time::new::<second>(context.delta.as_secs_f32()),
+                );
+                let ptu_delta_flow =
+                    ptu_delta_vol / Time::new::<second>(context.delta.as_secs_f32());
                 let ptu_delta_p = HydLoop::flow_to_pressure(ptu_delta_flow);
 
                 delta_vol -= ptu_delta_vol;
                 pressure -= ptu_delta_p;
             }
-            if ptu_connected_loop[0].loop_pressure.get::<psi>()
-                >= self.loop_pressure.get::<psi>() && self.ptu_active {
+            if ptu_connected_loop[0].loop_pressure.get::<psi>() >= self.loop_pressure.get::<psi>()
+                && self.ptu_active
+            {
                 self.ptu_active = false;
             }
         }
@@ -388,9 +396,14 @@ impl HydLoop {
                 self.prv_open = true;
             }
             let delta_p_to_close = Pressure::new::<psi>(pressure.get::<psi>() - 3190.0);
-            let prv_delta_vol = delta_vol.min(HydLoop::pressure_to_flow(delta_p_to_close) * Time::new::<second>(context.delta.as_secs_f32()));
-            let prv_delta_p = HydLoop::flow_to_pressure(prv_delta_vol / Time::new::<second>(context.delta.as_secs_f32()));
-            
+            let prv_delta_vol = delta_vol.min(
+                HydLoop::pressure_to_flow(delta_p_to_close)
+                    * Time::new::<second>(context.delta.as_secs_f32()),
+            );
+            let prv_delta_p = HydLoop::flow_to_pressure(
+                prv_delta_vol / Time::new::<second>(context.delta.as_secs_f32()),
+            );
+
             self.reservoir_volume += prv_delta_vol;
             pressure -= prv_delta_p;
             delta_vol -= prv_delta_vol;
@@ -475,15 +488,15 @@ impl HydLoop {
         let current_flow_rate = HydLoop::pressure_to_flow(pressure);
         let pressure_loss =
             Pressure::new::<psi>(0.25 * current_flow_rate.get::<gallon_per_second>().powf(2.5));
-        println!(
-            "==> Current flow rate: {}",
-            current_flow_rate.get::<gallon_per_second>()
-        );
-        println!(
-            "==> Current pressure loss: {} ({}%)",
-            pressure_loss.get::<psi>(),
-            pressure_loss.get::<psi>() / pressure.get::<psi>() * 100.0
-        );
+        // println!(
+        //     "==> Current flow rate: {}",
+        //     current_flow_rate.get::<gallon_per_second>()
+        // );
+        // println!(
+        //     "==> Current pressure loss: {} ({}%)",
+        //     pressure_loss.get::<psi>(),
+        //     pressure_loss.get::<psi>() / pressure.get::<psi>() * 100.0
+        // );
         pressure -= pressure.min(pressure_loss);
 
         // TODO: implement actuator (landing gear & cargo door) volume usage (both input and output) logic
@@ -698,14 +711,14 @@ mod tests {
         let init_n2 = Ratio::new::<percent>(0.5);
         let mut engine1 = engine(init_n2);
         let ct = context(Duration::from_millis(50));
-        for x in 0..60 {
+        for x in 0..400 {
             if x == 200 {
                 engine1.n2 = Ratio::new::<percent>(0.0);
             }
             println!("Iteration {}", x);
             edp1.update(&ct, &green_loop, &engine1);
             green_loop.update(&ct, Vec::new(), vec![&edp1], Vec::new(), Vec::new());
-            if x % 1 == 0 {
+            if x % 20 == 0 {
                 // println!("Iteration {}", x);
                 println!("-------------------------------------------");
                 println!("---PSI: {}", green_loop.loop_pressure.get::<psi>());
@@ -719,7 +732,7 @@ mod tests {
                 );
                 println!(
                     "--------Acc Volume (g): {}",
-                    green_loop.accumulator_volume.get::<gallon>()
+                    green_loop.accumulator_fluid_volume.get::<gallon>()
                 );
             }
         }
@@ -755,7 +768,7 @@ mod tests {
                 );
                 println!(
                     "--------Acc Volume (g): {}",
-                    yellow_loop.accumulator_volume.get::<gallon>()
+                    yellow_loop.accumulator_gas_volume.get::<gallon>()
                 );
             }
         }
