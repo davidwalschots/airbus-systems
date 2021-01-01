@@ -312,23 +312,12 @@ impl HydLoop {
                 p.get_delta_vol() / Time::new::<second>(context.delta.as_secs_f32());
         }
 
-        // println!(
-        //     "==> Delta vol from pumps (g): {}",
-        //     delta_vol.get::<gallon>()
-        // );
-        // println!(
-        //     "==> Flow rate from pumps (g/s): {}",
-        //     pump_flow_rate_sum.get::<gallon_per_second>()
-        // );
-
         // Draw delta_vol from reservoir
         delta_vol = self.reservoir_volume.min(delta_vol);
         self.reservoir_volume -= delta_vol;
 
-        // println!("==> Pressure before initial calculation: {}", pressure.get::<psi>());
         // Pressure supplied by engine/electric/ram-air pumps
         pressure += HydLoop::flow_to_pressure(pump_flow_rate_sum);
-        // println!("==> Pressure after initial calculation: {}", pressure.get::<psi>());
 
         // TODO: PTU Pump/Motor
         // TODO: Check if PTU isn't off or failed first, and other valid conditions
@@ -411,13 +400,11 @@ impl HydLoop {
 
         // If PSI is low, accumulator kicks in and provides flow if available
         // If PSI is high, accumulator kicks in and receives excess flow if able
-        // TODO: Limit input flow per tick of accumulator
-        // TODO: Limit output flow per tick of accumulator
         if pressure.get::<psi>() < self.accumulator_gas_pressure.get::<psi>()
             && self.accumulator_fluid_volume.get::<gallon>() > 0.
         {
             // Temp: Dividing acc_delta_p by 2 for smaller over/undershoots
-            let acc_delta_p = (self.accumulator_gas_pressure - pressure) / 2.0;
+            let acc_delta_p = (self.accumulator_gas_pressure - pressure) / 4.0;
             let acc_delta_flow = HydLoop::pressure_to_flow(acc_delta_p);
 
             // The amount of fluid the accumulator can release
@@ -426,12 +413,9 @@ impl HydLoop {
             )
             .min(self.accumulator_fluid_volume);
 
-            println!("==>acc_delta_vol: {} liters", acc_delta_vol.get::<liter>());
 
             // Update accumulator figures
-            println!("==>acc_fluid_vol before dispersion: {} liters", self.accumulator_fluid_volume.get::<liter>());
             self.accumulator_fluid_volume -= acc_delta_vol;
-            println!("==>acc_fluid_vol after dispersion: {} liters", self.accumulator_fluid_volume.get::<liter>());
             self.accumulator_gas_volume += acc_delta_vol;
             self.accumulator_gas_pressure = Pressure::new::<psi>(
                 ((HydLoop::ACCUMULATOR_GAS_PRE_CHARGE + 14.7) * HydLoop::ACCUMULATOR_MAX_VOLUME
@@ -439,19 +423,16 @@ impl HydLoop {
                     - 14.7,
             );
 
-            println!("==>delta_vol before dispersion: {} liters", delta_vol.get::<liter>());
             // Calculate resulting pressure and volume to add back to circuit
             let acc_flow_rate = VolumeRate::new::<gallon_per_second>(
                 acc_delta_vol.get::<gallon>() / context.delta.as_secs_f32(),
             );
             delta_vol += acc_delta_vol;
-            println!("==>delta_vol after dispersion: {} liters", delta_vol.get::<liter>());
             pressure += HydLoop::flow_to_pressure(acc_flow_rate);
         } else if pressure.get::<psi>() > self.accumulator_gas_pressure.get::<psi>()
             && self.accumulator_fluid_volume.get::<gallon>() < HydLoop::ACCUMULATOR_MAX_VOLUME
         {
-            // Temp: Dividing acc_delta_p by 2 for smaller over/undershoots
-            let acc_delta_p = (pressure - self.accumulator_gas_pressure) / 2.0;
+            let acc_delta_p = (pressure - self.accumulator_gas_pressure) / 4.0;
             let acc_delta_flow = HydLoop::pressure_to_flow(acc_delta_p);
 
             // The amount of fluid the accumulator can take in
@@ -500,15 +481,6 @@ impl HydLoop {
         let current_flow_rate = HydLoop::pressure_to_flow(pressure);
         let pressure_loss =
             Pressure::new::<psi>(0.25 * current_flow_rate.get::<gallon_per_second>().powf(2.5));
-        // println!(
-        //     "==> Current flow rate: {}",
-        //     current_flow_rate.get::<gallon_per_second>()
-        // );
-        // println!(
-        //     "==> Current pressure loss: {} ({}%)",
-        //     pressure_loss.get::<psi>(),
-        //     pressure_loss.get::<psi>() / pressure.get::<psi>() * 100.0
-        // );
         pressure -= pressure.min(pressure_loss);
 
         // TODO: implement actuator (landing gear & cargo door) volume usage (both input and output) logic
@@ -723,18 +695,18 @@ mod tests {
         let init_n2 = Ratio::new::<percent>(0.5);
         let mut engine1 = engine(init_n2);
         let ct = context(Duration::from_millis(50));
-        for x in 0..80 {
-            // if x == 50 {
-            //     // engine1.n2 = Ratio::new::<percent>(0.0);
-            //     green_loop.loop_pressure = Pressure::new::<psi>(1500.);
-            // }
-            println!("Iteration {}", x);
-            println!("-------------------------------------------");
+        for x in 0..400 {
+            if x == 200 {
+                // engine1.n2 = Ratio::new::<percent>(0.0);
+                green_loop.loop_pressure = Pressure::new::<psi>(1500.);
+            }
+            // println!("Iteration {}", x);
+            // println!("-------------------------------------------");
             edp1.update(&ct, &green_loop, &engine1);
             green_loop.update(&ct, Vec::new(), vec![&edp1], Vec::new(), Vec::new());
-            if x % 1 == 0 {
-                // println!("Iteration {}", x);
-                // println!("-------------------------------------------");
+            if x % 20 == 0 {
+                println!("Iteration {}", x);
+                println!("-------------------------------------------");
                 println!("---PSI: {}", green_loop.loop_pressure.get::<psi>());
                 println!(
                     "--------Reservoir Volume (g): {}",
@@ -756,10 +728,10 @@ mod tests {
                     "--------Acc Gas Pressure (psi): {}",
                     green_loop.accumulator_gas_pressure.get::<psi>()
                 );
-                // println!(
-                //     "--------Pressure Relief Valve Open: {}",
-                //     green_loop.prv_open
-                // );
+                println!(
+                    "--------Pressure Relief Valve Open: {}",
+                    green_loop.prv_open
+                );
             }
         }
 
