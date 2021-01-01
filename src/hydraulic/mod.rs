@@ -249,6 +249,26 @@ impl HydLoop {
         drawn
     }
 
+    pub fn get_ptu_flow(&self, is_motor: bool, pressure: Pressure) -> VolumeRate {
+        if self.color == LoopColor::Yellow {
+            let vr = 34.0f32.min(pressure.get::<psi>() * 0.01133) / 60.0;
+            if is_motor {
+                VolumeRate::new::<gallon_per_second>(vr)
+            } else {
+                VolumeRate::new::<gallon_per_second>(vr * 0.7059)
+            }
+        } else if self.color == LoopColor::Green {
+            let vr = 16.0f32.min(pressure.get::<psi>() * 0.005333) / 60.0;
+            if is_motor {
+                VolumeRate::new::<gallon_per_second>(vr)
+            } else {
+                VolumeRate::new::<gallon_per_second>(vr * 0.8125)
+            }
+        } else {
+            VolumeRate::new::<gallon_per_second>(0.)
+        }   
+    }
+
     pub fn update(
         &mut self,
         context: &UpdateContext,
@@ -300,12 +320,36 @@ impl HydLoop {
         );
         // println!("==> Pressure after initial calculation: {}", pressure.get::<psi>());
 
-        // TODO: Pressure relief valve logic
+        // PTU Pump/Motor
+        // TODO: Check if PTU isn't off or failed first, and other valid conditions
+        // TODO: Should it check against `pressure` or `self.loop_pressure`?
+        if self.connected_to_ptu && ptu_connected_loop.len() > 0 {
+            // PTU is powering our loop
+            if ptu_connected_loop[0].loop_pressure.get::<psi>() >= self.loop_pressure.get::<psi>() + 200.0 {
+                let ptu_flow_rate = self.get_ptu_flow(false, pressure);
+                if self.ptu_active || ptu_connected_loop[0].loop_pressure.get::<psi>()
+                    >= self.loop_pressure.get::<psi>() + 500.0
+                {
+                }
+            }
+
+            // PTU is powering the other loop
+            if ptu_connected_loop[0].loop_pressure.get::<psi>() <= self.loop_pressure.get::<psi>() - 200.0
+            {
+                let ptu_flow_rate = self.get_ptu_flow(true, pressure);
+                if self.ptu_active || ptu_connected_loop[0].loop_pressure.get::<psi>()
+                    <= self.loop_pressure.get::<psi>() - 500.0
+                {
+                }
+            }
+        }
+
+        // TODO: Pressure relief valve
         // Opens at >= 3436 PSI
         // Closes again at <= 3190 PSI
 
-        // TODO: Limit input/output flow per tick of accumulator
         // If PSI is low, accumulator kicks in and provides flow if available
+        // TODO: Limit output flow per tick of accumulator
         if pressure.get::<psi>() < self.accumulator_gas_pressure.get::<psi>()
             && self.accumulator_fluid_volume.get::<gallon>() > 0.
         {
@@ -333,7 +377,9 @@ impl HydLoop {
                     .powf(2.0),
             );
         }
+        
         // If PSI is high, accumulator kicks in and receives excess flow if able
+        // TODO: Limit input flow per tick of accumulator
         if pressure.get::<psi>() > self.accumulator_gas_pressure.get::<psi>()
             && self.accumulator_fluid_volume.get::<gallon>() < HydLoop::ACCUMULATOR_MAX_VOLUME
         {
@@ -373,27 +419,6 @@ impl HydLoop {
             )
         }
 
-        // TODO: Check if PTU isn't off or failed first, and other valid conditions
-        if self.connected_to_ptu && ptu_connected_loop.len() > 0 {
-            // Our pressure is >=500 PSI less than other loop, so PTU will act as a pump
-            if self.ptu_active
-                && ptu_connected_loop[0].loop_pressure.get::<psi>() >= pressure.get::<psi>() + 200.0
-            {
-            } else if ptu_connected_loop[0].loop_pressure.get::<psi>()
-                >= pressure.get::<psi>() + 500.0
-            {
-            }
-
-            // Our pressure is >=500 PSI greater than other loop, so PTU will act as a motor
-            if self.ptu_active
-                && ptu_connected_loop[0].loop_pressure.get::<psi>() <= pressure.get::<psi>() - 200.0
-            {
-            } else if ptu_connected_loop[0].loop_pressure.get::<psi>()
-                <= pressure.get::<psi>() - 500.0
-            {
-            }
-        }
-
         // If `self.loop_volume` is less than `self.max_loop_volume`, draw from `delta_vol` to fill loop
         if self.loop_volume < self.max_loop_volume {
             let difference = self.max_loop_volume - self.loop_volume;
@@ -402,7 +427,7 @@ impl HydLoop {
             self.loop_volume += delta_loop_vol;
         }
 
-        // If `pressure` is still low, then draw from `self.loop_volume`
+        // If `pressure` is still low, then draw from `self.loop_volume` until nominal loop volume achieved (TODO)
         if pressure.get::<psi>() <= 14.5 && self.loop_volume.get::<gallon>() > 0. {
             let max_delta_loop_vol = VolumeRate::new::<gallon_per_second>(0.5)
                 * Time::new::<second>(context.delta.as_secs_f32());
@@ -430,13 +455,13 @@ impl HydLoop {
         pressure -= pressure.min(pressure_loss);
 
         // TODO: implement actuator (landing gear & cargo door) volume usage (both input and output) logic
+
         // TODO: implement pressure decrement from actuator usage
         // For each actuator, subtract its pressure (force * area) from `pressure`
 
-        // If delta_vol is greater than reservoir volume, we screwed up somewhere
-        self.reservoir_volume += delta_vol;
 
-        // Update pressure
+        // Final step: update pressure and reservoir volume
+        self.reservoir_volume += delta_vol;
         self.loop_pressure = pressure;
     }
 }
