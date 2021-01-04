@@ -26,7 +26,6 @@
 //!   - DC Power Loss (BAT OFF when aircraft on batteries only).
 //!   - There are more situations, but we likely won't model all of them.
 //! - What happens when you abort the start sequence of the APU? Can you?
-//! - START pb 1,5 second ignition delay.
 //! - START pb ON light out at 2 seconds after N >= 95% or immediately when N >= 99.5%.
 //! - START pb AVAIL light on at 2 seconds after N >= 95% or immediately when N >= 99.5%.
 //! - Effect of APU fire pb on APU state.
@@ -237,17 +236,23 @@ impl Starting {
 
         // Protect against the formula returning decreasing results when a lot of time is skipped.
         const TIME_LIMIT: f64 = 50.;
-        let time_since_start = self.since.as_secs_f64().min(TIME_LIMIT);
+        const START_IGNITION_AFTER_SECONDS: f64 = 1.5;
+        let ignition_turned_on_secs =
+            (self.since.as_secs_f64() - START_IGNITION_AFTER_SECONDS).min(TIME_LIMIT);
 
-        Ratio::new::<percent>(
-            ((APU_N_X5 * time_since_start.powi(5))
-                + (APU_N_X4 * time_since_start.powi(4))
-                + (APU_N_X3 * time_since_start.powi(3))
-                + (APU_N_X2 * time_since_start.powi(2))
-                + (APU_N_X * time_since_start)
-                + APU_N_CONST)
-                .min(100.),
-        )
+        if ignition_turned_on_secs > 0. {
+            Ratio::new::<percent>(
+                ((APU_N_X5 * ignition_turned_on_secs.powi(5))
+                    + (APU_N_X4 * ignition_turned_on_secs.powi(4))
+                    + (APU_N_X3 * ignition_turned_on_secs.powi(3))
+                    + (APU_N_X2 * ignition_turned_on_secs.powi(2))
+                    + (APU_N_X * ignition_turned_on_secs)
+                    + APU_N_CONST)
+                    .min(100.),
+            )
+        } else {
+            Ratio::new::<percent>(0.)
+        }
     }
 }
 impl ApuState for Starting {
@@ -594,7 +599,7 @@ mod tests {
                 &context_with().delta(Duration::from_secs(0)).build(),
                 &overhead,
             );
-            const APPROXIMATE_STARTUP_TIME: u64 = 48;
+            const APPROXIMATE_STARTUP_TIME: u64 = 49;
             apu.update(
                 &context_with()
                     .delta(Duration::from_secs(APPROXIMATE_STARTUP_TIME))
@@ -603,6 +608,33 @@ mod tests {
             );
 
             assert_eq!(apu.get_n().get::<percent>(), 100.);
+        }
+
+        #[test]
+        fn one_and_a_half_seconds_after_starting_sequence_commences_ignition_starts() {
+            let mut apu = starting_apu();
+            let overhead = starting_overhead();
+
+            apu.update(
+                &context_with().delta(Duration::from_millis(1500)).build(),
+                &overhead,
+            );
+
+            assert_eq!(
+                apu.get_n().get::<percent>(),
+                0.,
+                "Ignition started too early."
+            );
+
+            apu.update(
+                &context_with().delta(Duration::from_millis(1)).build(),
+                &overhead,
+            );
+
+            assert!(
+                apu.get_n().get::<percent>() > 0.,
+                "Ignition started too late."
+            );
         }
 
         #[test]
@@ -769,6 +801,11 @@ mod tests {
             );
 
             overhead.start.push_on();
+
+            apu.update(
+                &context_with().delta(Duration::from_secs(0)).build(),
+                &overhead,
+            );
 
             apu
         }
