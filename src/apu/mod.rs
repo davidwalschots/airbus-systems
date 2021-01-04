@@ -38,7 +38,7 @@
 //!     APU MASTER SW is on.
 //!   - When in flight, and in electrical emergency config, APU start is inhibited for 45 secs.
 
-use std::{thread::current, time::Duration};
+use std::time::Duration;
 
 use rand::prelude::*;
 use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
@@ -61,25 +61,13 @@ impl AuxiliaryPowerUnit {
     // That might be for a different model.
     const WARNING_MAX_TEMPERATURE: f64 = 1200.;
 
-    pub fn new_shutdown() -> AuxiliaryPowerUnit {
-        AuxiliaryPowerUnit::new_with_state(Box::new(Shutdown::new(
-            AirIntakeFlap::new(),
-            ShutdownReason::Manual,
-            ThermodynamicTemperature::new::<degree_celsius>(0.),
-        )))
-    }
-
-    // TODO: Starting with a running APU doesn't really work due to AirIntakeFlap state being wrong. Reconsider.
-    pub fn new_running() -> AuxiliaryPowerUnit {
-        AuxiliaryPowerUnit::new_with_state(Box::new(Running::new(
-            AirIntakeFlap::new(),
-            ThermodynamicTemperature::new::<degree_celsius>(0.),
-        )))
-    }
-
-    fn new_with_state(state: Box<dyn ApuState>) -> AuxiliaryPowerUnit {
+    pub fn new() -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
-            state: Some(state),
+            state: Some(Box::new(Shutdown::new(
+                AirIntakeFlap::new(),
+                ShutdownReason::Manual,
+                ThermodynamicTemperature::new::<degree_celsius>(0.),
+            ))),
             egt_warning_temp: ThermodynamicTemperature::new::<degree_celsius>(
                 AuxiliaryPowerUnit::WARNING_MAX_TEMPERATURE,
             ),
@@ -535,6 +523,33 @@ impl AirIntakeFlap {
 }
 
 #[cfg(test)]
+pub mod test_helpers {
+    use crate::shared::test_helpers::context_with;
+
+    use super::*;
+
+    pub fn running_apu() -> AuxiliaryPowerUnit {
+        let mut apu = AuxiliaryPowerUnit::new();
+        let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
+
+        overhead.master.push_on();
+        overhead.start.push_on();
+
+        loop {
+            apu.update(
+                &context_with().delta(Duration::from_secs(1)).build(),
+                &overhead,
+            );
+            if apu.is_running() {
+                break;
+            }
+        }
+
+        apu
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use std::time::Duration;
 
@@ -546,13 +561,13 @@ mod tests {
     mod apu_tests {
         use ntest::{assert_about_eq, timeout};
 
-        use crate::shared::test_helpers::context_with;
+        use crate::{apu::test_helpers::running_apu, shared::test_helpers::context_with};
 
         use super::*;
 
         #[test]
         fn when_apu_master_sw_turned_on_air_intake_flap_opens() {
-            let mut apu = AuxiliaryPowerUnit::new_shutdown();
+            let mut apu = AuxiliaryPowerUnit::new();
             let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
             overhead.master.push_on();
 
@@ -566,7 +581,7 @@ mod tests {
 
         #[test]
         fn when_start_sw_on_when_air_intake_flap_fully_open_starting_sequence_commences() {
-            let mut apu = AuxiliaryPowerUnit::new_shutdown();
+            let mut apu = AuxiliaryPowerUnit::new();
             let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
             overhead.master.push_on();
             apu.update(
@@ -593,7 +608,7 @@ mod tests {
         #[test]
         fn when_apu_not_started_egt_is_ambient() {
             const AMBIENT_TEMPERATURE: f64 = 0.;
-            let mut apu = AuxiliaryPowerUnit::new_shutdown();
+            let mut apu = AuxiliaryPowerUnit::new();
             let overhead = AuxiliaryPowerUnitOverheadPanel::new();
             apu.update(
                 &context_with()
@@ -718,7 +733,7 @@ mod tests {
         #[test]
         fn shutdown_apu_warms_up_as_ambient_temperature_increases() {
             let overhead = shutting_down_overhead();
-            let mut apu = AuxiliaryPowerUnit::new_shutdown();
+            let mut apu = AuxiliaryPowerUnit::new();
 
             const STARTING_TEMPERATURE: f64 = 0.;
             let starting_temp =
@@ -745,7 +760,7 @@ mod tests {
         }
 
         fn starting_apu() -> AuxiliaryPowerUnit {
-            let mut apu = AuxiliaryPowerUnit::new_shutdown();
+            let mut apu = AuxiliaryPowerUnit::new();
             let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
             overhead.master.push_on();
             apu.update(
@@ -754,26 +769,6 @@ mod tests {
             );
 
             overhead.start.push_on();
-
-            apu
-        }
-
-        fn running_apu() -> AuxiliaryPowerUnit {
-            let mut apu = AuxiliaryPowerUnit::new_shutdown();
-            let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-
-            overhead.master.push_on();
-            overhead.start.push_on();
-
-            loop {
-                apu.update(
-                    &context_with().delta(Duration::from_secs(1)).build(),
-                    &overhead,
-                );
-                if apu.is_running() {
-                    break;
-                }
-            }
 
             apu
         }

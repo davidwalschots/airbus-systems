@@ -514,7 +514,10 @@ impl Visitable for A320ElectricalOverheadPanel {
 
 #[cfg(test)]
 mod a320_electrical_circuit_tests {
-    use crate::electrical::{Current, PowerSource};
+    use crate::{
+        apu::test_helpers::running_apu,
+        electrical::{Current, PowerSource},
+    };
 
     use super::*;
 
@@ -1954,11 +1957,11 @@ mod a320_electrical_circuit_tests {
         }
 
         fn new_stopped_apu() -> AuxiliaryPowerUnit {
-            AuxiliaryPowerUnit::new_shutdown()
+            AuxiliaryPowerUnit::new()
         }
 
         fn new_running_apu() -> AuxiliaryPowerUnit {
-            AuxiliaryPowerUnit::new_running()
+            running_apu()
         }
 
         fn new_disconnected_external_power() -> ExternalPowerSource {

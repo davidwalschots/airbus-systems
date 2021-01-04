@@ -1242,6 +1242,8 @@ mod tests {
 
     #[cfg(test)]
     mod apu_generator_tests {
+        use crate::apu::test_helpers::running_apu;
+
         use super::*;
 
         #[test]
@@ -1272,11 +1274,11 @@ mod tests {
         }
 
         fn update_above_threshold(generator: &mut ApuGenerator) {
-            generator.update(&AuxiliaryPowerUnit::new_running());
+            generator.update(&running_apu());
         }
 
         fn update_below_threshold(generator: &mut ApuGenerator) {
-            generator.update(&AuxiliaryPowerUnit::new_shutdown());
+            generator.update(&AuxiliaryPowerUnit::new());
         }
     }
 
