@@ -540,20 +540,11 @@ mod tests {
 
     use super::*;
 
-    const AMBIENT_TEMPERATURE: f64 = 0.;
-
-    fn context(delta: Duration) -> UpdateContext {
-        UpdateContext::new(
-            delta,
-            Velocity::new::<knot>(250.),
-            Length::new::<foot>(5000.),
-            ThermodynamicTemperature::new::<degree_celsius>(AMBIENT_TEMPERATURE),
-        )
-    }
-
     #[cfg(test)]
     mod apu_tests {
         use approx::{assert_relative_eq, relative_eq};
+
+        use crate::shared::test_helpers::context_with;
 
         use super::*;
 
@@ -563,7 +554,10 @@ mod tests {
             let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
             overhead.master.push_on();
 
-            apu.update(&context(Duration::from_secs(20)), &overhead);
+            apu.update(
+                &context_with().delta(Duration::from_secs(20)).build(),
+                &overhead,
+            );
 
             assert_eq!(apu.is_air_intake_flap_fully_open(), true)
         }
@@ -573,13 +567,21 @@ mod tests {
             let mut apu = AuxiliaryPowerUnit::new_shutdown();
             let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
             overhead.master.push_on();
-            apu.update(&context(Duration::from_secs(1000)), &overhead);
+            apu.update(
+                &context_with().delta(Duration::from_secs(1_000)).build(),
+                &overhead,
+            );
 
             overhead.start.push_on();
-            apu.update(&context(Duration::from_secs(0)), &overhead);
+            apu.update(
+                &context_with().delta(Duration::from_secs(0)).build(),
+                &overhead,
+            );
             const APPROXIMATE_STARTUP_TIME: u64 = 48;
             apu.update(
-                &context(Duration::from_secs(APPROXIMATE_STARTUP_TIME)),
+                &context_with()
+                    .delta(Duration::from_secs(APPROXIMATE_STARTUP_TIME))
+                    .build(),
                 &overhead,
             );
 
@@ -588,9 +590,19 @@ mod tests {
 
         #[test]
         fn when_apu_not_started_egt_is_ambient() {
+            const AMBIENT_TEMPERATURE: f64 = 0.;
             let mut apu = AuxiliaryPowerUnit::new_shutdown();
             let overhead = AuxiliaryPowerUnitOverheadPanel::new();
-            apu.update(&context(Duration::from_secs(1000)), &overhead);
+            apu.update(
+                &context_with()
+                    .delta(Duration::from_secs(1_000))
+                    .and()
+                    .ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(
+                        AMBIENT_TEMPERATURE,
+                    ))
+                    .build(),
+                &overhead,
+            );
 
             assert_eq!(apu.get_egt().get::<degree_celsius>(), AMBIENT_TEMPERATURE);
         }
@@ -602,7 +614,10 @@ mod tests {
             let mut max_egt: f64 = 0.;
 
             loop {
-                apu.update(&context(Duration::from_secs(1)), &starting_overhead());
+                apu.update(
+                    &context_with().delta(Duration::from_secs(1)).build(),
+                    &starting_overhead(),
+                );
 
                 let apu_egt = apu.get_egt().get::<degree_celsius>();
                 if apu_egt < max_egt {
@@ -620,7 +635,10 @@ mod tests {
             let mut apu = starting_apu();
 
             for _ in 1..=100 {
-                apu.update(&context(Duration::from_secs(1)), &starting_overhead());
+                apu.update(
+                    &context_with().delta(Duration::from_secs(1)).build(),
+                    &starting_overhead(),
+                );
 
                 assert_relative_eq!(
                     apu.get_egt_maximum_temperature().get::<degree_celsius>(),
@@ -663,7 +681,10 @@ mod tests {
             let mut apu = running_apu();
 
             loop {
-                apu.update(&context(Duration::from_secs(1)), &overhead);
+                apu.update(
+                    &context_with().delta(Duration::from_secs(1)).build(),
+                    &overhead,
+                );
 
                 if apu.get_n().get::<percent>() <= 7. {
                     break;
@@ -677,7 +698,10 @@ mod tests {
             let mut apu = AuxiliaryPowerUnit::new_shutdown();
             let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
             overhead.master.push_on();
-            apu.update(&context(Duration::from_secs(1000)), &overhead);
+            apu.update(
+                &context_with().delta(Duration::from_secs(1_000)).build(),
+                &overhead,
+            );
 
             overhead.start.push_on();
 
@@ -692,7 +716,10 @@ mod tests {
             overhead.start.push_on();
 
             loop {
-                apu.update(&context(Duration::from_secs(1)), &overhead);
+                apu.update(
+                    &context_with().delta(Duration::from_secs(1)).build(),
+                    &overhead,
+                );
                 if apu.is_running() {
                     break;
                 }
@@ -716,6 +743,8 @@ mod tests {
 
     #[cfg(test)]
     mod air_intake_flap_tests {
+        use crate::shared::test_helpers::context_with;
+
         use super::*;
 
         #[test]
@@ -723,7 +752,7 @@ mod tests {
             let mut flap = AirIntakeFlap::new();
             flap.open();
 
-            flap.update(&context(Duration::from_secs(5)));
+            flap.update(&context_with().delta(Duration::from_secs(5)).build());
 
             assert!(flap.state.get::<percent>() > 0.);
         }
@@ -732,11 +761,11 @@ mod tests {
         fn closes_when_target_is_closed() {
             let mut flap = AirIntakeFlap::new();
             flap.open();
-            flap.update(&context(Duration::from_secs(5)));
+            flap.update(&context_with().delta(Duration::from_secs(5)).build());
             let open_percentage = flap.state.get::<percent>();
 
             flap.close();
-            flap.update(&context(Duration::from_secs(2)));
+            flap.update(&context_with().delta(Duration::from_secs(2)).build());
 
             assert!(flap.state.get::<percent>() < open_percentage);
         }
@@ -745,7 +774,7 @@ mod tests {
         fn never_closes_beyond_0_percent() {
             let mut flap = AirIntakeFlap::new();
             flap.close();
-            flap.update(&context(Duration::from_secs(1000)));
+            flap.update(&context_with().delta(Duration::from_secs(1_000)).build());
 
             assert_eq!(flap.state.get::<percent>(), 0.);
         }
@@ -754,7 +783,7 @@ mod tests {
         fn never_opens_beyond_100_percent() {
             let mut flap = AirIntakeFlap::new();
             flap.open();
-            flap.update(&context(Duration::from_secs(1000)));
+            flap.update(&context_with().delta(Duration::from_secs(1_000)).build());
 
             assert_eq!(flap.state.get::<percent>(), 100.);
         }
@@ -770,7 +799,7 @@ mod tests {
         fn is_fully_open_returns_true_when_open() {
             let mut flap = AirIntakeFlap::new();
             flap.open();
-            flap.update(&context(Duration::from_secs(1000)));
+            flap.update(&context_with().delta(Duration::from_secs(1_000)).build());
 
             assert_eq!(flap.is_fully_open(), true)
         }

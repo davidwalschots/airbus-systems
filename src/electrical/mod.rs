@@ -729,15 +729,6 @@ mod tests {
         StubApuGenerator {}
     }
 
-    fn context(delta: Duration) -> UpdateContext {
-        UpdateContext::new(
-            delta,
-            Velocity::new::<knot>(250.),
-            Length::new::<foot>(5000.),
-            ThermodynamicTemperature::new::<degree_celsius>(0.),
-        )
-    }
-
     fn engine_above_threshold() -> Engine {
         engine(Ratio::new::<percent>(
             IntegratedDriveGenerator::ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD + 1.,
@@ -1085,6 +1076,8 @@ mod tests {
 
     #[cfg(test)]
     mod engine_generator_tests {
+        use crate::shared::test_helpers::context_with;
+
         use super::*;
         use uom::si::ratio::percent;
 
@@ -1115,7 +1108,7 @@ mod tests {
         fn when_idg_disconnected_provides_no_output() {
             let mut generator = engine_generator();
             generator.update(
-                &context(Duration::from_secs(0)),
+                &context_with().delta(Duration::from_secs(0)).build(),
                 &engine_above_threshold(),
                 &OnOffPushButton::new_off(),
             );
@@ -1129,7 +1122,7 @@ mod tests {
 
         fn update_above_threshold(generator: &mut EngineGenerator) {
             generator.update(
-                &context(Duration::from_secs(1)),
+                &context_with().delta(Duration::from_secs(1)).build(),
                 &engine_above_threshold(),
                 &OnOffPushButton::new_on(),
             );
@@ -1137,7 +1130,7 @@ mod tests {
 
         fn update_below_threshold(generator: &mut EngineGenerator) {
             generator.update(
-                &context(Duration::from_secs(1)),
+                &context_with().delta(Duration::from_secs(1)).build(),
                 &engine_below_threshold(),
                 &OnOffPushButton::new_on(),
             );
@@ -1146,6 +1139,8 @@ mod tests {
 
     #[cfg(test)]
     mod integrated_drive_generator_tests {
+        use crate::shared::test_helpers::context_with;
+
         use super::*;
 
         fn idg() -> IntegratedDriveGenerator {
@@ -1161,7 +1156,7 @@ mod tests {
         fn becomes_stable_once_engine_above_threshold_for_500_milliseconds() {
             let mut idg = idg();
             idg.update(
-                &context(Duration::from_millis(500)),
+                &context_with().delta(Duration::from_millis(500)).build(),
                 &engine_above_threshold(),
                 &OnOffPushButton::new_on(),
             );
@@ -1173,7 +1168,7 @@ mod tests {
         fn does_not_become_stable_before_engine_above_threshold_for_500_milliseconds() {
             let mut idg = idg();
             idg.update(
-                &context(Duration::from_millis(499)),
+                &context_with().delta(Duration::from_millis(499)).build(),
                 &engine_above_threshold(),
                 &OnOffPushButton::new_on(),
             );
@@ -1185,13 +1180,13 @@ mod tests {
         fn cannot_reconnect_once_disconnected() {
             let mut idg = idg();
             idg.update(
-                &context(Duration::from_millis(500)),
+                &context_with().delta(Duration::from_millis(500)).build(),
                 &engine_above_threshold(),
                 &OnOffPushButton::new_off(),
             );
 
             idg.update(
-                &context(Duration::from_millis(500)),
+                &context_with().delta(Duration::from_millis(500)).build(),
                 &engine_above_threshold(),
                 &OnOffPushButton::new_on(),
             );
@@ -1204,7 +1199,7 @@ mod tests {
             let mut idg = idg();
             let starting_temperature = idg.oil_outlet_temperature;
             idg.update(
-                &context(Duration::from_secs(10)),
+                &context_with().delta(Duration::from_secs(10)).build(),
                 &engine_above_threshold(),
                 &OnOffPushButton::new_on(),
             );
@@ -1217,7 +1212,7 @@ mod tests {
             let mut idg = idg();
             let starting_temperature = idg.oil_outlet_temperature;
             idg.update(
-                &context(Duration::from_secs(10)),
+                &context_with().delta(Duration::from_secs(10)).build(),
                 &engine_above_threshold(),
                 &OnOffPushButton::new_off(),
             );
@@ -1229,14 +1224,14 @@ mod tests {
         fn shutdown_engine_cools_down_idg() {
             let mut idg = idg();
             idg.update(
-                &context(Duration::from_secs(10)),
+                &context_with().delta(Duration::from_secs(10)).build(),
                 &engine_above_threshold(),
                 &OnOffPushButton::new_on(),
             );
             let starting_temperature = idg.oil_outlet_temperature;
 
             idg.update(
-                &context(Duration::from_secs(10)),
+                &context_with().delta(Duration::from_secs(10)).build(),
                 &Engine::new(),
                 &OnOffPushButton::new_on(),
             );
