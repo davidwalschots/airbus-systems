@@ -27,7 +27,7 @@ impl A320 {
         A320 {
             engine_1: Engine::new(),
             engine_2: Engine::new(),
-            apu: AuxiliaryPowerUnit::new(),
+            apu: AuxiliaryPowerUnit::new_shutdown(),
             apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
             ext_pwr: ExternalPowerSource::new(),
             electrical: A320Electrical::new(),

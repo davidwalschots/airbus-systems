@@ -402,8 +402,6 @@ pub struct ApuGenerator {
 }
 
 impl ApuGenerator {
-    pub const APU_N1_POWER_OUTPUT_THRESHOLD: f64 = 87.0;
-
     pub fn new() -> ApuGenerator {
         ApuGenerator {
             output: Current::None,
@@ -411,7 +409,7 @@ impl ApuGenerator {
     }
 
     pub fn update(&mut self, apu: &AuxiliaryPowerUnit) {
-        if apu.n > Ratio::new::<percent>(ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD) {
+        if apu.is_running() {
             self.output = Current::Alternating(
                 PowerSource::ApuGenerator,
                 Frequency::new::<hertz>(400.),
@@ -1250,7 +1248,6 @@ mod tests {
     #[cfg(test)]
     mod apu_generator_tests {
         use super::*;
-        use uom::si::ratio::percent;
 
         #[test]
         fn starts_without_output() {
@@ -1258,7 +1255,7 @@ mod tests {
         }
 
         #[test]
-        fn when_apu_speed_above_threshold_provides_output() {
+        fn when_apu_running_provides_output() {
             let mut generator = apu_generator();
             update_below_threshold(&mut generator);
             update_above_threshold(&mut generator);
@@ -1267,7 +1264,7 @@ mod tests {
         }
 
         #[test]
-        fn when_apu_speed_below_threshold_provides_no_output() {
+        fn when_apu_shutdown_provides_no_output() {
             let mut generator = apu_generator();
             update_above_threshold(&mut generator);
             update_below_threshold(&mut generator);
@@ -1279,23 +1276,12 @@ mod tests {
             ApuGenerator::new()
         }
 
-        fn apu(speed: Ratio) -> AuxiliaryPowerUnit {
-            let mut apu = AuxiliaryPowerUnit::new();
-            apu.n = speed;
-
-            apu
-        }
-
         fn update_above_threshold(generator: &mut ApuGenerator) {
-            generator.update(&apu(Ratio::new::<percent>(
-                ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD + 1.,
-            )));
+            generator.update(&AuxiliaryPowerUnit::new_running());
         }
 
         fn update_below_threshold(generator: &mut ApuGenerator) {
-            generator.update(&apu(Ratio::new::<percent>(
-                ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD - 1.,
-            )));
+            generator.update(&AuxiliaryPowerUnit::new_shutdown());
         }
     }
 

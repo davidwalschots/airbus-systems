@@ -1954,17 +1954,11 @@ mod a320_electrical_circuit_tests {
         }
 
         fn new_stopped_apu() -> AuxiliaryPowerUnit {
-            let mut apu = AuxiliaryPowerUnit::new();
-            apu.n = Ratio::new::<percent>(0.);
-
-            apu
+            AuxiliaryPowerUnit::new_shutdown()
         }
 
         fn new_running_apu() -> AuxiliaryPowerUnit {
-            let mut apu = AuxiliaryPowerUnit::new();
-            apu.n = Ratio::new::<percent>(ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD + 1.);
-
-            apu
+            AuxiliaryPowerUnit::new_running()
         }
 
         fn new_disconnected_external_power() -> ExternalPowerSource {
