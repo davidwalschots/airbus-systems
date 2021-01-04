@@ -1,4 +1,4 @@
-//! This module models the Honeywell 131-9A APU.
+//! This module models the APS3200 APU.
 //!
 //! Internally it contains a state machine with the following states:
 //! - Shutdown
