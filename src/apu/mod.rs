@@ -11,8 +11,6 @@
 //! > real APU fully. This involves further tweaking as we get more information.
 //!
 //! # Remaining work and questions
-//! - EGT in stopping scenario.
-//! - EGT after stopping (might still have some temperature left to decrease).
 //! - What does "the APU speed is always 100% except for air conditioning, ..." mean?
 //! - When the aircraft has ground power or main gen power, the APU page appears on the ECAM.
 //!   At this time we have no ECAM "controller" within the system software, and thus we cannot model
@@ -28,7 +26,6 @@
 //!   - DC Power Loss (BAT OFF when aircraft on batteries only).
 //!   - There are more situations, but we likely won't model all of them.
 //! - What happens when you abort the start sequence of the APU? Can you?
-//! - APU cooldown in stopping and shutdown state.
 //! - START pb 1,5 second ignition delay.
 //! - START pb ON light out at 2 seconds after N >= 95% or immediately when N >= 99.5%.
 //! - START pb AVAIL light on at 2 seconds after N >= 95% or immediately when N >= 99.5%.
@@ -183,7 +180,7 @@ impl ApuState for Shutdown {
         }
         self.air_intake_flap.update(context);
 
-        self.egt = calculate_cooldown_egt(self.egt, context);
+        self.egt = calculate_towards_ambient_egt(self.egt, context);
 
         if self.air_intake_flap.is_fully_open() && overhead.master_is_on() && overhead.start_is_on()
         {
@@ -202,8 +199,7 @@ impl ApuState for Shutdown {
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
-        // TODO: We probably still want the EGT for a shutdown APU, as there might be residual heat or it is the ambient temperature?
-        ThermodynamicTemperature::new::<degree_celsius>(0.)
+        self.egt
     }
 }
 
@@ -399,7 +395,7 @@ impl ApuState for Stopping {
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n(context);
-        self.egt = calculate_cooldown_egt(self.egt, context);
+        self.egt = calculate_towards_ambient_egt(self.egt, context);
 
         if self.n.get::<percent>() <= 7. {
             self.air_intake_flap.close();
@@ -427,20 +423,26 @@ impl ApuState for Stopping {
     }
 }
 
-fn calculate_cooldown_egt(
+fn calculate_towards_ambient_egt(
     current_egt: ThermodynamicTemperature,
     context: &UpdateContext,
 ) -> ThermodynamicTemperature {
-    const APU_COOLING_COEFFICIENT: f64 = 2.;
+    const APU_AMBIENT_COEFFICIENT: f64 = 2.;
 
-    if current_egt > context.ambient_temperature {
+    if current_egt == context.ambient_temperature {
+        current_egt
+    } else if current_egt > context.ambient_temperature {
         ThermodynamicTemperature::new::<degree_celsius>(
             (current_egt.get::<degree_celsius>()
-                - (APU_COOLING_COEFFICIENT * context.delta.as_secs_f64()))
+                - (APU_AMBIENT_COEFFICIENT * context.delta.as_secs_f64()))
             .max(context.ambient_temperature.get::<degree_celsius>()),
         )
     } else {
-        current_egt
+        ThermodynamicTemperature::new::<degree_celsius>(
+            (current_egt.get::<degree_celsius>()
+                + (APU_AMBIENT_COEFFICIENT * context.delta.as_secs_f64()))
+            .min(context.ambient_temperature.get::<degree_celsius>()),
+        )
     }
 }
 
@@ -542,7 +544,7 @@ mod tests {
 
     #[cfg(test)]
     mod apu_tests {
-        use approx::{assert_relative_eq, relative_eq};
+        use ntest::{assert_about_eq, timeout};
 
         use crate::shared::test_helpers::context_with;
 
@@ -640,7 +642,7 @@ mod tests {
                     &starting_overhead(),
                 );
 
-                assert_relative_eq!(
+                assert_about_eq!(
                     apu.get_egt_maximum_temperature().get::<degree_celsius>(),
                     apu.get_egt_warning_temperature().get::<degree_celsius>() + 33.
                 );
@@ -671,6 +673,7 @@ mod tests {
 
         #[test]
         #[ignore]
+        // TODO 60 to 120 secs actually... Ask komp.
         fn when_apu_master_sw_turned_off_if_apu_bleed_air_was_used_apu_keeps_running_for_60_second_cooldown(
         ) {
         }
@@ -692,6 +695,53 @@ mod tests {
             }
 
             assert!(!apu.is_air_intake_flap_fully_open());
+        }
+
+        #[test]
+        #[timeout(500)]
+        fn apu_cools_down_to_ambient_temperature_after_running() {
+            let overhead = shutting_down_overhead();
+            let mut apu = running_apu();
+
+            let ambient = ThermodynamicTemperature::new::<degree_celsius>(10.);
+            while apu.get_egt() != ambient {
+                apu.update(
+                    &context_with()
+                        .delta(Duration::from_secs(1))
+                        .ambient_temperature(ambient)
+                        .build(),
+                    &overhead,
+                );
+            }
+        }
+
+        #[test]
+        fn shutdown_apu_warms_up_as_ambient_temperature_increases() {
+            let overhead = shutting_down_overhead();
+            let mut apu = AuxiliaryPowerUnit::new_shutdown();
+
+            const STARTING_TEMPERATURE: f64 = 0.;
+            let starting_temp =
+                ThermodynamicTemperature::new::<degree_celsius>(STARTING_TEMPERATURE);
+            apu.update(
+                &context_with()
+                    .delta(Duration::from_secs(1_000))
+                    .ambient_temperature(starting_temp)
+                    .build(),
+                &overhead,
+            );
+
+            const TARGET_TEMPERATURE: f64 = 20.;
+            let target_temp = ThermodynamicTemperature::new::<degree_celsius>(TARGET_TEMPERATURE);
+            apu.update(
+                &context_with()
+                    .delta(Duration::from_secs(1_000))
+                    .ambient_temperature(target_temp)
+                    .build(),
+                &overhead,
+            );
+
+            assert_eq!(apu.get_egt(), target_temp);
         }
 
         fn starting_apu() -> AuxiliaryPowerUnit {
