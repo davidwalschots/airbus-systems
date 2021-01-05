@@ -12,20 +12,28 @@
 //!
 //! # Remaining work and questions
 //! - What does "the APU speed is always 100% except for air conditioning, ..." mean?
+//!   Komp vaguely remembers this as "when APU bleed is supplying the packs, the rpm reduces to 99%".
 //! - When the aircraft has ground power or main gen power, the APU page appears on the ECAM.
 //!   At this time we have no ECAM "controller" within the system software, and thus we cannot model
 //!   this. We probably want to have some event for this.
 //! - As above, the APU page disappears on the ECAM 10 seconds after AVAIL came on.
 //! - Manual shutdown by pressing the MASTER SW should:
-//!   - Disable the AVAIL light on the START pb.
-//!   - Commence a 60 second cooldown sequence if APU bleed air was used.
-//!     Meaning the APU keeps running for that period. What if bleed air was used 15 minutes ago?
+//!   - Commence a 120 second cooldown sequence if APU bleed air was used (120 seconds after the last usage of APU BLEED AIR)
+//!     Meaning the APU keeps running for that period. If bleed air was used more than 120 seconds ago the shutdown commences immediately.
+//!   - Disable the AVAIL light on the START pb after cooldown.
 //! - Automatic shutdown:
 //!   - Flap not open.
 //!   - EGT overtemperature.
 //!   - DC Power Loss (BAT OFF when aircraft on batteries only).
 //!   - There are more situations, but we likely won't model all of them.
-//! - What happens when you abort the start sequence of the APU? Can you?
+//! - What happens when you abort the start sequence of the APU? Can you? Komp:
+//!   I can't find any reference from that, but I assume the APU will finish its start
+//!   sequence and then turn off immediately. It is never a good idea to interrupt the
+//!   start unless there is some kind of danger. When unburned fuel remains in the
+//!   combustion section, it will ignite at the next APU start and shoot a flame out
+//!   out the exhaust
+//! - What if during the APU cool down the MASTER SW is pushed back ON?
+//!   Komp: I'm pretty sure this will cancel the shutdown and the APU will continue like it never happened.
 //! - START pb ON light out at 2 seconds after N >= 95% or immediately when N >= 99.5%.
 //! - START pb AVAIL light on at 2 seconds after N >= 95% or immediately when N >= 99.5%.
 //! - Effect of APU fire pb on APU state.
@@ -651,6 +659,24 @@ mod tests {
                     ))
                     .build(),
                 &overhead,
+            );
+
+            assert_eq!(apu.get_egt().get::<degree_celsius>(), AMBIENT_TEMPERATURE);
+        }
+
+        #[test]
+        fn when_ambient_temperature_high_startup_egt_never_below_ambient() {
+            let mut apu = starting_apu();
+
+            const AMBIENT_TEMPERATURE: f64 = 50.;
+            apu.update(
+                &context_with()
+                    .ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(
+                        AMBIENT_TEMPERATURE,
+                    ))
+                    .delta(Duration::from_secs(1))
+                    .build(),
+                &starting_overhead(),
             );
 
             assert_eq!(apu.get_egt().get::<degree_celsius>(), AMBIENT_TEMPERATURE);
