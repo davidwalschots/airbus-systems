@@ -409,7 +409,7 @@ impl ApuGenerator {
     }
 
     pub fn update(&mut self, apu: &AuxiliaryPowerUnit) {
-        if apu.is_running() {
+        if apu.is_available() {
             self.output = Current::Alternating(
                 PowerSource::ApuGenerator,
                 Frequency::new::<hertz>(400.),

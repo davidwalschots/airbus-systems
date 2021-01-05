@@ -39,7 +39,10 @@ impl A320 {
     pub fn update(&mut self, context: &UpdateContext) {
         self.engine_1.update(context);
         self.engine_2.update(context);
+
         self.apu.update(context, &self.apu_overhead);
+        self.apu_overhead.update_after_apu(&self.apu);
+
         self.ext_pwr.update(context);
         self.electrical_overhead.update(context);
         // Note that soon multiple systems will depend on each other, thus we can expect multiple update functions per type,
@@ -54,7 +57,7 @@ impl A320 {
             &self.ext_pwr,
             &self.hydraulic,
             &self.electrical_overhead,
-        )
+        );
     }
 }
 

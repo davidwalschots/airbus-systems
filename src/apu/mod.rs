@@ -34,8 +34,6 @@
 //!   out the exhaust
 //! - What if during the APU cool down the MASTER SW is pushed back ON?
 //!   Komp: I'm pretty sure this will cancel the shutdown and the APU will continue like it never happened.
-//! - START pb ON light out at 2 seconds after N >= 95% or immediately when N >= 99.5%.
-//! - START pb AVAIL light on at 2 seconds after N >= 95% or immediately when N >= 99.5%.
 //! - Effect of APU fire pb on APU state.
 //! - EGT MAX improvements: "is a function of N during start and a function of ambient
 //!   temperature when running".
@@ -93,7 +91,7 @@ impl AuxiliaryPowerUnit {
         self.state.as_ref().unwrap().get_n()
     }
 
-    pub fn is_running(&self) -> bool {
+    pub fn is_available(&self) -> bool {
         self.get_n().get::<percent>() == 100.
     }
 
@@ -459,6 +457,13 @@ impl AuxiliaryPowerUnitOverheadPanel {
         }
     }
 
+    pub fn update_after_apu(&mut self, apu: &AuxiliaryPowerUnit) {
+        self.start.set_available(apu.is_available());
+        if self.start_is_on() && apu.is_available() {
+            self.start.set_off();
+        }
+    }
+
     fn master_is_on(&self) -> bool {
         self.master.is_on()
     }
@@ -469,6 +474,10 @@ impl AuxiliaryPowerUnitOverheadPanel {
 
     fn start_is_on(&self) -> bool {
         self.start.is_on()
+    }
+
+    fn start_shows_available(&self) -> bool {
+        self.start.shows_available()
     }
 }
 
@@ -545,15 +554,15 @@ pub mod test_helpers {
         let mut apu = AuxiliaryPowerUnit::new();
         let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
 
-        overhead.master.push_on();
-        overhead.start.push_on();
+        overhead.master.set_on();
+        overhead.start.set_on();
 
         loop {
             apu.update(
                 &context_with().delta(Duration::from_secs(1)).build(),
                 &overhead,
             );
-            if apu.is_running() {
+            if apu.is_available() {
                 break;
             }
         }
@@ -582,7 +591,7 @@ mod tests {
         fn when_apu_master_sw_turned_on_air_intake_flap_opens() {
             let mut apu = AuxiliaryPowerUnit::new();
             let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-            overhead.master.push_on();
+            overhead.master.set_on();
 
             apu.update(
                 &context_with().delta(Duration::from_secs(20)).build(),
@@ -596,13 +605,13 @@ mod tests {
         fn when_start_sw_on_when_air_intake_flap_fully_open_starting_sequence_commences() {
             let mut apu = AuxiliaryPowerUnit::new();
             let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-            overhead.master.push_on();
+            overhead.master.set_on();
             apu.update(
                 &context_with().delta(Duration::from_secs(1_000)).build(),
                 &overhead,
             );
 
-            overhead.start.push_on();
+            overhead.start.set_on();
             apu.update(
                 &context_with().delta(Duration::from_secs(0)).build(),
                 &overhead,
@@ -723,15 +732,25 @@ mod tests {
         }
 
         #[test]
-        #[ignore]
-        fn start_sw_on_light_turns_off_when_n_above_99_5() {
-            // Note should also test 2 seconds after reaching 95 the light turns off?
-        }
+        fn start_sw_on_light_turns_off_when_apu_available() {
+            let mut apu = starting_apu();
+            let mut overhead = starting_overhead();
 
-        #[test]
-        #[ignore]
-        fn start_sw_avail_light_turns_on_when_n_above_99_5() {
-            // Note should also test 2 seconds after reaching 95 the light turns off?
+            loop {
+                apu.update(
+                    &context_with().delta(Duration::from_secs(1)).build(),
+                    &overhead,
+                );
+
+                overhead.update_after_apu(&apu);
+
+                if apu.is_available() {
+                    break;
+                }
+            }
+
+            assert!(!overhead.start_is_on());
+            assert!(overhead.start_shows_available());
         }
 
         #[test]
@@ -820,13 +839,13 @@ mod tests {
         fn starting_apu() -> AuxiliaryPowerUnit {
             let mut apu = AuxiliaryPowerUnit::new();
             let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-            overhead.master.push_on();
+            overhead.master.set_on();
             apu.update(
                 &context_with().delta(Duration::from_secs(1_000)).build(),
                 &overhead,
             );
 
-            overhead.start.push_on();
+            overhead.start.set_on();
 
             apu.update(
                 &context_with().delta(Duration::from_secs(0)).build(),
@@ -838,8 +857,8 @@ mod tests {
 
         fn starting_overhead() -> AuxiliaryPowerUnitOverheadPanel {
             let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-            overhead.master.push_on();
-            overhead.start.push_on();
+            overhead.master.set_on();
+            overhead.start.set_on();
 
             overhead
         }
