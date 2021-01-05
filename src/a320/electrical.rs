@@ -1760,22 +1760,22 @@ mod a320_electrical_circuit_tests {
         }
 
         fn gen_1_off(mut self) -> ElectricalCircuitTester {
-            self.overhead.gen_1.set_off();
+            self.overhead.gen_1.turn_off();
             self
         }
 
         fn gen_2_off(mut self) -> ElectricalCircuitTester {
-            self.overhead.gen_2.set_off();
+            self.overhead.gen_2.turn_off();
             self
         }
 
         fn apu_gen_off(mut self) -> ElectricalCircuitTester {
-            self.overhead.apu_gen.set_off();
+            self.overhead.apu_gen.turn_off();
             self
         }
 
         fn ext_pwr_off(mut self) -> ElectricalCircuitTester {
-            self.overhead.ext_pwr.set_off();
+            self.overhead.ext_pwr.turn_off();
             self
         }
 

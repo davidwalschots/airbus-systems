@@ -27,11 +27,11 @@ impl OnOffPushButton {
         }
     }
 
-    pub fn set_on(&mut self) {
+    pub fn turn_on(&mut self) {
         self.state = OnOffPushButtonState::On;
     }
 
-    pub fn set_off(&mut self) {
+    pub fn turn_off(&mut self) {
         self.state = OnOffPushButtonState::Off;
     }
 

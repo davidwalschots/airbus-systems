@@ -17,10 +17,6 @@
 //!   At this time we have no ECAM "controller" within the system software, and thus we cannot model
 //!   this. We probably want to have some event for this.
 //! - As above, the APU page disappears on the ECAM 10 seconds after AVAIL came on.
-//! - Manual shutdown by pressing the MASTER SW should:
-//!   - Commence a 120 second cooldown sequence if APU bleed air was used (120 seconds after the last usage of APU BLEED AIR)
-//!     Meaning the APU keeps running for that period. If bleed air was used more than 120 seconds ago the shutdown commences immediately.
-//!   - Disable the AVAIL light on the START pb after cooldown.
 //! - Automatic shutdown:
 //!   - Flap not open.
 //!   - EGT overtemperature.
@@ -48,7 +44,12 @@ use std::time::Duration;
 use rand::prelude::*;
 use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
 
-use crate::{overhead::OnOffPushButton, shared::UpdateContext, visitor::Visitable};
+use crate::{
+    overhead::OnOffPushButton,
+    pneumatic::{BleedAirValve, PneumaticOverheadPanel},
+    shared::UpdateContext,
+    visitor::Visitable,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ShutdownReason {
@@ -70,6 +71,7 @@ impl AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
             state: Some(Box::new(Shutdown::new(
                 AirIntakeFlap::new(),
+                ApuBleedAirValve::new(),
                 ShutdownReason::Manual,
                 ThermodynamicTemperature::new::<degree_celsius>(0.),
             ))),
@@ -79,9 +81,14 @@ impl AuxiliaryPowerUnit {
         }
     }
 
-    pub fn update(&mut self, context: &UpdateContext, overhead: &AuxiliaryPowerUnitOverheadPanel) {
+    pub fn update(
+        &mut self,
+        context: &UpdateContext,
+        overhead: &AuxiliaryPowerUnitOverheadPanel,
+        pneumatic_overhead: &PneumaticOverheadPanel,
+    ) {
         if let Some(state) = self.state.take() {
-            self.state = Some(state.update(context, overhead));
+            self.state = Some(state.update(context, overhead, pneumatic_overhead));
         }
 
         self.egt_warning_temp = self.calculate_egt_warning_temp();
@@ -92,7 +99,7 @@ impl AuxiliaryPowerUnit {
     }
 
     pub fn is_available(&self) -> bool {
-        self.get_n().get::<percent>() == 100.
+        self.state.as_ref().unwrap().is_available()
     }
 
     /// When true, the "FLAP OPEN" message on the ECAM APU page should be displayed.
@@ -132,9 +139,12 @@ trait ApuState {
         self: Box<Self>,
         context: &UpdateContext,
         overhead: &AuxiliaryPowerUnitOverheadPanel,
+        pneumatic_overhead: &PneumaticOverheadPanel,
     ) -> Box<dyn ApuState>;
 
     fn get_n(&self) -> Ratio;
+
+    fn is_available(&self) -> bool;
 
     /// When true, the "FLAP OPEN" message on the ECAM APU page should be displayed.
     fn is_air_intake_flap_fully_open(&self) -> bool;
@@ -144,17 +154,20 @@ trait ApuState {
 
 struct Shutdown {
     air_intake_flap: AirIntakeFlap,
+    bleed_air_valve: ApuBleedAirValve,
     reason: ShutdownReason,
     egt: ThermodynamicTemperature,
 }
 impl Shutdown {
     fn new(
         air_intake_flap: AirIntakeFlap,
+        bleed_air_valve: ApuBleedAirValve,
         reason: ShutdownReason,
         egt: ThermodynamicTemperature,
     ) -> Shutdown {
         Shutdown {
             air_intake_flap,
+            bleed_air_valve,
             reason,
             egt,
         }
@@ -164,9 +177,10 @@ impl ApuState for Shutdown {
     fn update(
         mut self: Box<Self>,
         context: &UpdateContext,
-        overhead: &AuxiliaryPowerUnitOverheadPanel,
+        apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
+        pneumatic_overhead: &PneumaticOverheadPanel,
     ) -> Box<dyn ApuState> {
-        if overhead.master_is_on() {
+        if apu_overhead.master_is_on() {
             self.air_intake_flap.open();
         } else {
             self.air_intake_flap.close();
@@ -175,9 +189,14 @@ impl ApuState for Shutdown {
 
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
-        if self.air_intake_flap.is_fully_open() && overhead.master_is_on() && overhead.start_is_on()
+        self.bleed_air_valve
+            .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
+
+        if self.air_intake_flap.is_fully_open()
+            && apu_overhead.master_is_on()
+            && apu_overhead.start_is_on()
         {
-            Box::new(Starting::new(self.air_intake_flap))
+            Box::new(Starting::new(self.air_intake_flap, self.bleed_air_valve))
         } else {
             self
         }
@@ -185,6 +204,10 @@ impl ApuState for Shutdown {
 
     fn get_n(&self) -> Ratio {
         Ratio::new::<percent>(0.)
+    }
+
+    fn is_available(&self) -> bool {
+        false
     }
 
     fn is_air_intake_flap_fully_open(&self) -> bool {
@@ -198,14 +221,16 @@ impl ApuState for Shutdown {
 
 struct Starting {
     air_intake_flap: AirIntakeFlap,
+    bleed_air_valve: ApuBleedAirValve,
     since: Duration,
     n: Ratio,
     egt: ThermodynamicTemperature,
 }
 impl Starting {
-    fn new(air_intake_flap: AirIntakeFlap) -> Starting {
+    fn new(air_intake_flap: AirIntakeFlap, bleed_air_valve: ApuBleedAirValve) -> Starting {
         Starting {
             air_intake_flap,
+            bleed_air_valve,
             since: Duration::from_secs(0),
             n: Ratio::new::<percent>(0.),
             egt: ThermodynamicTemperature::new::<degree_celsius>(0.),
@@ -265,7 +290,8 @@ impl ApuState for Starting {
     fn update(
         mut self: Box<Self>,
         context: &UpdateContext,
-        _: &AuxiliaryPowerUnitOverheadPanel,
+        apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
+        pneumatic_overhead: &PneumaticOverheadPanel,
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n();
@@ -273,8 +299,15 @@ impl ApuState for Starting {
 
         self.air_intake_flap.update(context);
 
+        self.bleed_air_valve
+            .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
+
         if self.n.get::<percent>() == 100. {
-            Box::new(Running::new(self.air_intake_flap, self.egt))
+            Box::new(Running::new(
+                self.air_intake_flap,
+                self.bleed_air_valve,
+                self.egt,
+            ))
         } else {
             self
         }
@@ -282,6 +315,10 @@ impl ApuState for Starting {
 
     fn get_n(&self) -> Ratio {
         self.n
+    }
+
+    fn is_available(&self) -> bool {
+        false
     }
 
     fn is_air_intake_flap_fully_open(&self) -> bool {
@@ -295,12 +332,18 @@ impl ApuState for Starting {
 
 struct Running {
     air_intake_flap: AirIntakeFlap,
+    bleed_air_valve: ApuBleedAirValve,
     egt: ThermodynamicTemperature,
 }
 impl Running {
-    fn new(air_intake_flap: AirIntakeFlap, egt: ThermodynamicTemperature) -> Running {
+    fn new(
+        air_intake_flap: AirIntakeFlap,
+        bleed_air_valve: ApuBleedAirValve,
+        egt: ThermodynamicTemperature,
+    ) -> Running {
         Running {
             air_intake_flap,
+            bleed_air_valve,
             egt,
         }
     }
@@ -321,20 +364,32 @@ impl Running {
             self.egt
         }
     }
+
+    fn is_past_bleed_air_cooldown_period(&self) -> bool {
+        const BLEED_AIR_COOLDOWN_DURATION_SECS: u64 = 120;
+        !self
+            .bleed_air_valve
+            .was_open_in_last(Duration::from_secs(BLEED_AIR_COOLDOWN_DURATION_SECS))
+    }
 }
 impl ApuState for Running {
     fn update(
         mut self: Box<Self>,
         context: &UpdateContext,
-        overhead: &AuxiliaryPowerUnitOverheadPanel,
+        apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
+        pneumatic_overhead: &PneumaticOverheadPanel,
     ) -> Box<dyn ApuState> {
         self.egt = self.calculate_slow_cooldown_to_running_temperature(context);
 
         self.air_intake_flap.update(context);
 
-        if overhead.master_is_off() {
+        self.bleed_air_valve
+            .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
+
+        if apu_overhead.master_is_off() && self.is_past_bleed_air_cooldown_period() {
             Box::new(Stopping::new(
                 self.air_intake_flap,
+                self.bleed_air_valve,
                 self.egt,
                 ShutdownReason::Manual,
             ))
@@ -345,6 +400,10 @@ impl ApuState for Running {
 
     fn get_n(&self) -> Ratio {
         Ratio::new::<percent>(100.)
+    }
+
+    fn is_available(&self) -> bool {
+        true
     }
 
     fn is_air_intake_flap_fully_open(&self) -> bool {
@@ -358,6 +417,7 @@ impl ApuState for Running {
 
 struct Stopping {
     air_intake_flap: AirIntakeFlap,
+    bleed_air_valve: ApuBleedAirValve,
     reason: ShutdownReason,
     since: Duration,
     n: Ratio,
@@ -366,11 +426,13 @@ struct Stopping {
 impl Stopping {
     fn new(
         air_intake_flap: AirIntakeFlap,
+        bleed_air_valve: ApuBleedAirValve,
         egt: ThermodynamicTemperature,
         reason: ShutdownReason,
     ) -> Stopping {
         Stopping {
             air_intake_flap,
+            bleed_air_valve,
             since: Duration::from_secs(0),
             reason,
             n: Ratio::new::<percent>(100.),
@@ -390,11 +452,15 @@ impl ApuState for Stopping {
     fn update(
         mut self: Box<Self>,
         context: &UpdateContext,
-        _: &AuxiliaryPowerUnitOverheadPanel,
+        apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
+        pneumatic_overhead: &PneumaticOverheadPanel,
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n(context);
         self.egt = calculate_towards_ambient_egt(self.egt, context);
+
+        self.bleed_air_valve
+            .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
 
         if self.n.get::<percent>() <= 7. {
             self.air_intake_flap.close();
@@ -403,7 +469,12 @@ impl ApuState for Stopping {
         self.air_intake_flap.update(context);
 
         if self.n.get::<percent>() == 0. {
-            Box::new(Shutdown::new(self.air_intake_flap, self.reason, self.egt))
+            Box::new(Shutdown::new(
+                self.air_intake_flap,
+                self.bleed_air_valve,
+                self.reason,
+                self.egt,
+            ))
         } else {
             self
         }
@@ -411,6 +482,10 @@ impl ApuState for Stopping {
 
     fn get_n(&self) -> Ratio {
         self.n
+    }
+
+    fn is_available(&self) -> bool {
+        false
     }
 
     fn is_air_intake_flap_fully_open(&self) -> bool {
@@ -445,6 +520,50 @@ fn calculate_towards_ambient_egt(
     }
 }
 
+struct ApuBleedAirValve {
+    valve: BleedAirValve,
+    last_open_time_ago: Duration,
+}
+impl ApuBleedAirValve {
+    fn new() -> Self {
+        ApuBleedAirValve {
+            valve: BleedAirValve::new(),
+            last_open_time_ago: Duration::from_secs(1000),
+        }
+    }
+
+    fn update(
+        &mut self,
+        context: &UpdateContext,
+        n: Ratio,
+        apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
+        pneumatic_overhead: &PneumaticOverheadPanel,
+    ) {
+        // Note: it might be that later we have situations in which master is on,
+        // but an emergency shutdown happens and this doesn't turn off.
+        // In this case, we need to modify the code below to no longer look at apu overhead state, but APU state itself.
+        self.valve.open_when(
+            apu_overhead.master_is_on()
+                && n.get::<percent>() > 95.
+                && pneumatic_overhead.apu_bleed_is_on(),
+        );
+
+        if self.valve.is_open() {
+            self.last_open_time_ago = Duration::from_secs(0);
+        } else {
+            self.last_open_time_ago += context.delta;
+        }
+    }
+
+    fn open_when(&mut self, condition: bool) {
+        self.valve.open_when(condition);
+    }
+
+    fn was_open_in_last(&self, duration: Duration) -> bool {
+        self.last_open_time_ago <= duration
+    }
+}
+
 pub struct AuxiliaryPowerUnitOverheadPanel {
     pub master: OnOffPushButton,
     pub start: OnOffPushButton,
@@ -460,7 +579,7 @@ impl AuxiliaryPowerUnitOverheadPanel {
     pub fn update_after_apu(&mut self, apu: &AuxiliaryPowerUnit) {
         self.start.set_available(apu.is_available());
         if self.start_is_on() && apu.is_available() {
-            self.start.set_off();
+            self.start.turn_off();
         }
     }
 
@@ -552,15 +671,12 @@ pub mod test_helpers {
 
     pub fn running_apu() -> AuxiliaryPowerUnit {
         let mut apu = AuxiliaryPowerUnit::new();
-        let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-
-        overhead.master.set_on();
-        overhead.start.set_on();
 
         loop {
             apu.update(
                 &context_with().delta(Duration::from_secs(1)).build(),
-                &overhead,
+                &starting_overhead(),
+                &bleed_air_on_overhead(),
             );
             if apu.is_available() {
                 break;
@@ -568,6 +684,43 @@ pub mod test_helpers {
         }
 
         apu
+    }
+
+    pub fn bleed_air_off_running_apu() -> AuxiliaryPowerUnit {
+        let mut apu = running_apu();
+        apu.update(
+            &context_with().delta(Duration::from_secs(120)).build(),
+            &running_overhead(),
+            &bleed_air_off_overhead(),
+        );
+
+        apu
+    }
+
+    pub fn bleed_air_on_overhead() -> PneumaticOverheadPanel {
+        PneumaticOverheadPanel::new()
+    }
+
+    pub fn bleed_air_off_overhead() -> PneumaticOverheadPanel {
+        let mut overhead = PneumaticOverheadPanel::new();
+        overhead.turn_apu_bleed_off();
+
+        overhead
+    }
+
+    pub fn starting_overhead() -> AuxiliaryPowerUnitOverheadPanel {
+        let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
+        overhead.master.turn_on();
+        overhead.start.turn_on();
+
+        overhead
+    }
+
+    pub fn running_overhead() -> AuxiliaryPowerUnitOverheadPanel {
+        let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
+        overhead.master.turn_on();
+
+        overhead
     }
 }
 
@@ -583,7 +736,13 @@ mod tests {
     mod apu_tests {
         use ntest::{assert_about_eq, timeout};
 
-        use crate::{apu::test_helpers::running_apu, shared::test_helpers::context_with};
+        use crate::{
+            apu::test_helpers::{
+                bleed_air_off_overhead, bleed_air_off_running_apu, bleed_air_on_overhead,
+                running_apu, running_overhead, starting_overhead,
+            },
+            shared::test_helpers::context_with,
+        };
 
         use super::*;
 
@@ -591,11 +750,12 @@ mod tests {
         fn when_apu_master_sw_turned_on_air_intake_flap_opens() {
             let mut apu = AuxiliaryPowerUnit::new();
             let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-            overhead.master.set_on();
+            overhead.master.turn_on();
 
             apu.update(
                 &context_with().delta(Duration::from_secs(20)).build(),
                 &overhead,
+                &bleed_air_on_overhead(),
             );
 
             assert_eq!(apu.is_air_intake_flap_fully_open(), true)
@@ -605,16 +765,18 @@ mod tests {
         fn when_start_sw_on_when_air_intake_flap_fully_open_starting_sequence_commences() {
             let mut apu = AuxiliaryPowerUnit::new();
             let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-            overhead.master.set_on();
+            overhead.master.turn_on();
             apu.update(
                 &context_with().delta(Duration::from_secs(1_000)).build(),
                 &overhead,
+                &bleed_air_on_overhead(),
             );
 
-            overhead.start.set_on();
+            overhead.start.turn_on();
             apu.update(
                 &context_with().delta(Duration::from_secs(0)).build(),
                 &overhead,
+                &bleed_air_on_overhead(),
             );
             const APPROXIMATE_STARTUP_TIME: u64 = 49;
             apu.update(
@@ -622,6 +784,7 @@ mod tests {
                     .delta(Duration::from_secs(APPROXIMATE_STARTUP_TIME))
                     .build(),
                 &overhead,
+                &bleed_air_on_overhead(),
             );
 
             assert_eq!(apu.get_n().get::<percent>(), 100.);
@@ -635,6 +798,7 @@ mod tests {
             apu.update(
                 &context_with().delta(Duration::from_millis(1500)).build(),
                 &overhead,
+                &bleed_air_on_overhead(),
             );
 
             assert_eq!(
@@ -646,6 +810,7 @@ mod tests {
             apu.update(
                 &context_with().delta(Duration::from_millis(1)).build(),
                 &overhead,
+                &bleed_air_on_overhead(),
             );
 
             assert!(
@@ -668,6 +833,7 @@ mod tests {
                     ))
                     .build(),
                 &overhead,
+                &bleed_air_on_overhead(),
             );
 
             assert_eq!(apu.get_egt().get::<degree_celsius>(), AMBIENT_TEMPERATURE);
@@ -686,6 +852,7 @@ mod tests {
                     .delta(Duration::from_secs(1))
                     .build(),
                 &starting_overhead(),
+                &bleed_air_on_overhead(),
             );
 
             assert_eq!(apu.get_egt().get::<degree_celsius>(), AMBIENT_TEMPERATURE);
@@ -701,6 +868,7 @@ mod tests {
                 apu.update(
                     &context_with().delta(Duration::from_secs(1)).build(),
                     &starting_overhead(),
+                    &bleed_air_on_overhead(),
                 );
 
                 let apu_egt = apu.get_egt().get::<degree_celsius>();
@@ -722,6 +890,7 @@ mod tests {
                 apu.update(
                     &context_with().delta(Duration::from_secs(1)).build(),
                     &starting_overhead(),
+                    &bleed_air_on_overhead(),
                 );
 
                 assert_about_eq!(
@@ -740,6 +909,7 @@ mod tests {
                 apu.update(
                     &context_with().delta(Duration::from_secs(1)).build(),
                     &overhead,
+                    &bleed_air_on_overhead(),
                 );
 
                 overhead.update_after_apu(&apu);
@@ -751,6 +921,80 @@ mod tests {
 
             assert!(!overhead.start_is_on());
             assert!(overhead.start_shows_available());
+        }
+
+        #[test]
+        fn when_apu_bleed_valve_open_on_shutdown_cooldown_period_commences_and_apu_remains_available(
+        ) {
+            // The cool down period is between 60 to 120. It is configurable by aircraft mechanics and
+            // we'll make it a configurable option in the sim. For now, 120s.
+
+            let mut apu = running_apu();
+
+            apu.update(
+                &context_with().delta(Duration::from_secs(120)).build(),
+                &shutting_down_overhead(),
+                &bleed_air_on_overhead(),
+            );
+
+            assert!(apu.is_available());
+
+            apu.update(
+                &context_with().delta(Duration::from_millis(1)).build(),
+                &shutting_down_overhead(),
+                &bleed_air_on_overhead(),
+            );
+
+            assert!(!apu.is_available());
+        }
+
+        #[test]
+        fn when_apu_bleed_valve_was_open_recently_on_shutdown_cooldown_period_commences_and_apu_remains_available(
+        ) {
+            // The cool down period requires that the bleed valve is shut for a duration (default 120s).
+            // If the bleed valve was shut earlier than the MASTER SW going to OFF, that time period counts towards the cool down period.
+
+            // A running APU starts with bleed air on.
+            let mut apu = running_apu();
+
+            apu.update(
+                &context_with().delta(Duration::from_secs(80)).build(),
+                &running_overhead(),
+                &bleed_air_off_overhead(),
+            );
+
+            assert!(apu.is_available());
+
+            apu.update(
+                &context_with().delta(Duration::from_secs(40)).build(),
+                &shutting_down_overhead(),
+                &bleed_air_off_overhead(),
+            );
+
+            assert!(apu.is_available());
+
+            apu.update(
+                &context_with().delta(Duration::from_millis(1)).build(),
+                &shutting_down_overhead(),
+                &bleed_air_off_overhead(),
+            );
+
+            assert!(!apu.is_available());
+        }
+
+        #[test]
+        fn when_apu_bleed_valve_closed_on_shutdown_cooldown_period_is_skipped_and_apu_stops() {
+            let mut apu = bleed_air_off_running_apu();
+
+            assert!(apu.is_available());
+
+            apu.update(
+                &context_with().delta(Duration::from_millis(1)).build(),
+                &shutting_down_overhead(),
+                &bleed_air_off_overhead(),
+            );
+
+            assert!(!apu.is_available());
         }
 
         #[test]
@@ -779,6 +1023,7 @@ mod tests {
                 apu.update(
                     &context_with().delta(Duration::from_secs(1)).build(),
                     &overhead,
+                    &bleed_air_on_overhead(),
                 );
 
                 if apu.get_n().get::<percent>() <= 7. {
@@ -803,6 +1048,7 @@ mod tests {
                         .ambient_temperature(ambient)
                         .build(),
                     &overhead,
+                    &bleed_air_on_overhead(),
                 );
             }
         }
@@ -821,6 +1067,7 @@ mod tests {
                     .ambient_temperature(starting_temp)
                     .build(),
                 &overhead,
+                &bleed_air_on_overhead(),
             );
 
             const TARGET_TEMPERATURE: f64 = 20.;
@@ -831,6 +1078,7 @@ mod tests {
                     .ambient_temperature(target_temp)
                     .build(),
                 &overhead,
+                &bleed_air_on_overhead(),
             );
 
             assert_eq!(apu.get_egt(), target_temp);
@@ -839,28 +1087,22 @@ mod tests {
         fn starting_apu() -> AuxiliaryPowerUnit {
             let mut apu = AuxiliaryPowerUnit::new();
             let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-            overhead.master.set_on();
+            overhead.master.turn_on();
             apu.update(
                 &context_with().delta(Duration::from_secs(1_000)).build(),
                 &overhead,
+                &bleed_air_on_overhead(),
             );
 
-            overhead.start.set_on();
+            overhead.start.turn_on();
 
             apu.update(
                 &context_with().delta(Duration::from_secs(0)).build(),
                 &overhead,
+                &bleed_air_on_overhead(),
             );
 
             apu
-        }
-
-        fn starting_overhead() -> AuxiliaryPowerUnitOverheadPanel {
-            let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-            overhead.master.set_on();
-            overhead.start.set_on();
-
-            overhead
         }
 
         fn shutting_down_overhead() -> AuxiliaryPowerUnitOverheadPanel {
