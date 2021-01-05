@@ -1,32 +1,12 @@
+mod update_context;
+pub use update_context::*;
+
 use std::time::Duration;
 use uom::si::{
-    f32::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
+    f64::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
 };
 
 use crate::visitor::Visitable;
-
-pub struct UpdateContext {
-    pub delta: Duration,
-    pub airspeed: Velocity,
-    pub above_ground_level: Length,
-    pub ambient_temperature: ThermodynamicTemperature,
-}
-
-impl UpdateContext {
-    pub fn new(
-        delta: Duration,
-        airspeed: Velocity,
-        above_ground_level: Length,
-        ambient_temperature: ThermodynamicTemperature,
-    ) -> UpdateContext {
-        UpdateContext {
-            delta,
-            airspeed,
-            above_ground_level,
-            ambient_temperature,
-        }
-    }
-}
 
 /// The delay logic gate delays the true result of a given expression by the given amount of time.
 /// False results are output immediately.
@@ -85,35 +65,23 @@ impl Visitable for Engine {
     }
 }
 
-pub struct AuxiliaryPowerUnit {
-    pub n1: Ratio,
-}
-
-impl AuxiliaryPowerUnit {
-    pub fn new() -> AuxiliaryPowerUnit {
-        AuxiliaryPowerUnit {
-            n1: Ratio::new::<percent>(0.),
-        }
-    }
-
-    pub fn update(&mut self, context: &UpdateContext) {}
-}
-
-impl Visitable for AuxiliaryPowerUnit {
-    fn accept(&mut self, visitor: &mut Box<dyn crate::visitor::MutableVisitor>) {
-        visitor.visit_auxiliary_power_unit(self);
-    }
-}
-
 #[cfg(test)]
 mod delayed_true_logic_gate_tests {
+    use self::test_helpers::context_with;
+
     use super::*;
 
     #[test]
     fn when_the_expression_is_false_returns_false() {
         let mut gate = delay_logic_gate(Duration::from_millis(100));
-        gate.update(&update_context(Duration::from_millis(0)), false);
-        gate.update(&update_context(Duration::from_millis(1_000)), false);
+        gate.update(
+            &context_with().delta(Duration::from_millis(0)).build(),
+            false,
+        );
+        gate.update(
+            &context_with().delta(Duration::from_millis(1_000)).build(),
+            false,
+        );
 
         assert_eq!(gate.output(), false);
     }
@@ -121,8 +89,14 @@ mod delayed_true_logic_gate_tests {
     #[test]
     fn when_the_expression_is_true_and_delay_hasnt_passed_returns_false() {
         let mut gate = delay_logic_gate(Duration::from_millis(10_000));
-        gate.update(&update_context(Duration::from_millis(0)), false);
-        gate.update(&update_context(Duration::from_millis(1_000)), false);
+        gate.update(
+            &context_with().delta(Duration::from_millis(0)).build(),
+            false,
+        );
+        gate.update(
+            &context_with().delta(Duration::from_millis(1_000)).build(),
+            false,
+        );
 
         assert_eq!(gate.output(), false);
     }
@@ -130,8 +104,14 @@ mod delayed_true_logic_gate_tests {
     #[test]
     fn when_the_expression_is_true_and_delay_has_passed_returns_true() {
         let mut gate = delay_logic_gate(Duration::from_millis(100));
-        gate.update(&update_context(Duration::from_millis(0)), true);
-        gate.update(&update_context(Duration::from_millis(1_000)), true);
+        gate.update(
+            &context_with().delta(Duration::from_millis(0)).build(),
+            true,
+        );
+        gate.update(
+            &context_with().delta(Duration::from_millis(1_000)).build(),
+            true,
+        );
 
         assert_eq!(gate.output(), true);
     }
@@ -140,10 +120,22 @@ mod delayed_true_logic_gate_tests {
     fn when_the_expression_is_true_and_becomes_false_before_delay_has_passed_returns_false_once_delay_passed(
     ) {
         let mut gate = delay_logic_gate(Duration::from_millis(1_000));
-        gate.update(&update_context(Duration::new(0, 0)), true);
-        gate.update(&update_context(Duration::from_millis(800)), true);
-        gate.update(&update_context(Duration::from_millis(100)), false);
-        gate.update(&update_context(Duration::from_millis(200)), false);
+        gate.update(
+            &context_with().delta(Duration::from_millis(0)).build(),
+            true,
+        );
+        gate.update(
+            &context_with().delta(Duration::from_millis(800)).build(),
+            true,
+        );
+        gate.update(
+            &context_with().delta(Duration::from_millis(100)).build(),
+            false,
+        );
+        gate.update(
+            &context_with().delta(Duration::from_millis(200)).build(),
+            false,
+        );
 
         assert_eq!(gate.output(), false);
     }
@@ -151,19 +143,16 @@ mod delayed_true_logic_gate_tests {
     #[test]
     fn does_not_include_delta_at_the_moment_of_expression_becoming_true() {
         let mut gate = delay_logic_gate(Duration::from_millis(1_000));
-        gate.update(&update_context(Duration::from_millis(900)), true);
-        gate.update(&update_context(Duration::from_millis(200)), true);
+        gate.update(
+            &context_with().delta(Duration::from_millis(900)).build(),
+            true,
+        );
+        gate.update(
+            &context_with().delta(Duration::from_millis(200)).build(),
+            true,
+        );
 
         assert_eq!(gate.output(), false);
-    }
-
-    fn update_context(delta: Duration) -> UpdateContext {
-        UpdateContext::new(
-            delta,
-            Velocity::new::<knot>(250.),
-            Length::new::<foot>(5000.),
-            ThermodynamicTemperature::new::<degree_celsius>(0.),
-        )
     }
 
     fn delay_logic_gate(delay: Duration) -> DelayedTrueLogicGate {

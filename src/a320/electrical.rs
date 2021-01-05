@@ -1,16 +1,17 @@
 use std::time::Duration;
 use uom::si::{
-    f32::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
+    f64::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
 };
 
 use crate::{
+    apu::AuxiliaryPowerUnit,
     electrical::{
         ApuGenerator, Battery, Contactor, ElectricalBus, EmergencyGenerator, EngineGenerator,
         ExternalPowerSource, IntegratedDriveGenerator, PowerConductor, Powerable, StaticInverter,
         TransformerRectifier,
     },
     overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
-    shared::{AuxiliaryPowerUnit, DelayedTrueLogicGate, Engine, UpdateContext},
+    shared::{DelayedTrueLogicGate, Engine, UpdateContext},
     visitor::Visitable,
 };
 
@@ -513,7 +514,10 @@ impl Visitable for A320ElectricalOverheadPanel {
 
 #[cfg(test)]
 mod a320_electrical_circuit_tests {
-    use crate::electrical::{Current, PowerSource};
+    use crate::{
+        apu::test_helpers::running_apu,
+        electrical::{Current, PowerSource},
+    };
 
     use super::*;
 
@@ -1953,17 +1957,11 @@ mod a320_electrical_circuit_tests {
         }
 
         fn new_stopped_apu() -> AuxiliaryPowerUnit {
-            let mut apu = AuxiliaryPowerUnit::new();
-            apu.n1 = Ratio::new::<percent>(0.);
-
-            apu
+            AuxiliaryPowerUnit::new()
         }
 
         fn new_running_apu() -> AuxiliaryPowerUnit {
-            let mut apu = AuxiliaryPowerUnit::new();
-            apu.n1 = Ratio::new::<percent>(ApuGenerator::APU_N1_POWER_OUTPUT_THRESHOLD + 1.);
-
-            apu
+            running_apu()
         }
 
         fn new_disconnected_external_power() -> ExternalPowerSource {
