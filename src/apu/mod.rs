@@ -22,12 +22,6 @@
 //!   - EGT overtemperature.
 //!   - DC Power Loss (BAT OFF when aircraft on batteries only).
 //!   - There are more situations, but we likely won't model all of them.
-//! - What happens when you abort the start sequence of the APU? Can you? Komp:
-//!   I can't find any reference from that, but I assume the APU will finish its start
-//!   sequence and then turn off immediately. It is never a good idea to interrupt the
-//!   start unless there is some kind of danger. When unburned fuel remains in the
-//!   combustion section, it will ignite at the next APU start and shoot a flame out
-//!   out the exhaust
 //! - Effect of APU fire pb on APU state.
 //! - EGT MAX improvements: "is a function of N during start and a function of ambient
 //!   temperature when running".
@@ -742,6 +736,11 @@ pub mod tests {
             self
         }
 
+        fn start_off(mut self) -> Self {
+            self.apu_overhead.start.turn_off();
+            self
+        }
+
         fn bleed_air_off(mut self) -> Self {
             self.pneumatic_overhead.turn_apu_bleed_off();
             self
@@ -849,6 +848,8 @@ pub mod tests {
 
         use super::*;
 
+        const APPROXIMATE_STARTUP_TIME: u64 = 49;
+
         #[test]
         fn when_apu_master_sw_turned_on_air_intake_flap_opens() {
             let tester = tester_with().master_on().run(Duration::from_secs(20));
@@ -858,8 +859,6 @@ pub mod tests {
 
         #[test]
         fn when_start_sw_on_apu_starts_within_expected_time() {
-            const APPROXIMATE_STARTUP_TIME: u64 = 49;
-
             let tester = tester_with()
                 .starting_apu()
                 .run(Duration::from_secs(APPROXIMATE_STARTUP_TIME));
@@ -1047,12 +1046,35 @@ pub mod tests {
         }
 
         #[test]
-        #[ignore]
-        fn when_egt_is_greater_than_egt_max_automatic_shutdown_begins() {
-            // Note should also test 2 seconds after reaching 95 the light turns off?
+        #[timeout(500)]
+        fn when_apu_starting_and_master_plus_start_sw_off_then_apu_continues_starting_and_shuts_down_after_start(
+        ) {
+            let mut tester = tester_with()
+                .starting_apu()
+                .run(Duration::from_secs(APPROXIMATE_STARTUP_TIME / 2));
+
+            assert!(tester.get_n().get::<percent>() > 0.);
+
+            tester = tester
+                .then_continue_with()
+                .master_off()
+                .and()
+                .start_off()
+                .run(Duration::from_secs(APPROXIMATE_STARTUP_TIME / 2));
+
+            assert!(tester.get_n().get::<percent>() > 90.);
+
+            loop {
+                tester = tester.then_continue_with().run(Duration::from_secs(1));
+
+                if tester.get_n().get::<percent>() == 0. {
+                    break;
+                }
+            }
         }
 
         #[test]
+        #[timeout(500)]
         fn when_apu_shutting_down_at_7_percent_n_air_inlet_flap_closes() {
             let mut tester = tester_with().running_apu().and().master_off();
 
