@@ -55,14 +55,9 @@ enum ShutdownReason {
 #[derive(Debug)]
 pub struct AuxiliaryPowerUnit {
     state: Option<ApuStateEnum>,
-    egt_warning_temp: ThermodynamicTemperature,
+    egt_maximum_temperature: ThermodynamicTemperature,
 }
 impl AuxiliaryPowerUnit {
-    // TODO: Is this maximum correct for the Honeywell 131-9A?
-    // Manual says max EGT is 1090 degree celsius during start and 675 degree celsius while running.
-    // That might be for a different model.
-    const WARNING_MAX_TEMPERATURE: f64 = 1200.;
-
     pub fn new() -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
             state: Some(
@@ -74,8 +69,8 @@ impl AuxiliaryPowerUnit {
                 )
                 .into(),
             ),
-            egt_warning_temp: ThermodynamicTemperature::new::<degree_celsius>(
-                AuxiliaryPowerUnit::WARNING_MAX_TEMPERATURE,
+            egt_maximum_temperature: ThermodynamicTemperature::new::<degree_celsius>(
+                Running::MAX_EGT,
             ),
         }
     }
@@ -90,7 +85,7 @@ impl AuxiliaryPowerUnit {
             self.state = Some(state.update(context, overhead, pneumatic_overhead).into());
         }
 
-        self.egt_warning_temp = self.calculate_egt_warning_temp();
+        self.egt_maximum_temperature = self.state.as_ref().unwrap().get_egt_max_temperature();
     }
 
     pub fn get_n(&self) -> Ratio {
@@ -111,25 +106,14 @@ impl AuxiliaryPowerUnit {
     }
 
     fn get_egt_warning_temperature(&self) -> ThermodynamicTemperature {
-        self.egt_warning_temp
-    }
-
-    fn get_egt_maximum_temperature(&self) -> ThermodynamicTemperature {
         const MAX_ABOVE_WARNING: f64 = 33.;
         ThermodynamicTemperature::new::<degree_celsius>(
-            self.egt_warning_temp.get::<degree_celsius>() + MAX_ABOVE_WARNING,
+            self.egt_maximum_temperature.get::<degree_celsius>() - MAX_ABOVE_WARNING,
         )
     }
 
-    fn calculate_egt_warning_temp(&self) -> ThermodynamicTemperature {
-        let x = match self.get_n().get::<percent>() {
-            n if n < 11. => AuxiliaryPowerUnit::WARNING_MAX_TEMPERATURE,
-            n if n <= 15. => (-50. * n) + 1750.,
-            n if n <= 65. => (-3. * n) + 1045.,
-            n => (-30. / 7. * n) + 1128.6,
-        };
-
-        ThermodynamicTemperature::new::<degree_celsius>(x)
+    fn get_egt_maximum_temperature(&self) -> ThermodynamicTemperature {
+        self.egt_maximum_temperature
     }
 }
 
@@ -159,6 +143,8 @@ trait ApuState {
     fn is_air_intake_flap_fully_open(&self) -> bool;
 
     fn get_egt(&self) -> ThermodynamicTemperature;
+
+    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature;
 }
 
 #[derive(Debug)]
@@ -227,6 +213,11 @@ impl ApuState for Shutdown {
     fn get_egt(&self) -> ThermodynamicTemperature {
         self.egt
     }
+
+    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature {
+        // Not a programming error, MAX EGT displayed when shutdown is the running max EGT.
+        ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
+    }
 }
 
 #[derive(Debug)]
@@ -238,6 +229,9 @@ struct Starting {
     egt: ThermodynamicTemperature,
 }
 impl Starting {
+    const MAX_EGT_BELOW_25000_FEET: f64 = 900.;
+    const MAX_EGT_AT_OR_ABOVE_25000_FEET: f64 = 982.;
+
     fn new(air_intake_flap: AirIntakeFlap, bleed_air_valve: ApuBleedAirValve) -> Starting {
         Starting {
             air_intake_flap,
@@ -249,11 +243,24 @@ impl Starting {
     }
 
     fn calculate_egt(&self, context: &UpdateContext) -> ThermodynamicTemperature {
-        const APU_N_TEMP_CONST: f64 = -96.565;
-        const APU_N_TEMP_X: f64 = 28.571;
-        const APU_N_TEMP_X2: f64 = 0.0884;
-        const APU_N_TEMP_X3: f64 = -0.0081;
-        const APU_N_TEMP_X4: f64 = 0.00005;
+        // Curve fitted quartic regression
+        // Data points, based on a video by Komp with OAT at 5 degrees. Note that OAT isn't yet part of the formulae,
+        // as we don't know the exact temperature effects on EGT yet (linear or not?).
+        // 11 = 10 (not much happens with EGT before this)
+        // 16 = 200
+        // 21 = 440
+        // 27 = 600
+        // 40 = 720
+        // 45 = 720
+        // 70 = 590
+        // 85 = 460
+        // 90 = 430
+        // 100 = 375
+        const APU_N_TEMP_CONST: f64 = -809.8689;
+        const APU_N_TEMP_X: f64 = 91.95122;
+        const APU_N_TEMP_X2: f64 = -1.878787;
+        const APU_N_TEMP_X3: f64 = 0.01528011;
+        const APU_N_TEMP_X4: f64 = -0.00004504067;
 
         let n = self.n.get::<percent>();
 
@@ -335,6 +342,11 @@ impl ApuState for Starting {
     fn get_egt(&self) -> ThermodynamicTemperature {
         self.egt
     }
+
+    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature {
+        // TODO: Get altitude (not AGL but barometric).
+        ThermodynamicTemperature::new::<degree_celsius>(Starting::MAX_EGT_BELOW_25000_FEET)
+    }
 }
 
 #[derive(Debug)]
@@ -345,6 +357,7 @@ struct Running {
 }
 impl Running {
     const BLEED_AIR_COOLDOWN_DURATION_MILLIS: u64 = 120000;
+    const MAX_EGT: f64 = 682.;
 
     fn new(
         air_intake_flap: AirIntakeFlap,
@@ -422,6 +435,10 @@ impl ApuState for Running {
 
     fn get_egt(&self) -> ThermodynamicTemperature {
         self.egt
+    }
+
+    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature {
+        ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
 }
 
@@ -506,6 +523,11 @@ impl ApuState for Stopping {
 
     fn get_egt(&self) -> ThermodynamicTemperature {
         self.egt
+    }
+
+    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature {
+        // Not a programming error, MAX EGT displayed when stopping is the running max EGT.
+        ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
 }
 
@@ -921,7 +943,7 @@ pub mod tests {
         }
 
         #[test]
-        fn when_apu_starting_egt_reaches_above_800_degree_celsius() {
+        fn when_apu_starting_egt_reaches_above_700_degree_celsius() {
             let mut tester = tester_with().starting_apu();
             let mut max_egt: f64 = 0.;
 
@@ -936,7 +958,7 @@ pub mod tests {
                 max_egt = egt;
             }
 
-            assert!(max_egt > 800.);
+            assert!(max_egt > 700.);
         }
 
         #[test]
