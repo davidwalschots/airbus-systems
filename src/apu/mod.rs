@@ -636,12 +636,14 @@ enum AirIntakeFlapTarget {
 struct AirIntakeFlap {
     state: Ratio,
     target: AirIntakeFlapTarget,
-    delay: i32,
+    delay: u8,
 }
 impl AirIntakeFlap {
+    const MINIMUM_TRAVEL_TIME_SECS: u8 = 3;
+
     fn new() -> AirIntakeFlap {
         let mut rng = rand::thread_rng();
-        let delay = 3 + rng.gen_range(0..13);
+        let delay = AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS + rng.gen_range(0..13);
 
         AirIntakeFlap {
             state: Ratio::new::<percent>(0.),
@@ -661,7 +663,7 @@ impl AirIntakeFlap {
         {
             self.state -= Ratio::new::<percent>(
                 self.get_flap_change_for_delta(context)
-                    .max(self.state.get::<percent>()),
+                    .min(self.state.get::<percent>()),
             );
         }
     }
@@ -1091,6 +1093,22 @@ pub mod tests {
         }
 
         #[test]
+        fn does_not_instantly_open() {
+            let mut flap = AirIntakeFlap::new();
+            flap.open();
+
+            flap.update(
+                &context_with()
+                    .delta(Duration::from_secs(
+                        (AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS - 1) as u64,
+                    ))
+                    .build(),
+            );
+
+            assert_ne!(flap.state.get::<percent>(), 100.);
+        }
+
+        #[test]
         fn closes_when_target_is_closed() {
             let mut flap = AirIntakeFlap::new();
             flap.open();
@@ -1101,6 +1119,24 @@ pub mod tests {
             flap.update(&context_with().delta(Duration::from_secs(2)).build());
 
             assert!(flap.state.get::<percent>() < open_percentage);
+        }
+
+        #[test]
+        fn does_not_instantly_close() {
+            let mut flap = AirIntakeFlap::new();
+            flap.open();
+            flap.update(&context_with().delta(Duration::from_secs(5)).build());
+
+            flap.close();
+            flap.update(
+                &context_with()
+                    .delta(Duration::from_secs(
+                        (AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS - 1) as u64,
+                    ))
+                    .build(),
+            );
+
+            assert_ne!(flap.state.get::<percent>(), 0.);
         }
 
         #[test]
