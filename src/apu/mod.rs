@@ -664,157 +664,203 @@ impl AirIntakeFlap {
 }
 
 #[cfg(test)]
-pub mod test_helpers {
+pub mod tests {
+    use std::time::Duration;
+
+    use uom::si::thermodynamic_temperature::degree_celsius;
+
     use crate::shared::test_helpers::context_with;
 
     use super::*;
 
     pub fn running_apu() -> AuxiliaryPowerUnit {
-        let mut apu = AuxiliaryPowerUnit::new();
+        tester_with().running_apu().get_apu()
+    }
 
-        loop {
-            apu.update(
-                &context_with().delta(Duration::from_secs(1)).build(),
-                &starting_overhead(),
-                &bleed_air_on_overhead(),
-            );
-            if apu.is_available() {
-                break;
+    pub fn stopped_apu() -> AuxiliaryPowerUnit {
+        tester().get_apu()
+    }
+
+    fn tester_with() -> AuxiliaryPowerUnitTester {
+        AuxiliaryPowerUnitTester::new()
+    }
+
+    fn tester() -> AuxiliaryPowerUnitTester {
+        AuxiliaryPowerUnitTester::new()
+    }
+
+    struct AuxiliaryPowerUnitTester {
+        apu: AuxiliaryPowerUnit,
+        apu_overhead: AuxiliaryPowerUnitOverheadPanel,
+        pneumatic_overhead: PneumaticOverheadPanel,
+        ambient_temperature: ThermodynamicTemperature,
+    }
+    impl AuxiliaryPowerUnitTester {
+        fn new() -> Self {
+            AuxiliaryPowerUnitTester {
+                apu: AuxiliaryPowerUnit::new(),
+                apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
+                pneumatic_overhead: PneumaticOverheadPanel::new(),
+                ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
             }
         }
 
-        apu
+        fn master_on(mut self) -> Self {
+            self.apu_overhead.master.turn_on();
+            self
+        }
+
+        fn master_off(mut self) -> Self {
+            self.apu_overhead.master.turn_off();
+            self
+        }
+
+        fn start_on(mut self) -> Self {
+            self.apu_overhead.start.turn_on();
+            self
+        }
+
+        fn bleed_air_off(mut self) -> Self {
+            self.pneumatic_overhead.turn_apu_bleed_off();
+            self
+        }
+
+        fn starting_apu(self) -> Self {
+            self.master_on()
+                .run(Duration::from_secs(1_000))
+                .then_continue_with()
+                .start_on()
+                .run(Duration::from_secs(0))
+        }
+
+        fn running_apu(mut self) -> Self {
+            self = self.starting_apu();
+            loop {
+                self = self.run(Duration::from_secs(1));
+                if self.apu.is_available() {
+                    break;
+                }
+            }
+
+            self
+        }
+
+        fn running_apu_with_bleed_air(mut self) -> Self {
+            self.pneumatic_overhead.turn_apu_bleed_on();
+            self.running_apu()
+        }
+
+        fn running_apu_without_bleed_air(mut self) -> Self {
+            self.pneumatic_overhead.turn_apu_bleed_off();
+            self.running_apu()
+        }
+
+        fn ambient_temperature(mut self, ambient: ThermodynamicTemperature) -> Self {
+            self.ambient_temperature = ambient;
+            self
+        }
+
+        fn and(self) -> Self {
+            self
+        }
+
+        fn then_continue_with(self) -> Self {
+            self
+        }
+
+        fn run(mut self, delta: Duration) -> Self {
+            self.apu.update(
+                &context_with()
+                    .delta(delta)
+                    .and()
+                    .ambient_temperature(self.ambient_temperature)
+                    .build(),
+                &self.apu_overhead,
+                &self.pneumatic_overhead,
+            );
+
+            self.apu_overhead.update_after_apu(&self.apu);
+
+            self
+        }
+
+        fn is_air_intake_flap_fully_open(&self) -> bool {
+            self.apu.is_air_intake_flap_fully_open()
+        }
+
+        fn get_n(&self) -> Ratio {
+            self.apu.get_n()
+        }
+
+        fn get_egt(&self) -> ThermodynamicTemperature {
+            self.apu.get_egt()
+        }
+
+        fn get_egt_maximum_temperature(&self) -> ThermodynamicTemperature {
+            self.apu.get_egt_maximum_temperature()
+        }
+
+        fn get_egt_warning_temperature(&self) -> ThermodynamicTemperature {
+            self.apu.get_egt_warning_temperature()
+        }
+
+        fn apu_is_available(&self) -> bool {
+            self.apu.is_available()
+        }
+
+        fn start_is_on(&self) -> bool {
+            self.apu_overhead.start_is_on()
+        }
+
+        fn start_shows_available(&self) -> bool {
+            self.apu_overhead.start_shows_available()
+        }
+
+        fn get_apu(self) -> AuxiliaryPowerUnit {
+            self.apu
+        }
     }
-
-    pub fn bleed_air_off_running_apu() -> AuxiliaryPowerUnit {
-        let mut apu = running_apu();
-        apu.update(
-            &context_with().delta(Duration::from_secs(120)).build(),
-            &running_overhead(),
-            &bleed_air_off_overhead(),
-        );
-
-        apu
-    }
-
-    pub fn bleed_air_on_overhead() -> PneumaticOverheadPanel {
-        PneumaticOverheadPanel::new()
-    }
-
-    pub fn bleed_air_off_overhead() -> PneumaticOverheadPanel {
-        let mut overhead = PneumaticOverheadPanel::new();
-        overhead.turn_apu_bleed_off();
-
-        overhead
-    }
-
-    pub fn starting_overhead() -> AuxiliaryPowerUnitOverheadPanel {
-        let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-        overhead.master.turn_on();
-        overhead.start.turn_on();
-
-        overhead
-    }
-
-    pub fn running_overhead() -> AuxiliaryPowerUnitOverheadPanel {
-        let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-        overhead.master.turn_on();
-
-        overhead
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use uom::si::{length::foot, thermodynamic_temperature::degree_celsius, velocity::knot};
-
-    use super::*;
 
     #[cfg(test)]
     mod apu_tests {
         use ntest::{assert_about_eq, timeout};
 
-        use crate::{
-            apu::test_helpers::{
-                bleed_air_off_overhead, bleed_air_off_running_apu, bleed_air_on_overhead,
-                running_apu, running_overhead, starting_overhead,
-            },
-            shared::test_helpers::context_with,
-        };
-
         use super::*;
 
         #[test]
         fn when_apu_master_sw_turned_on_air_intake_flap_opens() {
-            let mut apu = AuxiliaryPowerUnit::new();
-            let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-            overhead.master.turn_on();
+            let tester = tester_with().master_on().run(Duration::from_secs(20));
 
-            apu.update(
-                &context_with().delta(Duration::from_secs(20)).build(),
-                &overhead,
-                &bleed_air_on_overhead(),
-            );
-
-            assert_eq!(apu.is_air_intake_flap_fully_open(), true)
+            assert_eq!(tester.is_air_intake_flap_fully_open(), true)
         }
 
         #[test]
-        fn when_start_sw_on_when_air_intake_flap_fully_open_starting_sequence_commences() {
-            let mut apu = AuxiliaryPowerUnit::new();
-            let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-            overhead.master.turn_on();
-            apu.update(
-                &context_with().delta(Duration::from_secs(1_000)).build(),
-                &overhead,
-                &bleed_air_on_overhead(),
-            );
-
-            overhead.start.turn_on();
-            apu.update(
-                &context_with().delta(Duration::from_secs(0)).build(),
-                &overhead,
-                &bleed_air_on_overhead(),
-            );
+        fn when_start_sw_on_apu_starts_within_expected_time() {
             const APPROXIMATE_STARTUP_TIME: u64 = 49;
-            apu.update(
-                &context_with()
-                    .delta(Duration::from_secs(APPROXIMATE_STARTUP_TIME))
-                    .build(),
-                &overhead,
-                &bleed_air_on_overhead(),
-            );
 
-            assert_eq!(apu.get_n().get::<percent>(), 100.);
+            let tester = tester_with()
+                .starting_apu()
+                .run(Duration::from_secs(APPROXIMATE_STARTUP_TIME));
+
+            assert_eq!(tester.get_n().get::<percent>(), 100.);
         }
 
         #[test]
         fn one_and_a_half_seconds_after_starting_sequence_commences_ignition_starts() {
-            let mut apu = starting_apu();
-            let overhead = starting_overhead();
-
-            apu.update(
-                &context_with().delta(Duration::from_millis(1500)).build(),
-                &overhead,
-                &bleed_air_on_overhead(),
-            );
+            let tester = tester_with()
+                .starting_apu()
+                .run(Duration::from_millis(1500));
 
             assert_eq!(
-                apu.get_n().get::<percent>(),
+                tester.get_n().get::<percent>(),
                 0.,
                 "Ignition started too early."
             );
 
-            apu.update(
-                &context_with().delta(Duration::from_millis(1)).build(),
-                &overhead,
-                &bleed_air_on_overhead(),
-            );
+            let tester = tester.then_continue_with().run(Duration::from_millis(1));
 
             assert!(
-                apu.get_n().get::<percent>() > 0.,
+                tester.get_n().get::<percent>() > 0.,
                 "Ignition started too late."
             );
         }
@@ -822,61 +868,51 @@ mod tests {
         #[test]
         fn when_apu_not_started_egt_is_ambient() {
             const AMBIENT_TEMPERATURE: f64 = 0.;
-            let mut apu = AuxiliaryPowerUnit::new();
-            let overhead = AuxiliaryPowerUnitOverheadPanel::new();
-            apu.update(
-                &context_with()
-                    .delta(Duration::from_secs(1_000))
-                    .and()
-                    .ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(
-                        AMBIENT_TEMPERATURE,
-                    ))
-                    .build(),
-                &overhead,
-                &bleed_air_on_overhead(),
-            );
 
-            assert_eq!(apu.get_egt().get::<degree_celsius>(), AMBIENT_TEMPERATURE);
+            let tester = tester_with()
+                .ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(
+                    AMBIENT_TEMPERATURE,
+                ))
+                .run(Duration::from_secs(1_000));
+
+            assert_eq!(
+                tester.get_egt().get::<degree_celsius>(),
+                AMBIENT_TEMPERATURE
+            );
         }
 
         #[test]
         fn when_ambient_temperature_high_startup_egt_never_below_ambient() {
-            let mut apu = starting_apu();
-
             const AMBIENT_TEMPERATURE: f64 = 50.;
-            apu.update(
-                &context_with()
-                    .ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(
-                        AMBIENT_TEMPERATURE,
-                    ))
-                    .delta(Duration::from_secs(1))
-                    .build(),
-                &starting_overhead(),
-                &bleed_air_on_overhead(),
-            );
 
-            assert_eq!(apu.get_egt().get::<degree_celsius>(), AMBIENT_TEMPERATURE);
+            let tester = tester_with()
+                .starting_apu()
+                .and()
+                .ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(
+                    AMBIENT_TEMPERATURE,
+                ))
+                .run(Duration::from_secs(1));
+
+            assert_eq!(
+                tester.get_egt().get::<degree_celsius>(),
+                AMBIENT_TEMPERATURE
+            );
         }
 
         #[test]
         fn when_apu_starting_egt_reaches_above_800_degree_celsius() {
-            let mut apu = starting_apu();
-
+            let mut tester = tester_with().starting_apu();
             let mut max_egt: f64 = 0.;
 
             loop {
-                apu.update(
-                    &context_with().delta(Duration::from_secs(1)).build(),
-                    &starting_overhead(),
-                    &bleed_air_on_overhead(),
-                );
+                tester = tester.run(Duration::from_secs(1));
 
-                let apu_egt = apu.get_egt().get::<degree_celsius>();
-                if apu_egt < max_egt {
+                let egt = tester.get_egt().get::<degree_celsius>();
+                if egt < max_egt {
                     break;
                 }
 
-                max_egt = apu_egt;
+                max_egt = egt;
             }
 
             assert!(max_egt > 800.);
@@ -884,43 +920,32 @@ mod tests {
 
         #[test]
         fn egt_max_always_33_above_egt_warn() {
-            let mut apu = starting_apu();
+            let mut tester = tester_with().starting_apu();
 
             for _ in 1..=100 {
-                apu.update(
-                    &context_with().delta(Duration::from_secs(1)).build(),
-                    &starting_overhead(),
-                    &bleed_air_on_overhead(),
-                );
+                tester = tester.run(Duration::from_secs(1));
 
                 assert_about_eq!(
-                    apu.get_egt_maximum_temperature().get::<degree_celsius>(),
-                    apu.get_egt_warning_temperature().get::<degree_celsius>() + 33.
+                    tester.get_egt_maximum_temperature().get::<degree_celsius>(),
+                    tester.get_egt_warning_temperature().get::<degree_celsius>() + 33.
                 );
             }
         }
 
         #[test]
         fn start_sw_on_light_turns_off_when_apu_available() {
-            let mut apu = starting_apu();
-            let mut overhead = starting_overhead();
+            let mut tester = tester_with().starting_apu();
 
             loop {
-                apu.update(
-                    &context_with().delta(Duration::from_secs(1)).build(),
-                    &overhead,
-                    &bleed_air_on_overhead(),
-                );
+                tester = tester.run(Duration::from_secs(1));
 
-                overhead.update_after_apu(&apu);
-
-                if apu.is_available() {
+                if tester.apu_is_available() {
                     break;
                 }
             }
 
-            assert!(!overhead.start_is_on());
-            assert!(overhead.start_shows_available());
+            assert!(!tester.start_is_on());
+            assert!(tester.start_shows_available());
         }
 
         #[test]
@@ -928,24 +953,17 @@ mod tests {
         ) {
             // The cool down period is between 60 to 120. It is configurable by aircraft mechanics and
             // we'll make it a configurable option in the sim. For now, 120s.
+            let tester = tester_with()
+                .running_apu()
+                .and()
+                .master_off()
+                .run(Duration::from_secs(120));
 
-            let mut apu = running_apu();
+            assert!(tester.apu_is_available());
 
-            apu.update(
-                &context_with().delta(Duration::from_secs(120)).build(),
-                &shutting_down_overhead(),
-                &bleed_air_on_overhead(),
-            );
+            let tester = tester.run(Duration::from_millis(1));
 
-            assert!(apu.is_available());
-
-            apu.update(
-                &context_with().delta(Duration::from_millis(1)).build(),
-                &shutting_down_overhead(),
-                &bleed_air_on_overhead(),
-            );
-
-            assert!(!apu.is_available());
+            assert!(!tester.apu_is_available());
         }
 
         #[test]
@@ -954,47 +972,32 @@ mod tests {
             // The cool down period requires that the bleed valve is shut for a duration (default 120s).
             // If the bleed valve was shut earlier than the MASTER SW going to OFF, that time period counts towards the cool down period.
 
-            // A running APU starts with bleed air on.
-            let mut apu = running_apu();
+            let tester = tester_with()
+                .running_apu_with_bleed_air()
+                .and()
+                .bleed_air_off()
+                .run(Duration::from_secs(80));
 
-            apu.update(
-                &context_with().delta(Duration::from_secs(80)).build(),
-                &running_overhead(),
-                &bleed_air_off_overhead(),
-            );
+            assert!(tester.apu_is_available());
 
-            assert!(apu.is_available());
+            let tester = tester.master_off().run(Duration::from_secs(40));
 
-            apu.update(
-                &context_with().delta(Duration::from_secs(40)).build(),
-                &shutting_down_overhead(),
-                &bleed_air_off_overhead(),
-            );
+            assert!(tester.apu_is_available());
 
-            assert!(apu.is_available());
+            let tester = tester.run(Duration::from_millis(1));
 
-            apu.update(
-                &context_with().delta(Duration::from_millis(1)).build(),
-                &shutting_down_overhead(),
-                &bleed_air_off_overhead(),
-            );
-
-            assert!(!apu.is_available());
+            assert!(!tester.apu_is_available());
         }
 
         #[test]
         fn when_apu_bleed_valve_closed_on_shutdown_cooldown_period_is_skipped_and_apu_stops() {
-            let mut apu = bleed_air_off_running_apu();
+            let tester = tester_with().running_apu_without_bleed_air();
 
-            assert!(apu.is_available());
+            assert!(tester.apu_is_available());
 
-            apu.update(
-                &context_with().delta(Duration::from_millis(1)).build(),
-                &shutting_down_overhead(),
-                &bleed_air_off_overhead(),
-            );
+            let tester = tester.master_off().run(Duration::from_millis(1));
 
-            assert!(!apu.is_available());
+            assert!(!tester.apu_is_available());
         }
 
         #[test]
@@ -1004,109 +1007,50 @@ mod tests {
         }
 
         #[test]
-        #[ignore]
-        fn when_apu_master_sw_turned_off_avail_on_start_pb_goes_off() {}
-
-        #[test]
-        #[ignore]
-        // TODO 60 to 120 secs actually... Ask komp.
-        fn when_apu_master_sw_turned_off_if_apu_bleed_air_was_used_apu_keeps_running_for_60_second_cooldown(
-        ) {
-        }
-
-        #[test]
         fn when_apu_shutting_down_at_7_percent_n_air_inlet_flap_closes() {
-            let overhead = shutting_down_overhead();
-            let mut apu = running_apu();
+            let mut tester = tester_with().running_apu().and().master_off();
 
             loop {
-                apu.update(
-                    &context_with().delta(Duration::from_secs(1)).build(),
-                    &overhead,
-                    &bleed_air_on_overhead(),
-                );
+                tester = tester.run(Duration::from_secs(1));
 
-                if apu.get_n().get::<percent>() <= 7. {
+                if tester.get_n().get::<percent>() <= 7. {
                     break;
                 }
             }
 
-            assert!(!apu.is_air_intake_flap_fully_open());
+            assert!(!tester.is_air_intake_flap_fully_open());
         }
 
         #[test]
         #[timeout(500)]
         fn apu_cools_down_to_ambient_temperature_after_running() {
-            let overhead = shutting_down_overhead();
-            let mut apu = running_apu();
-
             let ambient = ThermodynamicTemperature::new::<degree_celsius>(10.);
-            while apu.get_egt() != ambient {
-                apu.update(
-                    &context_with()
-                        .delta(Duration::from_secs(1))
-                        .ambient_temperature(ambient)
-                        .build(),
-                    &overhead,
-                    &bleed_air_on_overhead(),
-                );
+            let mut tester = tester_with()
+                .running_apu()
+                .ambient_temperature(ambient)
+                .and()
+                .master_off();
+
+            while tester.get_egt() != ambient {
+                tester = tester.run(Duration::from_secs(1));
             }
         }
 
         #[test]
         fn shutdown_apu_warms_up_as_ambient_temperature_increases() {
-            let overhead = shutting_down_overhead();
-            let mut apu = AuxiliaryPowerUnit::new();
+            let starting_temperature = ThermodynamicTemperature::new::<degree_celsius>(0.);
+            let tester = tester_with().ambient_temperature(starting_temperature);
 
-            const STARTING_TEMPERATURE: f64 = 0.;
-            let starting_temp =
-                ThermodynamicTemperature::new::<degree_celsius>(STARTING_TEMPERATURE);
-            apu.update(
-                &context_with()
-                    .delta(Duration::from_secs(1_000))
-                    .ambient_temperature(starting_temp)
-                    .build(),
-                &overhead,
-                &bleed_air_on_overhead(),
-            );
+            let tester = tester.run(Duration::from_secs(1_000));
 
-            const TARGET_TEMPERATURE: f64 = 20.;
-            let target_temp = ThermodynamicTemperature::new::<degree_celsius>(TARGET_TEMPERATURE);
-            apu.update(
-                &context_with()
-                    .delta(Duration::from_secs(1_000))
-                    .ambient_temperature(target_temp)
-                    .build(),
-                &overhead,
-                &bleed_air_on_overhead(),
-            );
+            let target_temperature = ThermodynamicTemperature::new::<degree_celsius>(20.);
 
-            assert_eq!(apu.get_egt(), target_temp);
-        }
+            let tester = tester
+                .then_continue_with()
+                .ambient_temperature(target_temperature)
+                .run(Duration::from_secs(1_000));
 
-        fn starting_apu() -> AuxiliaryPowerUnit {
-            let mut apu = AuxiliaryPowerUnit::new();
-            let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-            overhead.master.turn_on();
-            apu.update(
-                &context_with().delta(Duration::from_secs(1_000)).build(),
-                &overhead,
-                &bleed_air_on_overhead(),
-            );
-
-            overhead.start.turn_on();
-
-            apu.update(
-                &context_with().delta(Duration::from_secs(0)).build(),
-                &overhead,
-                &bleed_air_on_overhead(),
-            );
-
-            apu
-        }
-
-        fn shutting_down_overhead() -> AuxiliaryPowerUnitOverheadPanel {
-            AuxiliaryPowerUnitOverheadPanel::new()
+            assert_eq!(tester.get_egt(), target_temperature);
         }
     }
 

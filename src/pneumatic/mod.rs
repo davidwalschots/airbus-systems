@@ -16,6 +16,10 @@ impl PneumaticOverheadPanel {
         self.apu_bleed.is_on()
     }
 
+    pub fn turn_apu_bleed_on(&mut self) {
+        self.apu_bleed.turn_on();
+    }
+
     pub fn turn_apu_bleed_off(&mut self) {
         self.apu_bleed.turn_off();
     }
