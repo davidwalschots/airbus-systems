@@ -28,8 +28,6 @@
 //!   start unless there is some kind of danger. When unburned fuel remains in the
 //!   combustion section, it will ignite at the next APU start and shoot a flame out
 //!   out the exhaust
-//! - What if during the APU cool down the MASTER SW is pushed back ON?
-//!   Komp: I'm pretty sure this will cancel the shutdown and the APU will continue like it never happened.
 //! - Effect of APU fire pb on APU state.
 //! - EGT MAX improvements: "is a function of N during start and a function of ambient
 //!   temperature when running".
@@ -38,6 +36,7 @@
 //!   - When in electrical emergency config, battery contactors close for max 3 mins when
 //!     APU MASTER SW is on.
 //!   - When in flight, and in electrical emergency config, APU start is inhibited for 45 secs.
+//! - On creation of an APU, pass some context including ambient temp, so the temp can start at the right value?
 
 use core::fmt::Debug;
 use std::time::Duration;
@@ -351,6 +350,8 @@ struct Running {
     egt: ThermodynamicTemperature,
 }
 impl Running {
+    const BLEED_AIR_COOLDOWN_DURATION_MILLIS: u64 = 120000;
+
     fn new(
         air_intake_flap: AirIntakeFlap,
         bleed_air_valve: ApuBleedAirValve,
@@ -381,10 +382,9 @@ impl Running {
     }
 
     fn is_past_bleed_air_cooldown_period(&self) -> bool {
-        const BLEED_AIR_COOLDOWN_DURATION_SECS: u64 = 120;
-        !self
-            .bleed_air_valve
-            .was_open_in_last(Duration::from_secs(BLEED_AIR_COOLDOWN_DURATION_SECS))
+        !self.bleed_air_valve.was_open_in_last(Duration::from_millis(
+            Running::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
+        ))
     }
 }
 impl ApuState for Running {
@@ -979,7 +979,9 @@ pub mod tests {
                 .running_apu()
                 .and()
                 .master_off()
-                .run(Duration::from_secs(120));
+                .run(Duration::from_millis(
+                    Running::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
+                ));
 
             assert!(tester.apu_is_available());
 
@@ -998,11 +1000,15 @@ pub mod tests {
                 .running_apu_with_bleed_air()
                 .and()
                 .bleed_air_off()
-                .run(Duration::from_secs(80));
+                .run(Duration::from_millis(
+                    (Running::BLEED_AIR_COOLDOWN_DURATION_MILLIS / 3) * 2,
+                ));
 
             assert!(tester.apu_is_available());
 
-            let tester = tester.master_off().run(Duration::from_secs(40));
+            let tester = tester.master_off().run(Duration::from_millis(
+                Running::BLEED_AIR_COOLDOWN_DURATION_MILLIS / 3,
+            ));
 
             assert!(tester.apu_is_available());
 
@@ -1020,6 +1026,24 @@ pub mod tests {
             let tester = tester.master_off().run(Duration::from_millis(1));
 
             assert!(!tester.apu_is_available());
+        }
+
+        #[test]
+        fn when_master_sw_off_then_back_on_during_cooldown_period_apu_continues_running() {
+            let tester = tester_with()
+                .running_apu_with_bleed_air()
+                .and()
+                .master_off()
+                .run(Duration::from_millis(
+                    Running::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
+                ));
+
+            let tester = tester
+                .then_continue_with()
+                .master_on()
+                .run(Duration::from_millis(1));
+
+            assert!(tester.apu_is_available());
         }
 
         #[test]
