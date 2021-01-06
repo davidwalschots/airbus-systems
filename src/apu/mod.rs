@@ -39,8 +39,10 @@
 //!     APU MASTER SW is on.
 //!   - When in flight, and in electrical emergency config, APU start is inhibited for 45 secs.
 
+use core::fmt::Debug;
 use std::time::Duration;
 
+use enum_dispatch::enum_dispatch;
 use rand::prelude::*;
 use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
 
@@ -57,8 +59,9 @@ enum ShutdownReason {
     Automatic, // Will be split further later into all kinds of reasons for automatic shutdown.
 }
 
+#[derive(Debug)]
 pub struct AuxiliaryPowerUnit {
-    state: Option<Box<dyn ApuState>>,
+    state: Option<ApuStateEnum>,
     egt_warning_temp: ThermodynamicTemperature,
 }
 impl AuxiliaryPowerUnit {
@@ -69,12 +72,15 @@ impl AuxiliaryPowerUnit {
 
     pub fn new() -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
-            state: Some(Box::new(Shutdown::new(
-                AirIntakeFlap::new(),
-                ApuBleedAirValve::new(),
-                ShutdownReason::Manual,
-                ThermodynamicTemperature::new::<degree_celsius>(0.),
-            ))),
+            state: Some(
+                Shutdown::new(
+                    AirIntakeFlap::new(),
+                    ApuBleedAirValve::new(),
+                    ShutdownReason::Manual,
+                    ThermodynamicTemperature::new::<degree_celsius>(0.),
+                )
+                .into(),
+            ),
             egt_warning_temp: ThermodynamicTemperature::new::<degree_celsius>(
                 AuxiliaryPowerUnit::WARNING_MAX_TEMPERATURE,
             ),
@@ -88,7 +94,7 @@ impl AuxiliaryPowerUnit {
         pneumatic_overhead: &PneumaticOverheadPanel,
     ) {
         if let Some(state) = self.state.take() {
-            self.state = Some(state.update(context, overhead, pneumatic_overhead));
+            self.state = Some(state.update(context, overhead, pneumatic_overhead).into());
         }
 
         self.egt_warning_temp = self.calculate_egt_warning_temp();
@@ -134,13 +140,23 @@ impl AuxiliaryPowerUnit {
     }
 }
 
+#[enum_dispatch]
+#[derive(Debug)]
+enum ApuStateEnum {
+    Shutdown,
+    Starting,
+    Running,
+    Stopping,
+}
+
+#[enum_dispatch(ApuStateEnum)]
 trait ApuState {
     fn update(
-        self: Box<Self>,
+        self,
         context: &UpdateContext,
         overhead: &AuxiliaryPowerUnitOverheadPanel,
         pneumatic_overhead: &PneumaticOverheadPanel,
-    ) -> Box<dyn ApuState>;
+    ) -> ApuStateEnum;
 
     fn get_n(&self) -> Ratio;
 
@@ -152,6 +168,7 @@ trait ApuState {
     fn get_egt(&self) -> ThermodynamicTemperature;
 }
 
+#[derive(Debug)]
 struct Shutdown {
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
@@ -175,11 +192,11 @@ impl Shutdown {
 }
 impl ApuState for Shutdown {
     fn update(
-        mut self: Box<Self>,
+        mut self,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         pneumatic_overhead: &PneumaticOverheadPanel,
-    ) -> Box<dyn ApuState> {
+    ) -> ApuStateEnum {
         if apu_overhead.master_is_on() {
             self.air_intake_flap.open();
         } else {
@@ -196,9 +213,9 @@ impl ApuState for Shutdown {
             && apu_overhead.master_is_on()
             && apu_overhead.start_is_on()
         {
-            Box::new(Starting::new(self.air_intake_flap, self.bleed_air_valve))
+            Starting::new(self.air_intake_flap, self.bleed_air_valve).into()
         } else {
-            self
+            self.into()
         }
     }
 
@@ -219,6 +236,7 @@ impl ApuState for Shutdown {
     }
 }
 
+#[derive(Debug)]
 struct Starting {
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
@@ -288,11 +306,11 @@ impl Starting {
 }
 impl ApuState for Starting {
     fn update(
-        mut self: Box<Self>,
+        mut self,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         pneumatic_overhead: &PneumaticOverheadPanel,
-    ) -> Box<dyn ApuState> {
+    ) -> ApuStateEnum {
         self.since = self.since + context.delta;
         self.n = self.calculate_n();
         self.egt = self.calculate_egt(context);
@@ -303,13 +321,9 @@ impl ApuState for Starting {
             .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
 
         if self.n.get::<percent>() == 100. {
-            Box::new(Running::new(
-                self.air_intake_flap,
-                self.bleed_air_valve,
-                self.egt,
-            ))
+            Running::new(self.air_intake_flap, self.bleed_air_valve, self.egt).into()
         } else {
-            self
+            self.into()
         }
     }
 
@@ -330,6 +344,7 @@ impl ApuState for Starting {
     }
 }
 
+#[derive(Debug)]
 struct Running {
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
@@ -374,11 +389,11 @@ impl Running {
 }
 impl ApuState for Running {
     fn update(
-        mut self: Box<Self>,
+        mut self,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         pneumatic_overhead: &PneumaticOverheadPanel,
-    ) -> Box<dyn ApuState> {
+    ) -> ApuStateEnum {
         self.egt = self.calculate_slow_cooldown_to_running_temperature(context);
 
         self.air_intake_flap.update(context);
@@ -387,14 +402,15 @@ impl ApuState for Running {
             .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
 
         if apu_overhead.master_is_off() && self.is_past_bleed_air_cooldown_period() {
-            Box::new(Stopping::new(
+            Stopping::new(
                 self.air_intake_flap,
                 self.bleed_air_valve,
                 self.egt,
                 ShutdownReason::Manual,
-            ))
+            )
+            .into()
         } else {
-            self
+            self.into()
         }
     }
 
@@ -415,6 +431,7 @@ impl ApuState for Running {
     }
 }
 
+#[derive(Debug)]
 struct Stopping {
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
@@ -450,11 +467,11 @@ impl Stopping {
 }
 impl ApuState for Stopping {
     fn update(
-        mut self: Box<Self>,
+        mut self,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         pneumatic_overhead: &PneumaticOverheadPanel,
-    ) -> Box<dyn ApuState> {
+    ) -> ApuStateEnum {
         self.since = self.since + context.delta;
         self.n = self.calculate_n(context);
         self.egt = calculate_towards_ambient_egt(self.egt, context);
@@ -469,14 +486,15 @@ impl ApuState for Stopping {
         self.air_intake_flap.update(context);
 
         if self.n.get::<percent>() == 0. {
-            Box::new(Shutdown::new(
+            Shutdown::new(
                 self.air_intake_flap,
                 self.bleed_air_valve,
                 self.reason,
                 self.egt,
-            ))
+            )
+            .into()
         } else {
-            self
+            self.into()
         }
     }
 
@@ -520,6 +538,7 @@ fn calculate_towards_ambient_egt(
     }
 }
 
+#[derive(Debug)]
 struct ApuBleedAirValve {
     valve: BleedAirValve,
     last_open_time_ago: Duration,
@@ -564,6 +583,7 @@ impl ApuBleedAirValve {
     }
 }
 
+#[derive(Debug)]
 pub struct AuxiliaryPowerUnitOverheadPanel {
     pub master: OnOffPushButton,
     pub start: OnOffPushButton,
