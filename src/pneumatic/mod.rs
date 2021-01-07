@@ -2,7 +2,6 @@
 
 use crate::overhead::OnOffPushButton;
 
-#[derive(Debug)]
 pub struct PneumaticOverheadPanel {
     apu_bleed: OnOffPushButton,
 }
@@ -26,7 +25,6 @@ impl PneumaticOverheadPanel {
     }
 }
 
-#[derive(Debug)]
 pub struct BleedAirValve {
     open: bool,
 }

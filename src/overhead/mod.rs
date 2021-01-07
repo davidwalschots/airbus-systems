@@ -1,10 +1,9 @@
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub enum OnOffPushButtonState {
     On,
     Off,
 }
 
-#[derive(Debug)]
 pub struct OnOffPushButton {
     state: OnOffPushButtonState,
     fault: bool,
