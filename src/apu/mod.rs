@@ -34,13 +34,12 @@
 
 use std::time::Duration;
 
-use rand::prelude::*;
 use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
 
 use crate::{
     overhead::OnOffPushButton,
     pneumatic::{BleedAirValve, PneumaticOverheadPanel},
-    shared::UpdateContext,
+    shared::{random_number, UpdateContext},
     visitor::Visitable,
 };
 
@@ -371,8 +370,7 @@ impl Running {
         &self,
         context: &UpdateContext,
     ) -> ThermodynamicTemperature {
-        let mut rng = rand::thread_rng();
-        let random_target_temperature: f64 = 500. - rng.gen_range(0..13) as f64;
+        let random_target_temperature: f64 = 500. - ((random_number() % 13) as f64);
 
         if self.egt.get::<degree_celsius>() > random_target_temperature {
             self.egt
@@ -649,8 +647,7 @@ impl AirIntakeFlap {
     const MINIMUM_TRAVEL_TIME_SECS: u8 = 3;
 
     fn new() -> AirIntakeFlap {
-        let mut rng = rand::thread_rng();
-        let delay = AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS + rng.gen_range(0..13);
+        let delay = AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS + (random_number() % 13);
 
         AirIntakeFlap {
             state: Ratio::new::<percent>(0.),

@@ -23,8 +23,8 @@ async fn demo(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> 
     while let Some(event) = gauge.next_event().await {
         match event {
             MSFSEvent::PreDraw(d) => {
-                a320.apu_overhead.master.push_on();
-                a320.apu_overhead.start.push_on();
+                a320.apu_overhead.master.turn_on();
+                a320.apu_overhead.start.turn_on();
 
                 a320.update(&UpdateContext {
                     delta: d.delta_time(),
