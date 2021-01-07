@@ -1,6 +1,5 @@
-use a320::{A320Electrical, A320ElectricalOverheadPanel, A320Hydraulic, A320};
-use electrical::ExternalPowerSource;
-use shared::{Engine, UpdateContext};
+use a320::A320;
+use shared::UpdateContext;
 use std::time::Duration;
 use uom::si::{f64::*, length::foot, thermodynamic_temperature::degree_celsius, velocity::knot};
 

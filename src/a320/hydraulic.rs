@@ -16,11 +16,11 @@ impl A320Hydraulic {
         self.blue_pressurised
     }
 
-    pub fn update(&mut self, context: &UpdateContext) {}
+    pub fn update(&mut self, _: &UpdateContext) {}
 }
 
 impl Visitable for A320Hydraulic {
-    fn accept(&mut self, visitor: &mut Box<dyn super::MutableVisitor>) {
+    fn accept(&mut self, _: &mut Box<dyn super::MutableVisitor>) {
         // TODO
     }
 }

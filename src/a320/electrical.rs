@@ -1,14 +1,11 @@
 use std::time::Duration;
-use uom::si::{
-    f64::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
-};
+use uom::si::{f64::*, velocity::knot};
 
 use crate::{
     apu::AuxiliaryPowerUnit,
     electrical::{
         ApuGenerator, Battery, Contactor, ElectricalBus, EmergencyGenerator, EngineGenerator,
-        ExternalPowerSource, IntegratedDriveGenerator, PowerConductor, Powerable, StaticInverter,
-        TransformerRectifier,
+        ExternalPowerSource, PowerConductor, Powerable, StaticInverter, TransformerRectifier,
     },
     overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
     shared::{DelayedTrueLogicGate, Engine, UpdateContext},
@@ -429,7 +426,7 @@ impl A320Electrical {
 }
 
 impl Visitable for A320Electrical {
-    fn accept(&mut self, visitor: &mut Box<dyn super::MutableVisitor>) {
+    fn accept(&mut self, _: &mut Box<dyn super::MutableVisitor>) {
         // TODO
     }
 }
@@ -467,7 +464,7 @@ impl A320ElectricalOverheadPanel {
         }
     }
 
-    pub fn update(&mut self, context: &UpdateContext) {}
+    pub fn update(&mut self, _: &UpdateContext) {}
 
     fn generator_1_is_on(&self) -> bool {
         self.gen_1.is_on()
@@ -507,7 +504,7 @@ impl A320ElectricalOverheadPanel {
 }
 
 impl Visitable for A320ElectricalOverheadPanel {
-    fn accept(&mut self, visitor: &mut Box<dyn super::MutableVisitor>) {
+    fn accept(&mut self, _: &mut Box<dyn super::MutableVisitor>) {
         // TODO
     }
 }
@@ -516,7 +513,11 @@ impl Visitable for A320ElectricalOverheadPanel {
 mod a320_electrical_circuit_tests {
     use crate::{
         apu::tests::stopped_apu,
-        electrical::{Current, PowerSource},
+        electrical::{Current, IntegratedDriveGenerator, PowerSource},
+    };
+
+    use uom::si::{
+        length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
     };
 
     use super::*;

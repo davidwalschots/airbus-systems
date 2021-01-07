@@ -18,5 +18,6 @@ pub fn random_number() -> u8 {
 #[link(wasm_import_module = "wasi_snapshot_preview1")]
 extern "C" {
     #[link_name = "random_get"]
+    #[cfg(any(target_arch = "wasm32", doc))]
     fn wasi_random_get(buf: *mut u8, buf_len: usize) -> u16;
 }

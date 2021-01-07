@@ -1,8 +1,4 @@
-use crate::{
-    apu::AuxiliaryPowerUnit,
-    electrical::{ApuGenerator, Contactor, EngineGenerator, ExternalPowerSource},
-    shared::Engine,
-};
+use crate::{apu::AuxiliaryPowerUnit, electrical::ExternalPowerSource, shared::Engine};
 
 pub trait MutableVisitor {
     fn visit_auxiliary_power_unit(&mut self, _apu: &mut AuxiliaryPowerUnit) {}

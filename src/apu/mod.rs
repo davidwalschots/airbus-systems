@@ -580,10 +580,6 @@ impl ApuBleedAirValve {
         }
     }
 
-    fn open_when(&mut self, condition: bool) {
-        self.valve.open_when(condition);
-    }
-
     fn was_open_in_last(&self, duration: Duration) -> bool {
         self.last_open_time_ago <= duration
     }
@@ -620,6 +616,7 @@ impl AuxiliaryPowerUnitOverheadPanel {
         self.start.is_on()
     }
 
+    #[cfg(test)]
     fn start_shows_available(&self) -> bool {
         self.start.shows_available()
     }
