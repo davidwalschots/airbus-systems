@@ -515,11 +515,12 @@ impl Visitable for A320ElectricalOverheadPanel {
 #[cfg(test)]
 mod a320_electrical_circuit_tests {
     use crate::{
-        apu::test_helpers::running_apu,
+        apu::tests::stopped_apu,
         electrical::{Current, PowerSource},
     };
 
     use super::*;
+    use crate::apu::tests::running_apu;
 
     /// # Source
     /// A320 manual electrical distribution table
@@ -1667,7 +1668,7 @@ mod a320_electrical_circuit_tests {
             ElectricalCircuitTester {
                 engine1: ElectricalCircuitTester::new_stopped_engine(),
                 engine2: ElectricalCircuitTester::new_stopped_engine(),
-                apu: ElectricalCircuitTester::new_stopped_apu(),
+                apu: stopped_apu(),
                 ext_pwr: ElectricalCircuitTester::new_disconnected_external_power(),
                 hyd: A320Hydraulic::new(),
                 elec: A320Electrical::new(),
@@ -1692,7 +1693,7 @@ mod a320_electrical_circuit_tests {
         }
 
         fn running_apu(mut self) -> ElectricalCircuitTester {
-            self.apu = ElectricalCircuitTester::new_running_apu();
+            self.apu = running_apu();
             self
         }
 
@@ -1760,22 +1761,22 @@ mod a320_electrical_circuit_tests {
         }
 
         fn gen_1_off(mut self) -> ElectricalCircuitTester {
-            self.overhead.gen_1.push_off();
+            self.overhead.gen_1.turn_off();
             self
         }
 
         fn gen_2_off(mut self) -> ElectricalCircuitTester {
-            self.overhead.gen_2.push_off();
+            self.overhead.gen_2.turn_off();
             self
         }
 
         fn apu_gen_off(mut self) -> ElectricalCircuitTester {
-            self.overhead.apu_gen.push_off();
+            self.overhead.apu_gen.turn_off();
             self
         }
 
         fn ext_pwr_off(mut self) -> ElectricalCircuitTester {
-            self.overhead.ext_pwr.push_off();
+            self.overhead.ext_pwr.turn_off();
             self
         }
 
@@ -1954,14 +1955,6 @@ mod a320_electrical_circuit_tests {
             engine.n2 = Ratio::new::<percent>(0.);
 
             engine
-        }
-
-        fn new_stopped_apu() -> AuxiliaryPowerUnit {
-            AuxiliaryPowerUnit::new()
-        }
-
-        fn new_running_apu() -> AuxiliaryPowerUnit {
-            running_apu()
         }
 
         fn new_disconnected_external_power() -> ExternalPowerSource {

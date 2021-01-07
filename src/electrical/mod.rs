@@ -409,7 +409,7 @@ impl ApuGenerator {
     }
 
     pub fn update(&mut self, apu: &AuxiliaryPowerUnit) {
-        if apu.is_running() {
+        if apu.is_available() {
             self.output = Current::Alternating(
                 PowerSource::ApuGenerator,
                 Frequency::new::<hertz>(400.),
@@ -1242,7 +1242,7 @@ mod tests {
 
     #[cfg(test)]
     mod apu_generator_tests {
-        use crate::apu::test_helpers::running_apu;
+        use crate::apu::tests::{running_apu, stopped_apu};
 
         use super::*;
 
@@ -1278,7 +1278,7 @@ mod tests {
         }
 
         fn update_below_threshold(generator: &mut ApuGenerator) {
-            generator.update(&AuxiliaryPowerUnit::new());
+            generator.update(&stopped_apu());
         }
     }
 

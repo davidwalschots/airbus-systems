@@ -1,9 +1,10 @@
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum OnOffPushButtonState {
     On,
     Off,
 }
 
+#[derive(Debug)]
 pub struct OnOffPushButton {
     state: OnOffPushButtonState,
     fault: bool,
@@ -27,12 +28,20 @@ impl OnOffPushButton {
         }
     }
 
-    pub fn push_on(&mut self) {
+    pub fn turn_on(&mut self) {
         self.state = OnOffPushButtonState::On;
     }
 
-    pub fn push_off(&mut self) {
+    pub fn turn_off(&mut self) {
         self.state = OnOffPushButtonState::Off;
+    }
+
+    pub fn set_available(&mut self, available: bool) {
+        self.available = available;
+    }
+
+    pub fn shows_available(&self) -> bool {
+        self.available
     }
 
     pub fn is_on(&self) -> bool {

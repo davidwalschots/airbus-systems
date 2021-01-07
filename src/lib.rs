@@ -11,6 +11,7 @@ mod a320;
 mod apu;
 mod electrical;
 mod overhead;
+mod pneumatic;
 mod shared;
 mod visitor;
 
