@@ -243,36 +243,47 @@ impl Starting {
     }
 
     fn calculate_egt(&self, context: &UpdateContext) -> ThermodynamicTemperature {
-        // Curve fitted quartic regression
-        // Data points, based on a video by Komp with OAT at 5 degrees. Note that OAT isn't yet part of the formulae,
-        // as we don't know the exact temperature effects on EGT yet (linear or not?).
-        // 11 = 10 (not much happens with EGT before this)
-        // 16 = 200
-        // 21 = 440
-        // 27 = 600
-        // 40 = 720
-        // 45 = 720
-        // 70 = 590
-        // 85 = 460
-        // 90 = 430
-        // 100 = 375
-        const APU_N_TEMP_CONST: f64 = -809.8689;
-        const APU_N_TEMP_X: f64 = 91.95122;
-        const APU_N_TEMP_X2: f64 = -1.878787;
-        const APU_N_TEMP_X3: f64 = 0.01528011;
-        const APU_N_TEMP_X4: f64 = -0.00004504067;
+        // Refer to APS3200.md for details on the values below and source data.
+        const APU_N_TEMP_CONST: f64 = 0.8260770092912485;
+        const APU_N_TEMP_X: f64 = -10.521171805148322;
+        const APU_N_TEMP_X2: f64 = 9.99178942595435338876;
+        const APU_N_TEMP_X3: f64 = -3.08275284793509220859;
+        const APU_N_TEMP_X4: f64 = 0.42614542950594842237;
+        const APU_N_TEMP_X5: f64 = -0.03117154621503876974;
+        const APU_N_TEMP_X6: f64 = 0.00138431867550105467;
+        const APU_N_TEMP_X7: f64 = -0.00004016856934546301;
+        const APU_N_TEMP_X8: f64 = 0.00000078892955962222;
+        const APU_N_TEMP_X9: f64 = -0.00000001058955825891;
+        const APU_N_TEMP_X10: f64 = 0.00000000009582985112;
+        const APU_N_TEMP_X11: f64 = -0.00000000000055952490;
+        const APU_N_TEMP_X12: f64 = 0.00000000000000190415;
+        const APU_N_TEMP_X13: f64 = -0.00000000000000000287;
 
         let n = self.n.get::<percent>();
 
-        let temperature = (APU_N_TEMP_X4 * n.powi(4))
-            + (APU_N_TEMP_X3 * n.powi(3))
-            + (APU_N_TEMP_X2 * n.powi(2))
-            + (APU_N_TEMP_X * n)
-            + APU_N_TEMP_CONST;
+        // Results below this value momentarily go above 0, while not intended.
+        if n < 5.5 {
+            context.ambient_temperature
+        } else {
+            let temperature = APU_N_TEMP_CONST
+                + (APU_N_TEMP_X * n)
+                + (APU_N_TEMP_X2 * n.powi(2))
+                + (APU_N_TEMP_X3 * n.powi(3))
+                + (APU_N_TEMP_X4 * n.powi(4))
+                + (APU_N_TEMP_X5 * n.powi(5))
+                + (APU_N_TEMP_X6 * n.powi(6))
+                + (APU_N_TEMP_X7 * n.powi(7))
+                + (APU_N_TEMP_X8 * n.powi(8))
+                + (APU_N_TEMP_X9 * n.powi(9))
+                + (APU_N_TEMP_X10 * n.powi(10))
+                + (APU_N_TEMP_X11 * n.powi(11))
+                + (APU_N_TEMP_X12 * n.powi(12))
+                + (APU_N_TEMP_X13 * n.powi(13));
 
-        ThermodynamicTemperature::new::<degree_celsius>(
-            temperature.max(context.ambient_temperature.get::<degree_celsius>()),
-        )
+            ThermodynamicTemperature::new::<degree_celsius>(
+                temperature.max(context.ambient_temperature.get::<degree_celsius>()),
+            )
+        }
     }
 
     fn calculate_n(&self) -> Ratio {
