@@ -268,29 +268,45 @@ impl Starting {
     }
 
     fn calculate_n(&self) -> Ratio {
-        const APU_N_X: f64 = 2.375010484;
-        const APU_N_X2: f64 = 0.034236847;
-        const APU_N_X3: f64 = -0.007404136;
-        const APU_N_X4: f64 = 0.000254;
-        const APU_N_X5: f64 = -0.000002438;
-        const APU_N_CONST: f64 = 0.;
+        const APU_N_CONST: f64 = -0.08013606018640967497;
+        const APU_N_X: f64 = 2.12983273639453440535;
+        const APU_N_X2: f64 = 3.92827343878640406445;
+        const APU_N_X3: f64 = -1.88613299921213003406;
+        const APU_N_X4: f64 = 0.42749452749180915438;
+        const APU_N_X5: f64 = -0.05757707967690425694;
+        const APU_N_X6: f64 = 0.00502214279545100437;
+        const APU_N_X7: f64 = -0.00029612873626050868;
+        const APU_N_X8: f64 = 0.00001204152497871946;
+        const APU_N_X9: f64 = -0.00000033829604438116;
+        const APU_N_X10: f64 = 0.00000000645140818528;
+        const APU_N_X11: f64 = -0.00000000007974743535;
+        const APU_N_X12: f64 = 0.00000000000057654695;
+        const APU_N_X13: f64 = -0.00000000000000185126;
 
-        // Protect against the formula returning decreasing results when a lot of time is skipped.
-        const TIME_LIMIT: f64 = 50.;
+        // Protect against the formula returning decreasing results after this value.
+        const TIME_LIMIT: f64 = 45.12;
         const START_IGNITION_AFTER_SECONDS: f64 = 1.5;
         let ignition_turned_on_secs =
             (self.since.as_secs_f64() - START_IGNITION_AFTER_SECONDS).min(TIME_LIMIT);
 
         if ignition_turned_on_secs > 0. {
-            Ratio::new::<percent>(
-                ((APU_N_X5 * ignition_turned_on_secs.powi(5))
-                    + (APU_N_X4 * ignition_turned_on_secs.powi(4))
-                    + (APU_N_X3 * ignition_turned_on_secs.powi(3))
-                    + (APU_N_X2 * ignition_turned_on_secs.powi(2))
-                    + (APU_N_X * ignition_turned_on_secs)
-                    + APU_N_CONST)
-                    .min(100.),
-            )
+            let n = (APU_N_CONST
+                + (APU_N_X * ignition_turned_on_secs)
+                + (APU_N_X2 * ignition_turned_on_secs.powi(2))
+                + (APU_N_X3 * ignition_turned_on_secs.powi(3))
+                + (APU_N_X4 * ignition_turned_on_secs.powi(4))
+                + (APU_N_X5 * ignition_turned_on_secs.powi(5))
+                + (APU_N_X6 * ignition_turned_on_secs.powi(6))
+                + (APU_N_X7 * ignition_turned_on_secs.powi(7))
+                + (APU_N_X8 * ignition_turned_on_secs.powi(8))
+                + (APU_N_X9 * ignition_turned_on_secs.powi(9))
+                + (APU_N_X10 * ignition_turned_on_secs.powi(10))
+                + (APU_N_X11 * ignition_turned_on_secs.powi(11))
+                + (APU_N_X12 * ignition_turned_on_secs.powi(12))
+                + (APU_N_X13 * ignition_turned_on_secs.powi(13)))
+            .min(100.);
+
+            Ratio::new::<percent>(n)
         } else {
             Ratio::new::<percent>(0.)
         }
@@ -885,7 +901,8 @@ pub mod tests {
                 "Ignition started too early."
             );
 
-            let tester = tester.then_continue_with().run(Duration::from_millis(1));
+            // The first 35ms ignition started but N hasn't increased beyond 0 yet.
+            let tester = tester.then_continue_with().run(Duration::from_millis(36));
 
             assert!(
                 tester.get_n().get::<percent>() > 0.,
