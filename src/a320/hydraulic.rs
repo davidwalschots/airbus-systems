@@ -1,8 +1,28 @@
-use crate::{shared::UpdateContext, visitor::Visitable};
+use std::time::Duration;
+use uom::si::{
+    area::square_meter, f32::*, force::newton, length::foot, length::meter,
+    mass_density::kilogram_per_cubic_meter, pressure::atmosphere, pressure::pascal, pressure::psi,
+    ratio::percent, thermodynamic_temperature::degree_celsius, time::second, velocity::knot,
+    volume::cubic_inch, volume::gallon, volume::liter, volume_rate::cubic_meter_per_second,
+    volume_rate::gallon_per_second,
+};
+use crate::{
+    hydraulic::{HydLoop, Pump, EngineDrivenPump, ElectricPump, RatPump, Actuator}
+    overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
+    shared::{DelayedTrueLogicGate, Engine, UpdateContext},
+    visitor::Visitable,
+};
 
 pub struct A320Hydraulic {
+    blue_loop: HydLoop,
+    green_loop: HydLoop,
+    yellow_loop: HydLoop,
+    engine_driven_pump_1: EngineDrivenPump,
+    engine_driven_pump_2: EngineDrivenPump,
+    blue_electric_pump: ElectricPump,
+    yellow_electric_pump: ElectricPump,
     // Until hydraulic is implemented, we'll fake it with this boolean.
-    blue_pressurised: bool,
+    // blue_pressurised: bool,
 }
 
 impl A320Hydraulic {
@@ -23,4 +43,17 @@ impl Visitable for A320Hydraulic {
     fn accept(&mut self, visitor: &mut Box<dyn super::MutableVisitor>) {
         // TODO
     }
+}
+
+pub struct A320HydraulicOverheadPanel {
+}
+
+impl A320HydraulicOverheadPanel {
+    pub fn new() -> A320HydraulicOverheadPanel {
+        A320HydraulicOverheadPanel {
+
+        }
+    }
+
+    pub fn update(&mut self, context: &UpdateContext) {
 }
