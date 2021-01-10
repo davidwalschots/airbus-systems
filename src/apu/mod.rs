@@ -32,17 +32,14 @@
 //!   - When in flight, and in electrical emergency config, APU start is inhibited for 45 secs.
 //! - On creation of an APU, pass some context including ambient temp, so the temp can start at the right value?
 
-use core::fmt::Debug;
 use std::time::Duration;
 
-use enum_dispatch::enum_dispatch;
-use rand::prelude::*;
 use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
 
 use crate::{
     overhead::OnOffPushButton,
     pneumatic::{BleedAirValve, PneumaticOverheadPanel},
-    shared::UpdateContext,
+    shared::{random_number, UpdateContext},
     visitor::Visitable,
 };
 
@@ -52,23 +49,19 @@ enum ShutdownReason {
     Automatic, // Will be split further later into all kinds of reasons for automatic shutdown.
 }
 
-#[derive(Debug)]
 pub struct AuxiliaryPowerUnit {
-    state: Option<ApuStateEnum>,
+    state: Option<Box<dyn ApuState>>,
     egt_maximum_temperature: ThermodynamicTemperature,
 }
 impl AuxiliaryPowerUnit {
     pub fn new() -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
-            state: Some(
-                Shutdown::new(
-                    AirIntakeFlap::new(),
-                    ApuBleedAirValve::new(),
-                    ShutdownReason::Manual,
-                    ThermodynamicTemperature::new::<degree_celsius>(0.),
-                )
-                .into(),
-            ),
+            state: Some(Box::new(Shutdown::new(
+                AirIntakeFlap::new(),
+                ApuBleedAirValve::new(),
+                ShutdownReason::Manual,
+                ThermodynamicTemperature::new::<degree_celsius>(0.),
+            ))),
             egt_maximum_temperature: ThermodynamicTemperature::new::<degree_celsius>(
                 Running::MAX_EGT,
             ),
@@ -82,7 +75,7 @@ impl AuxiliaryPowerUnit {
         pneumatic_overhead: &PneumaticOverheadPanel,
     ) {
         if let Some(state) = self.state.take() {
-            self.state = Some(state.update(context, overhead, pneumatic_overhead).into());
+            self.state = Some(state.update(context, overhead, pneumatic_overhead));
         }
 
         self.egt_maximum_temperature = self.state.as_ref().unwrap().get_egt_max_temperature();
@@ -117,23 +110,13 @@ impl AuxiliaryPowerUnit {
     }
 }
 
-#[enum_dispatch]
-#[derive(Debug)]
-enum ApuStateEnum {
-    Shutdown,
-    Starting,
-    Running,
-    Stopping,
-}
-
-#[enum_dispatch(ApuStateEnum)]
 trait ApuState {
     fn update(
-        self,
+        self: Box<Self>,
         context: &UpdateContext,
         overhead: &AuxiliaryPowerUnitOverheadPanel,
         pneumatic_overhead: &PneumaticOverheadPanel,
-    ) -> ApuStateEnum;
+    ) -> Box<dyn ApuState>;
 
     fn get_n(&self) -> Ratio;
 
@@ -147,7 +130,6 @@ trait ApuState {
     fn get_egt_max_temperature(&self) -> ThermodynamicTemperature;
 }
 
-#[derive(Debug)]
 struct Shutdown {
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
@@ -171,11 +153,11 @@ impl Shutdown {
 }
 impl ApuState for Shutdown {
     fn update(
-        mut self,
+        mut self: Box<Self>,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         pneumatic_overhead: &PneumaticOverheadPanel,
-    ) -> ApuStateEnum {
+    ) -> Box<dyn ApuState> {
         if apu_overhead.master_is_on() {
             self.air_intake_flap.open();
         } else {
@@ -192,9 +174,9 @@ impl ApuState for Shutdown {
             && apu_overhead.master_is_on()
             && apu_overhead.start_is_on()
         {
-            Starting::new(self.air_intake_flap, self.bleed_air_valve).into()
+            Box::new(Starting::new(self.air_intake_flap, self.bleed_air_valve))
         } else {
-            self.into()
+            self
         }
     }
 
@@ -220,7 +202,6 @@ impl ApuState for Shutdown {
     }
 }
 
-#[derive(Debug)]
 struct Starting {
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
@@ -243,62 +224,89 @@ impl Starting {
     }
 
     fn calculate_egt(&self, context: &UpdateContext) -> ThermodynamicTemperature {
-        // Curve fitted quartic regression
-        // Data points, based on a video by Komp with OAT at 5 degrees. Note that OAT isn't yet part of the formulae,
-        // as we don't know the exact temperature effects on EGT yet (linear or not?).
-        // 11 = 10 (not much happens with EGT before this)
-        // 16 = 200
-        // 21 = 440
-        // 27 = 600
-        // 40 = 720
-        // 45 = 720
-        // 70 = 590
-        // 85 = 460
-        // 90 = 430
-        // 100 = 375
-        const APU_N_TEMP_CONST: f64 = -809.8689;
-        const APU_N_TEMP_X: f64 = 91.95122;
-        const APU_N_TEMP_X2: f64 = -1.878787;
-        const APU_N_TEMP_X3: f64 = 0.01528011;
-        const APU_N_TEMP_X4: f64 = -0.00004504067;
+        // Refer to APS3200.md for details on the values below and source data.
+        const APU_N_TEMP_CONST: f64 = 0.8260770092912485;
+        const APU_N_TEMP_X: f64 = -10.521171805148322;
+        const APU_N_TEMP_X2: f64 = 9.99178942595435338876;
+        const APU_N_TEMP_X3: f64 = -3.08275284793509220859;
+        const APU_N_TEMP_X4: f64 = 0.42614542950594842237;
+        const APU_N_TEMP_X5: f64 = -0.03117154621503876974;
+        const APU_N_TEMP_X6: f64 = 0.00138431867550105467;
+        const APU_N_TEMP_X7: f64 = -0.00004016856934546301;
+        const APU_N_TEMP_X8: f64 = 0.00000078892955962222;
+        const APU_N_TEMP_X9: f64 = -0.00000001058955825891;
+        const APU_N_TEMP_X10: f64 = 0.00000000009582985112;
+        const APU_N_TEMP_X11: f64 = -0.00000000000055952490;
+        const APU_N_TEMP_X12: f64 = 0.00000000000000190415;
+        const APU_N_TEMP_X13: f64 = -0.00000000000000000287;
 
         let n = self.n.get::<percent>();
 
-        let temperature = (APU_N_TEMP_X4 * n.powi(4))
-            + (APU_N_TEMP_X3 * n.powi(3))
-            + (APU_N_TEMP_X2 * n.powi(2))
-            + (APU_N_TEMP_X * n)
-            + APU_N_TEMP_CONST;
+        // Results below this value momentarily go above 0, while not intended.
+        if n < 5.5 {
+            context.ambient_temperature
+        } else {
+            let temperature = APU_N_TEMP_CONST
+                + (APU_N_TEMP_X * n)
+                + (APU_N_TEMP_X2 * n.powi(2))
+                + (APU_N_TEMP_X3 * n.powi(3))
+                + (APU_N_TEMP_X4 * n.powi(4))
+                + (APU_N_TEMP_X5 * n.powi(5))
+                + (APU_N_TEMP_X6 * n.powi(6))
+                + (APU_N_TEMP_X7 * n.powi(7))
+                + (APU_N_TEMP_X8 * n.powi(8))
+                + (APU_N_TEMP_X9 * n.powi(9))
+                + (APU_N_TEMP_X10 * n.powi(10))
+                + (APU_N_TEMP_X11 * n.powi(11))
+                + (APU_N_TEMP_X12 * n.powi(12))
+                + (APU_N_TEMP_X13 * n.powi(13));
 
-        ThermodynamicTemperature::new::<degree_celsius>(
-            temperature.max(context.ambient_temperature.get::<degree_celsius>()),
-        )
+            ThermodynamicTemperature::new::<degree_celsius>(
+                temperature.max(context.ambient_temperature.get::<degree_celsius>()),
+            )
+        }
     }
 
     fn calculate_n(&self) -> Ratio {
-        const APU_N_X: f64 = 2.375010484;
-        const APU_N_X2: f64 = 0.034236847;
-        const APU_N_X3: f64 = -0.007404136;
-        const APU_N_X4: f64 = 0.000254;
-        const APU_N_X5: f64 = -0.000002438;
-        const APU_N_CONST: f64 = 0.;
+        const APU_N_CONST: f64 = -0.08013606018640967497;
+        const APU_N_X: f64 = 2.12983273639453440535;
+        const APU_N_X2: f64 = 3.92827343878640406445;
+        const APU_N_X3: f64 = -1.88613299921213003406;
+        const APU_N_X4: f64 = 0.42749452749180915438;
+        const APU_N_X5: f64 = -0.05757707967690425694;
+        const APU_N_X6: f64 = 0.00502214279545100437;
+        const APU_N_X7: f64 = -0.00029612873626050868;
+        const APU_N_X8: f64 = 0.00001204152497871946;
+        const APU_N_X9: f64 = -0.00000033829604438116;
+        const APU_N_X10: f64 = 0.00000000645140818528;
+        const APU_N_X11: f64 = -0.00000000007974743535;
+        const APU_N_X12: f64 = 0.00000000000057654695;
+        const APU_N_X13: f64 = -0.00000000000000185126;
 
-        // Protect against the formula returning decreasing results when a lot of time is skipped.
-        const TIME_LIMIT: f64 = 50.;
+        // Protect against the formula returning decreasing results after this value.
+        const TIME_LIMIT: f64 = 45.12;
         const START_IGNITION_AFTER_SECONDS: f64 = 1.5;
         let ignition_turned_on_secs =
             (self.since.as_secs_f64() - START_IGNITION_AFTER_SECONDS).min(TIME_LIMIT);
 
         if ignition_turned_on_secs > 0. {
-            Ratio::new::<percent>(
-                ((APU_N_X5 * ignition_turned_on_secs.powi(5))
-                    + (APU_N_X4 * ignition_turned_on_secs.powi(4))
-                    + (APU_N_X3 * ignition_turned_on_secs.powi(3))
-                    + (APU_N_X2 * ignition_turned_on_secs.powi(2))
-                    + (APU_N_X * ignition_turned_on_secs)
-                    + APU_N_CONST)
-                    .min(100.),
-            )
+            let n = (APU_N_CONST
+                + (APU_N_X * ignition_turned_on_secs)
+                + (APU_N_X2 * ignition_turned_on_secs.powi(2))
+                + (APU_N_X3 * ignition_turned_on_secs.powi(3))
+                + (APU_N_X4 * ignition_turned_on_secs.powi(4))
+                + (APU_N_X5 * ignition_turned_on_secs.powi(5))
+                + (APU_N_X6 * ignition_turned_on_secs.powi(6))
+                + (APU_N_X7 * ignition_turned_on_secs.powi(7))
+                + (APU_N_X8 * ignition_turned_on_secs.powi(8))
+                + (APU_N_X9 * ignition_turned_on_secs.powi(9))
+                + (APU_N_X10 * ignition_turned_on_secs.powi(10))
+                + (APU_N_X11 * ignition_turned_on_secs.powi(11))
+                + (APU_N_X12 * ignition_turned_on_secs.powi(12))
+                + (APU_N_X13 * ignition_turned_on_secs.powi(13)))
+            .min(100.);
+
+            Ratio::new::<percent>(n)
         } else {
             Ratio::new::<percent>(0.)
         }
@@ -306,11 +314,11 @@ impl Starting {
 }
 impl ApuState for Starting {
     fn update(
-        mut self,
+        mut self: Box<Self>,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         pneumatic_overhead: &PneumaticOverheadPanel,
-    ) -> ApuStateEnum {
+    ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n();
         self.egt = self.calculate_egt(context);
@@ -321,9 +329,13 @@ impl ApuState for Starting {
             .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
 
         if self.n.get::<percent>() == 100. {
-            Running::new(self.air_intake_flap, self.bleed_air_valve, self.egt).into()
+            Box::new(Running::new(
+                self.air_intake_flap,
+                self.bleed_air_valve,
+                self.egt,
+            ))
         } else {
-            self.into()
+            self
         }
     }
 
@@ -349,7 +361,6 @@ impl ApuState for Starting {
     }
 }
 
-#[derive(Debug)]
 struct Running {
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
@@ -375,8 +386,7 @@ impl Running {
         &self,
         context: &UpdateContext,
     ) -> ThermodynamicTemperature {
-        let mut rng = rand::thread_rng();
-        let random_target_temperature: f64 = 500. - rng.gen_range(0..13) as f64;
+        let random_target_temperature: f64 = 500. - ((random_number() % 13) as f64);
 
         if self.egt.get::<degree_celsius>() > random_target_temperature {
             self.egt
@@ -396,11 +406,11 @@ impl Running {
 }
 impl ApuState for Running {
     fn update(
-        mut self,
+        mut self: Box<Self>,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         pneumatic_overhead: &PneumaticOverheadPanel,
-    ) -> ApuStateEnum {
+    ) -> Box<dyn ApuState> {
         self.egt = self.calculate_slow_cooldown_to_running_temperature(context);
 
         self.air_intake_flap.update(context);
@@ -409,15 +419,14 @@ impl ApuState for Running {
             .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
 
         if apu_overhead.master_is_off() && self.is_past_bleed_air_cooldown_period() {
-            Stopping::new(
+            Box::new(Stopping::new(
                 self.air_intake_flap,
                 self.bleed_air_valve,
                 self.egt,
                 ShutdownReason::Manual,
-            )
-            .into()
+            ))
         } else {
-            self.into()
+            self
         }
     }
 
@@ -442,7 +451,6 @@ impl ApuState for Running {
     }
 }
 
-#[derive(Debug)]
 struct Stopping {
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
@@ -478,11 +486,11 @@ impl Stopping {
 }
 impl ApuState for Stopping {
     fn update(
-        mut self,
+        mut self: Box<Self>,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         pneumatic_overhead: &PneumaticOverheadPanel,
-    ) -> ApuStateEnum {
+    ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n(context);
         self.egt = calculate_towards_ambient_egt(self.egt, context);
@@ -497,15 +505,14 @@ impl ApuState for Stopping {
         self.air_intake_flap.update(context);
 
         if self.n.get::<percent>() == 0. {
-            Shutdown::new(
+            Box::new(Shutdown::new(
                 self.air_intake_flap,
                 self.bleed_air_valve,
                 self.reason,
                 self.egt,
-            )
-            .into()
+            ))
         } else {
-            self.into()
+            self
         }
     }
 
@@ -554,7 +561,6 @@ fn calculate_towards_ambient_egt(
     }
 }
 
-#[derive(Debug)]
 struct ApuBleedAirValve {
     valve: BleedAirValve,
     last_open_time_ago: Duration,
@@ -590,16 +596,11 @@ impl ApuBleedAirValve {
         }
     }
 
-    fn open_when(&mut self, condition: bool) {
-        self.valve.open_when(condition);
-    }
-
     fn was_open_in_last(&self, duration: Duration) -> bool {
         self.last_open_time_ago <= duration
     }
 }
 
-#[derive(Debug)]
 pub struct AuxiliaryPowerUnitOverheadPanel {
     pub master: OnOffPushButton,
     pub start: OnOffPushButton,
@@ -631,6 +632,7 @@ impl AuxiliaryPowerUnitOverheadPanel {
         self.start.is_on()
     }
 
+    #[cfg(test)]
     fn start_shows_available(&self) -> bool {
         self.start.shows_available()
     }
@@ -658,8 +660,7 @@ impl AirIntakeFlap {
     const MINIMUM_TRAVEL_TIME_SECS: u8 = 3;
 
     fn new() -> AirIntakeFlap {
-        let mut rng = rand::thread_rng();
-        let delay = AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS + rng.gen_range(0..13);
+        let delay = AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS + (random_number() % 13);
 
         AirIntakeFlap {
             state: Ratio::new::<percent>(0.),
@@ -900,7 +901,8 @@ pub mod tests {
                 "Ignition started too early."
             );
 
-            let tester = tester.then_continue_with().run(Duration::from_millis(1));
+            // The first 35ms ignition started but N hasn't increased beyond 0 yet.
+            let tester = tester.then_continue_with().run(Duration::from_millis(36));
 
             assert!(
                 tester.get_n().get::<percent>() > 0.,

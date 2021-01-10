@@ -1,8 +1,6 @@
 use std::time::Duration;
 
-use uom::si::{
-    f64::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
-};
+use uom::si::f64::*;
 
 pub struct UpdateContext {
     pub delta: Duration,
@@ -30,6 +28,8 @@ impl UpdateContext {
 #[cfg(test)]
 pub mod test_helpers {
     use super::*;
+
+    use uom::si::{length::foot, thermodynamic_temperature::degree_celsius, velocity::knot};
 
     pub fn context_with() -> UpdateContextBuilder {
         UpdateContextBuilder::new()

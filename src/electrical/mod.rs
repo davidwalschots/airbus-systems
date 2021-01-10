@@ -1,11 +1,8 @@
-use rand::prelude::*;
-use std::cmp::{max, min};
-use std::time::Duration;
+use std::cmp::min;
 
 use uom::si::{
     electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f64::*,
-    frequency::hertz, length::foot, power::watt, ratio::percent,
-    thermodynamic_temperature::degree_celsius, velocity::knot,
+    frequency::hertz, power::watt, ratio::percent, thermodynamic_temperature::degree_celsius,
 };
 
 use crate::{
@@ -51,6 +48,7 @@ impl Current {
         }
     }
 
+    #[cfg(test)]
     pub fn source(self) -> PowerSource {
         match self {
             Current::Alternating(source, ..) => source,
@@ -439,7 +437,7 @@ impl ExternalPowerSource {
         }
     }
 
-    pub fn update(&mut self, context: &UpdateContext) {}
+    pub fn update(&mut self, _: &UpdateContext) {}
 }
 
 impl Visitable for ExternalPowerSource {
@@ -476,10 +474,12 @@ impl ElectricalBus {
         }
     }
 
+    #[cfg(test)]
     pub fn fail(&mut self) {
         self.failed = true;
     }
 
+    #[cfg(test)]
     pub fn normal(&mut self) {
         self.failed = false;
     }
@@ -518,12 +518,9 @@ impl TransformerRectifier {
         }
     }
 
+    #[cfg(test)]
     pub fn fail(&mut self) {
         self.failed = true;
-    }
-
-    pub fn normal(&mut self) {
-        self.failed = false;
     }
 
     pub fn has_failed(&self) -> bool {
@@ -576,6 +573,7 @@ impl EmergencyGenerator {
         self.is_blue_pressurised = is_blue_pressurised;
     }
 
+    #[cfg(test)]
     pub fn attempt_start(&mut self) {
         self.running = true;
     }
@@ -616,6 +614,7 @@ impl Battery {
         )
     }
 
+    #[cfg(test)]
     pub fn empty(number: u8) -> Battery {
         Battery::new(number, ElectricCharge::new::<ampere_hour>(0.))
     }
@@ -630,10 +629,6 @@ impl Battery {
 
     pub fn is_full(&self) -> bool {
         self.charge >= ElectricCharge::new::<ampere_hour>(Battery::MAX_ELECTRIC_CHARGE_AMPERE_HOURS)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.charge == ElectricCharge::new::<ampere_hour>(0.)
     }
 
     // TODO: Charging and depleting battery when used.
@@ -1076,10 +1071,11 @@ mod tests {
 
     #[cfg(test)]
     mod engine_generator_tests {
+        use std::time::Duration;
+
         use crate::shared::test_helpers::context_with;
 
         use super::*;
-        use uom::si::ratio::percent;
 
         #[test]
         fn starts_without_output() {
@@ -1139,6 +1135,8 @@ mod tests {
 
     #[cfg(test)]
     mod integrated_drive_generator_tests {
+        use std::time::Duration;
+
         use crate::shared::test_helpers::context_with;
 
         use super::*;
@@ -1395,16 +1393,14 @@ mod tests {
         use super::*;
 
         #[test]
-        fn full_battery_is_full_with_output() {
+        fn full_battery_has_output() {
             assert!(full_battery().is_full());
-            assert!(!full_battery().is_empty());
             assert!(full_battery().output().is_powered());
         }
 
         #[test]
-        fn empty_battery_is_empty_without_output() {
+        fn empty_battery_has_no_output() {
             assert!(!empty_battery().is_full());
-            assert!(empty_battery().is_empty());
             assert!(empty_battery().output().is_unpowered());
         }
 

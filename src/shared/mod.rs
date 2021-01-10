@@ -1,10 +1,11 @@
+mod random;
+pub use random::*;
+
 mod update_context;
 pub use update_context::*;
 
 use std::time::Duration;
-use uom::si::{
-    f64::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
-};
+use uom::si::{f64::*, ratio::percent};
 
 use crate::visitor::Visitable;
 
@@ -56,7 +57,7 @@ impl Engine {
         }
     }
 
-    pub fn update(&mut self, context: &UpdateContext) {}
+    pub fn update(&mut self, _: &UpdateContext) {}
 }
 
 impl Visitable for Engine {

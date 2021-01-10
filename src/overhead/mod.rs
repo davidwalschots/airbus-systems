@@ -1,10 +1,9 @@
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub enum OnOffPushButtonState {
     On,
     Off,
 }
 
-#[derive(Debug)]
 pub struct OnOffPushButton {
     state: OnOffPushButtonState,
     fault: bool,
@@ -28,6 +27,7 @@ impl OnOffPushButton {
         }
     }
 
+    #[cfg(test)]
     pub fn turn_on(&mut self) {
         self.state = OnOffPushButtonState::On;
     }
@@ -79,10 +79,6 @@ impl NormalAltnPushButton {
         }
     }
 
-    pub fn push_normal(&mut self) {
-        self.state = NormalAltnPushButtonState::Normal;
-    }
-
     pub fn push_altn(&mut self) {
         self.state = NormalAltnPushButtonState::Altn;
     }
@@ -120,10 +116,6 @@ impl AutoOffPushButton {
             state: AutoOffPushButtonState::Off,
             fault: false,
         }
-    }
-
-    pub fn push_auto(&mut self) {
-        self.state = AutoOffPushButtonState::Auto;
     }
 
     pub fn push_off(&mut self) {
@@ -171,7 +163,7 @@ mod normal_altn_push_button_tests {
 
 #[cfg(test)]
 mod auto_off_push_button_tests {
-    use super::{AutoOffPushButton, NormalAltnPushButton};
+    use super::AutoOffPushButton;
 
     #[test]
     fn new_auto_push_button_is_auto() {
