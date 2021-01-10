@@ -151,13 +151,6 @@ pub enum ActuatorType {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum BleedSrcType {
-    None,
-    Engine1,
-    XBleedLine,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LoopColor {
     Blue,
     Green,
@@ -647,35 +640,21 @@ impl PressureSource for RatPump {
 // ACTUATOR DEFINITION
 ////////////////////////////////////////////////////////////////////////////////
 
-// pub struct Actuator {
-//     a_type: ActuatorType,
-//     active: bool,
-//     affected_by_gravity: bool,
-//     area: Area,
-//     line: HydLoop,
-//     neutral_is_zero: bool,
-//     stall_load: Force,
-//     volume_used_at_max_deflection: Volume,
-// }
-
-// // TODO
-// impl Actuator {
-//     pub fn new(a_type: ActuatorType, line: HydLoop) -> Actuator {
-//         Actuator { a_type, line }
-//     }
-// }
-
-////////////////////////////////////////////////////////////////////////////////
-// BLEED AIR SRC DEFINITION
-////////////////////////////////////////////////////////////////////////////////
-
-pub struct BleedAir {
-    b_type: BleedSrcType,
+pub struct Actuator {
+    a_type: ActuatorType,
+    active: bool,
+    affected_by_gravity: bool,
+    area: Area,
+    line: HydLoop,
+    neutral_is_zero: bool,
+    stall_load: Force,
+    volume_used_at_max_deflection: Volume,
 }
 
-impl BleedAir {
-    pub fn new(b_type: BleedSrcType) -> BleedAir {
-        BleedAir { b_type }
+// TODO
+impl Actuator {
+    pub fn new(a_type: ActuatorType, line: HydLoop) -> Actuator {
+        Actuator { a_type, line }
     }
 }
 
