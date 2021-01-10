@@ -11,6 +11,7 @@ use uom::si::{f64::*, length::foot, thermodynamic_temperature::degree_celsius, v
 mod a320;
 mod apu;
 mod electrical;
+mod hydraulic;
 mod overhead;
 mod pneumatic;
 mod shared;

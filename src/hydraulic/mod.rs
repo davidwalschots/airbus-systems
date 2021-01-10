@@ -1,9 +1,9 @@
 use std::cmp::Ordering;
-use std::f32::consts;
+use std::f64::consts;
 use std::time::Duration;
 
 use uom::si::{
-    area::square_meter, f32::*, force::newton, length::foot, length::meter,
+    area::square_meter, f64::*, force::newton, length::foot, length::meter,
     mass_density::kilogram_per_cubic_meter, pressure::atmosphere, pressure::pascal, pressure::psi,
     ratio::percent, thermodynamic_temperature::degree_celsius, time::second, velocity::knot,
     volume::cubic_inch, volume::gallon, volume::liter, volume_rate::cubic_meter_per_second,
@@ -193,14 +193,14 @@ pub struct HydLoop {
 }
 
 impl HydLoop {
-    const ACCUMULATOR_GAS_NRT: f32 = 128.26; // nRT: n=5.2423, R=0.08206, T=298.15K
-    const ACCUMULATOR_GAS_PRE_CHARGE: f32 = 1885.0; // Nitrogen PSI
-    const ACCUMULATOR_MAX_VOLUME: f32 = 0.264; // in gallons
-    const HYDRAULIC_FLUID_DENSITY: f32 = 1000.55; // Exxon Hyjet IV, kg/m^3
-    const HYDRAULIC_FLUID_KINEMATIC_VISCOSITY: f32 = 0.045; // approximate value for ~20C,  m^2/s
-    const HYDRAULIC_FLUID_DYNAMIC_VISCOSITY: f32 = 45.02; // kg / (m * s)
-    const PIPE_INNER_DIAMETER: f32 = 0.01; // meters
-    const PIPE_CROSS_SECTION_AREA: f32 = 0.0000785; // m^2
+    const ACCUMULATOR_GAS_NRT: f64 = 128.26; // nRT: n=5.2423, R=0.08206, T=298.15K
+    const ACCUMULATOR_GAS_PRE_CHARGE: f64 = 1885.0; // Nitrogen PSI
+    const ACCUMULATOR_MAX_VOLUME: f64 = 0.264; // in gallons
+    const HYDRAULIC_FLUID_DENSITY: f64 = 1000.55; // Exxon Hyjet IV, kg/m^3
+    const HYDRAULIC_FLUID_KINEMATIC_VISCOSITY: f64 = 0.045; // approximate value for ~20C,  m^2/s
+    const HYDRAULIC_FLUID_DYNAMIC_VISCOSITY: f64 = 45.02; // kg / (m * s)
+    const PIPE_INNER_DIAMETER: f64 = 0.01; // meters
+    const PIPE_CROSS_SECTION_AREA: f64 = 0.0000785; // m^2
 
     pub fn new(
         color: LoopColor,
@@ -244,14 +244,14 @@ impl HydLoop {
 
     pub fn get_ptu_flow(&self, is_motor: bool, pressure: Pressure) -> VolumeRate {
         if self.color == LoopColor::Yellow {
-            let vr = 34.0f32.min(pressure.get::<psi>() * 0.01133) / 60.0;
+            let vr = 34.0f64.min(pressure.get::<psi>() * 0.01133) / 60.0;
             if is_motor {
                 VolumeRate::new::<gallon_per_second>(vr)
             } else {
                 VolumeRate::new::<gallon_per_second>(vr * 0.7059)
             }
         } else if self.color == LoopColor::Green {
-            let vr = 16.0f32.min(pressure.get::<psi>() * 0.005333) / 60.0;
+            let vr = 16.0f64.min(pressure.get::<psi>() * 0.005333) / 60.0;
             if is_motor {
                 VolumeRate::new::<gallon_per_second>(vr)
             } else {
@@ -292,17 +292,17 @@ impl HydLoop {
         for p in engine_driven_pumps {
             delta_vol += p.get_delta_vol();
             pump_flow_rate_sum +=
-                p.get_delta_vol() / Time::new::<second>(context.delta.as_secs_f32());
+                p.get_delta_vol() / Time::new::<second>(context.delta.as_secs_f64());
         }
         for p in electric_pumps {
             delta_vol += p.get_delta_vol();
             pump_flow_rate_sum +=
-                p.get_delta_vol() / Time::new::<second>(context.delta.as_secs_f32());
+                p.get_delta_vol() / Time::new::<second>(context.delta.as_secs_f64());
         }
         for p in ram_air_pumps {
             delta_vol += p.get_delta_vol();
             pump_flow_rate_sum +=
-                p.get_delta_vol() / Time::new::<second>(context.delta.as_secs_f32());
+                p.get_delta_vol() / Time::new::<second>(context.delta.as_secs_f64());
         }
 
         // Draw delta_vol from reservoir
@@ -327,10 +327,10 @@ impl HydLoop {
 
                 let ptu_delta_vol = self.get_usable_reservoir_fluid(
                     self.get_ptu_flow(false, pressure)
-                        * Time::new::<second>(context.delta.as_secs_f32()),
+                        * Time::new::<second>(context.delta.as_secs_f64()),
                 );
                 let ptu_delta_flow =
-                    ptu_delta_vol / Time::new::<second>(context.delta.as_secs_f32());
+                    ptu_delta_vol / Time::new::<second>(context.delta.as_secs_f64());
                 let ptu_delta_p = HydLoop::flow_to_pressure(ptu_delta_flow);
 
                 delta_vol += ptu_delta_vol;
@@ -353,10 +353,10 @@ impl HydLoop {
 
                 let ptu_delta_vol = delta_vol.min(
                     self.get_ptu_flow(true, pressure)
-                        * Time::new::<second>(context.delta.as_secs_f32()),
+                        * Time::new::<second>(context.delta.as_secs_f64()),
                 );
                 let ptu_delta_flow =
-                    ptu_delta_vol / Time::new::<second>(context.delta.as_secs_f32());
+                    ptu_delta_vol / Time::new::<second>(context.delta.as_secs_f64());
                 let ptu_delta_p = HydLoop::flow_to_pressure(ptu_delta_flow);
 
                 delta_vol -= ptu_delta_vol;
@@ -380,10 +380,10 @@ impl HydLoop {
             let delta_p_to_close = Pressure::new::<psi>(pressure.get::<psi>() - 3190.0);
             let prv_delta_vol = delta_vol.min(
                 HydLoop::pressure_to_flow(delta_p_to_close)
-                    * Time::new::<second>(context.delta.as_secs_f32()),
+                    * Time::new::<second>(context.delta.as_secs_f64()),
             );
             let prv_delta_p = HydLoop::flow_to_pressure(
-                prv_delta_vol / Time::new::<second>(context.delta.as_secs_f32()),
+                prv_delta_vol / Time::new::<second>(context.delta.as_secs_f64()),
             );
 
             self.reservoir_volume += prv_delta_vol;
@@ -402,7 +402,7 @@ impl HydLoop {
 
             // The amount of fluid the accumulator can release
             let acc_delta_vol = Volume::new::<gallon>(
-                acc_delta_flow.get::<gallon_per_second>() * context.delta.as_secs_f32(),
+                acc_delta_flow.get::<gallon_per_second>() * context.delta.as_secs_f64(),
             )
             .min(self.accumulator_fluid_volume);
 
@@ -418,7 +418,7 @@ impl HydLoop {
 
             // Calculate resulting pressure and volume to add back to circuit
             let acc_flow_rate = VolumeRate::new::<gallon_per_second>(
-                acc_delta_vol.get::<gallon>() / context.delta.as_secs_f32(),
+                acc_delta_vol.get::<gallon>() / context.delta.as_secs_f64(),
             );
             delta_vol += acc_delta_vol;
             pressure += HydLoop::flow_to_pressure(acc_flow_rate);
@@ -430,7 +430,7 @@ impl HydLoop {
 
             // The amount of fluid the accumulator can take in
             let acc_delta_vol = Volume::new::<gallon>(
-                acc_delta_flow.get::<gallon_per_second>() * context.delta.as_secs_f32(),
+                acc_delta_flow.get::<gallon_per_second>() * context.delta.as_secs_f64(),
             )
             .min(delta_vol)
             .min(
@@ -448,7 +448,7 @@ impl HydLoop {
             );
 
             // Calculate resulting pressure and volume to subtract from circuit
-            let acc_flow_rate = acc_delta_vol / Time::new::<second>(context.delta.as_secs_f32());
+            let acc_flow_rate = acc_delta_vol / Time::new::<second>(context.delta.as_secs_f64());
             delta_vol -= acc_delta_vol;
             pressure -= HydLoop::flow_to_pressure(acc_flow_rate);
         }
@@ -464,7 +464,7 @@ impl HydLoop {
         // If `pressure` is still low, then draw from `self.loop_volume` - (TODO) until nominal loop volume achieved
         if pressure.get::<psi>() <= 14.5 && self.loop_volume.get::<gallon>() > 0. {
             let max_delta_loop_vol = VolumeRate::new::<gallon_per_second>(0.5)
-                * Time::new::<second>(context.delta.as_secs_f32());
+                * Time::new::<second>(context.delta.as_secs_f64());
             let delta_loop_vol = self.loop_volume.min(max_delta_loop_vol);
             self.loop_volume -= delta_loop_vol;
             delta_vol += delta_loop_vol;
@@ -505,11 +505,11 @@ impl Pump {
         }
     }
 
-    fn update(&mut self, context: &UpdateContext, line: &HydLoop, rpm: f32) {
+    fn update(&mut self, context: &UpdateContext, line: &HydLoop, rpm: f64) {
         let displacement = Pump::calculate_displacement(line.get_pressure(), self.max_displacement);
 
         let flow = Pump::calculate_flow(rpm, displacement);
-        let delta_vol = flow * Time::new::<second>(context.delta.as_secs_f32());
+        let delta_vol = flow * Time::new::<second>(context.delta.as_secs_f64());
 
         let amount_drawn = line.get_usable_reservoir_fluid(delta_vol);
         self.reservoir_fluid_used = amount_drawn;
@@ -526,7 +526,7 @@ impl Pump {
         )
     }
 
-    fn calculate_flow(rpm: f32, displacement: Volume) -> VolumeRate {
+    fn calculate_flow(rpm: f64, displacement: Volume) -> VolumeRate {
         VolumeRate::new::<gallon_per_second>(rpm * displacement.get::<cubic_inch>() / 231.0 / 60.0)
     }
 }
@@ -538,13 +538,13 @@ impl PressureSource for Pump {
 
 pub struct ElectricPump {
     active: bool,
-    rpm: f32,
+    rpm: f64,
     pump: Pump,
 }
 impl ElectricPump {
-    const SPOOLUP_TIME: f32 = 4.0;
-    const SPOOLDOWN_TIME: f32 = 8.0;
-    const MAX_DISPLACEMENT: f32 = 0.263;
+    const SPOOLUP_TIME: f64 = 4.0;
+    const SPOOLDOWN_TIME: f64 = 8.0;
+    const MAX_DISPLACEMENT: f64 = 0.263;
 
     pub fn new() -> ElectricPump {
         ElectricPump {
@@ -565,11 +565,11 @@ impl ElectricPump {
     pub fn update(&mut self, context: &UpdateContext, line: &HydLoop) {
         // Pump startup/shutdown process
         if self.active && self.rpm < 7600.0 {
-            self.rpm += 7600.0f32
-                .min((7600. / ElectricPump::SPOOLUP_TIME) * (context.delta.as_secs_f32() * 10.));
+            self.rpm += 7600.0f64
+                .min((7600. / ElectricPump::SPOOLUP_TIME) * (context.delta.as_secs_f64() * 10.));
         } else if !self.active && self.rpm > 0.0 {
-            self.rpm -= 7600.0f32
-                .min((7600. / ElectricPump::SPOOLDOWN_TIME) * (context.delta.as_secs_f32() * 10.));
+            self.rpm -= 7600.0f64
+                .min((7600. / ElectricPump::SPOOLDOWN_TIME) * (context.delta.as_secs_f64() * 10.));
         }
 
         self.pump.update(context, line, self.rpm);
@@ -586,9 +586,9 @@ pub struct EngineDrivenPump {
     pump: Pump,
 }
 impl EngineDrivenPump {
-    const LEAP_1A26_MAX_N2_RPM: f32 = 16645.0;
-    const MAX_DISPLACEMENT: f32 = 2.4;
-    const MAX_RPM: f32 = 4000.;
+    const LEAP_1A26_MAX_N2_RPM: f64 = 16645.0;
+    const MAX_DISPLACEMENT: f64 = 2.4;
+    const MAX_RPM: f64 = 4000.;
 
     pub fn new() -> EngineDrivenPump {
         EngineDrivenPump {
@@ -600,7 +600,7 @@ impl EngineDrivenPump {
     }
 
     pub fn update(&mut self, context: &UpdateContext, line: &HydLoop, engine: &Engine) {
-        let rpm = (1.0f32.min(4.0 * engine.n2.get::<percent>())) * EngineDrivenPump::MAX_RPM;
+        let rpm = (1.0f64.min(4.0 * engine.n2.get::<percent>())) * EngineDrivenPump::MAX_RPM;
 
         self.pump.update(context, line, rpm);
     }
@@ -616,8 +616,8 @@ pub struct RatPump {
     pump: Pump,
 }
 impl RatPump {
-    const MAX_DISPLACEMENT: f32 = 1.15;
-    const NORMAL_RPM: f32 = 6000.;
+    const MAX_DISPLACEMENT: f64 = 1.15;
+    const NORMAL_RPM: f64 = 6000.;
 
     pub fn new() -> RatPump {
         RatPump {
@@ -654,7 +654,16 @@ pub struct Actuator {
 // TODO
 impl Actuator {
     pub fn new(a_type: ActuatorType, line: HydLoop) -> Actuator {
-        Actuator { a_type, line }
+        Actuator { 
+            a_type,
+            active: false,
+            affected_by_gravity: false,
+            area: Area::new::<square_meter>(5.0),
+            line,
+            neutral_is_zero: true,
+            stall_load: Force::new::<newton>(47000.),
+            volume_used_at_max_deflection: Volume::new::<gallon>(0.),
+        }
     }
 }
 
@@ -849,9 +858,9 @@ mod tests {
             displacement: Volume,
             time: Duration,
         ) -> Volume {
-            let edp_rpm = (1.0f32.min(4.0 * n2.get::<percent>())) * EngineDrivenPump::MAX_RPM;
+            let edp_rpm = (1.0f64.min(4.0 * n2.get::<percent>())) * EngineDrivenPump::MAX_RPM;
             let expected_flow = Pump::calculate_flow(edp_rpm, displacement);
-            expected_flow * Time::new::<second>(time.as_secs_f32())
+            expected_flow * Time::new::<second>(time.as_secs_f64())
         }
     }
 }
