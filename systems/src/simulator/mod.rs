@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use uom::si::f64::*;
 
 mod update_context;
@@ -5,26 +7,26 @@ mod update_context;
 pub use update_context::test_helpers;
 pub use update_context::UpdateContext;
 
-pub struct SimToModelVisitor {
-    state: SimulatorReadState,
+pub struct SimulatorToModelVisitor<'a> {
+    state: &'a SimulatorReadState,
 }
-impl SimToModelVisitor {
-    pub fn new(state: SimulatorReadState) -> Self {
-        SimToModelVisitor { state }
+impl<'a> SimulatorToModelVisitor<'a> {
+    pub fn new(state: &'a SimulatorReadState) -> Self {
+        SimulatorToModelVisitor { state }
     }
 }
-impl SimVisitor for SimToModelVisitor {
+impl SimulatorVisitor for SimulatorToModelVisitor<'_> {
     fn visit<T: SimulatorReadWritable>(&mut self, visited: &mut T) {
         visited.read(&self.state);
     }
 }
 
-pub struct ModelToSimVisitor {
+pub struct ModelToSimulatorVisitor {
     state: SimulatorWriteState,
 }
-impl ModelToSimVisitor {
+impl ModelToSimulatorVisitor {
     pub fn new() -> Self {
-        ModelToSimVisitor {
+        ModelToSimulatorVisitor {
             state: Default::default(),
         }
     }
@@ -33,7 +35,7 @@ impl ModelToSimVisitor {
         self.state
     }
 }
-impl SimVisitor for ModelToSimVisitor {
+impl SimulatorVisitor for ModelToSimulatorVisitor {
     fn visit<T: SimulatorReadWritable>(&mut self, visited: &mut T) {
         visited.write(&mut self.state);
     }
@@ -52,18 +54,29 @@ pub trait SimulatorReadWritable {
 }
 
 pub trait SimulatorVisitable {
-    fn accept<T: SimVisitor>(&mut self, visitor: &mut T);
+    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T);
 }
 
-pub trait SimVisitor {
+pub trait SimulatorVisitor {
     fn visit<T: SimulatorReadWritable>(&mut self, visited: &mut T);
 }
 
 #[derive(Default)]
 pub struct SimulatorReadState {
+    pub ambient_temperature: ThermodynamicTemperature,
     pub apu_master_sw_on: bool,
     pub apu_start_sw_on: bool,
     pub apu_bleed_sw_on: bool,
+    pub indicated_airspeed: Velocity,
+}
+impl SimulatorReadState {
+    pub fn to_context(&self, delta_time: Duration) -> UpdateContext {
+        UpdateContext {
+            ambient_temperature: self.ambient_temperature,
+            indicated_airspeed: self.indicated_airspeed,
+            delta: delta_time,
+        }
+    }
 }
 
 #[derive(Default)]

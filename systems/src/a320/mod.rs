@@ -3,7 +3,7 @@ use crate::{
     apu::{AuxiliaryPowerUnit, AuxiliaryPowerUnitOverheadPanel},
     electrical::ExternalPowerSource,
     shared::Engine,
-    simulator::{SimVisitor, SimulatorVisitable, UpdateContext},
+    simulator::{SimulatorVisitable, SimulatorVisitor, UpdateContext},
 };
 
 mod electrical;
@@ -70,7 +70,7 @@ impl A320 {
     }
 }
 impl SimulatorVisitable for A320 {
-    fn accept<T: SimVisitor>(&mut self, visitor: &mut T) {
+    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
         self.apu.accept(visitor);
         self.apu_overhead.accept(visitor);
         self.pneumatic_overhead.accept(visitor);

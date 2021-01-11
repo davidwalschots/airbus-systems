@@ -1,6 +1,6 @@
 use crate::{
     overhead::OnOffPushButton,
-    simulator::{SimVisitor, SimulatorReadState, SimulatorReadWritable, SimulatorVisitable},
+    simulator::{SimulatorReadState, SimulatorReadWritable, SimulatorVisitable, SimulatorVisitor},
 };
 
 pub struct A320PneumaticOverheadPanel {
@@ -28,7 +28,7 @@ impl A320PneumaticOverheadPanel {
     }
 }
 impl SimulatorVisitable for A320PneumaticOverheadPanel {
-    fn accept<T: SimVisitor>(&mut self, visitor: &mut T) {
+    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
         visitor.visit(self);
     }
 }

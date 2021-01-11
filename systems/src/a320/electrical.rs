@@ -133,7 +133,7 @@ impl A320Electrical {
         self.emergency_gen.update(
             // ON GROUND BAT ONLY SPEED <= 100 kts scenario. We'll probably need to move this logic into
             // the ram air turbine, emergency generator and hydraulic implementation.
-            hydraulic.is_blue_pressurised() && context.airspeed > Velocity::new::<knot>(100.),
+            hydraulic.is_blue_pressurised() && context.indicated_airspeed > Velocity::new::<knot>(100.),
         );
 
         let gen_1_provides_power = overhead.generator_1_is_on() && self.engine_1_gen.is_powered();
@@ -298,7 +298,7 @@ impl A320Electrical {
         // TODO: The actual logic for battery contactors is more complex, however
         // not all systems is relates to are implemented yet. We'll have to get back to this later.
         let ac_bus_1_and_2_unpowered = self.ac_bus_1.is_unpowered() && self.ac_bus_2.is_unpowered();
-        let airspeed_below_100_knots = context.airspeed < Velocity::new::<knot>(100.);
+        let airspeed_below_100_knots = context.indicated_airspeed < Velocity::new::<knot>(100.);
         let batteries_should_supply_bat_bus = ac_bus_1_and_2_unpowered && airspeed_below_100_knots;
         self.battery_1_contactor.close_when(
             overhead.bat_1_is_auto()
@@ -345,7 +345,7 @@ impl A320Electrical {
 
         self.ac_stat_inv_bus.powered_by(vec![&self.static_inv]);
         self.static_inv_to_ac_ess_bus_contactor.close_when(
-            self.static_inv.is_powered() && context.airspeed >= Velocity::new::<knot>(50.),
+            self.static_inv.is_powered() && context.indicated_airspeed >= Velocity::new::<knot>(50.),
         );
         self.static_inv_to_ac_ess_bus_contactor
             .powered_by(vec![&self.static_inv]);

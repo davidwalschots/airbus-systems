@@ -1,3 +1,4 @@
+#[cfg(not(any(target_arch = "wasm32", doc)))]
 use rand::Rng;
 
 #[cfg(not(any(target_arch = "wasm32", doc)))]

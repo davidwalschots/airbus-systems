@@ -41,7 +41,7 @@ use crate::{
     pneumatic::BleedAirValve,
     shared::random_number,
     simulator::{
-        SimVisitor, SimulatorReadState, SimulatorReadWritable, SimulatorVisitable,
+        SimulatorReadState, SimulatorReadWritable, SimulatorVisitable, SimulatorVisitor,
         SimulatorWriteState, UpdateContext,
     },
 };
@@ -113,7 +113,7 @@ impl AuxiliaryPowerUnit {
     }
 }
 impl SimulatorVisitable for AuxiliaryPowerUnit {
-    fn accept<T: SimVisitor>(&mut self, visitor: &mut T) {
+    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
         visitor.visit(self);
     }
 }
@@ -651,7 +651,7 @@ impl AuxiliaryPowerUnitOverheadPanel {
     }
 }
 impl SimulatorVisitable for AuxiliaryPowerUnitOverheadPanel {
-    fn accept<T: SimVisitor>(&mut self, visitor: &mut T) {
+    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
         visitor.visit(self);
     }
 }

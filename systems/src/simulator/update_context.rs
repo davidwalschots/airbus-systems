@@ -4,8 +4,7 @@ use uom::si::f64::*;
 #[derive(Debug)]
 pub struct UpdateContext {
     pub delta: Duration,
-    pub airspeed: Velocity,
-    pub above_ground_level: Length,
+    pub indicated_airspeed: Velocity,
     pub ambient_temperature: ThermodynamicTemperature,
 }
 
@@ -18,8 +17,7 @@ impl UpdateContext {
     ) -> UpdateContext {
         UpdateContext {
             delta,
-            airspeed,
-            above_ground_level,
+            indicated_airspeed: airspeed,
             ambient_temperature,
         }
     }
