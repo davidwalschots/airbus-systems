@@ -42,24 +42,26 @@ async fn demo(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> 
 
 pub struct SimulatorReadWriter {
     ambient_temperature: AircraftVariable,
-    apu_master_sw: AircraftVariable,
-    apu_start_sw: NamedVariable,
-    apu_n: NamedVariable,
     apu_egt: NamedVariable,
     apu_egt_caution: NamedVariable,
     apu_egt_warning: NamedVariable,
+    apu_flap_open: NamedVariable,
+    apu_master_sw: AircraftVariable,
+    apu_n: NamedVariable,
+    apu_start_sw: NamedVariable,
     indicated_airspeed: AircraftVariable,
 }
 impl SimulatorReadWriter {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         Ok(SimulatorReadWriter {
             ambient_temperature: AircraftVariable::from("AMBIENT TEMPERATURE", "celsius", 0)?,
-            apu_master_sw: AircraftVariable::from("FUELSYSTEM VALVE SWITCH", "Bool", 8)?,
-            apu_start_sw: NamedVariable::from("A32NX_APU_START_ACTIVATED"),
-            apu_n: NamedVariable::from("APU_N"),
             apu_egt: NamedVariable::from("APU_EGT"),
             apu_egt_caution: NamedVariable::from("APU_EGT_WARN"),
             apu_egt_warning: NamedVariable::from("APU_EGT_MAX"),
+            apu_flap_open: NamedVariable::from("APU_FLAP_OPEN"),
+            apu_master_sw: AircraftVariable::from("FUELSYSTEM VALVE SWITCH", "Bool", 8)?,
+            apu_n: NamedVariable::from("APU_N"),
+            apu_start_sw: NamedVariable::from("A32NX_APU_START_ACTIVATED"),
             indicated_airspeed: AircraftVariable::from("AIRSPEED INDICATED", "Knots", 0)?,
         })
     }
@@ -84,5 +86,7 @@ impl SimulatorReadWriter {
             .set_value(state.apu_caution_egt.get::<degree_celsius>());
         self.apu_egt_warning
             .set_value(state.apu_warning_egt.get::<degree_celsius>());
+        self.apu_flap_open
+            .set_value(state.apu_air_intake_flap_opened_for.get::<percent>());
     }
 }

@@ -84,7 +84,7 @@ impl AuxiliaryPowerUnit {
         self.egt_maximum_temperature = self.state.as_ref().unwrap().get_egt_max_temperature();
     }
 
-    pub fn get_n(&self) -> Ratio {
+    fn get_n(&self) -> Ratio {
         self.state.as_ref().unwrap().get_n()
     }
 
@@ -92,23 +92,25 @@ impl AuxiliaryPowerUnit {
         self.state.as_ref().unwrap().is_available()
     }
 
-    /// When true, the "FLAP OPEN" message on the ECAM APU page should be displayed.
-    fn is_air_intake_flap_fully_open(&self) -> bool {
-        self.state.as_ref().unwrap().is_air_intake_flap_fully_open()
+    fn get_air_intake_flap_open_amount(&self) -> Ratio {
+        self.state
+            .as_ref()
+            .unwrap()
+            .get_air_intake_flap_open_amount()
     }
 
-    pub fn get_egt(&self) -> ThermodynamicTemperature {
+    fn get_egt(&self) -> ThermodynamicTemperature {
         self.state.as_ref().unwrap().get_egt()
     }
 
-    pub fn get_egt_warning_temperature(&self) -> ThermodynamicTemperature {
+    fn get_egt_warning_temperature(&self) -> ThermodynamicTemperature {
         const MAX_ABOVE_WARNING: f64 = 33.;
         ThermodynamicTemperature::new::<degree_celsius>(
             self.egt_maximum_temperature.get::<degree_celsius>() - MAX_ABOVE_WARNING,
         )
     }
 
-    pub fn get_egt_maximum_temperature(&self) -> ThermodynamicTemperature {
+    fn get_egt_maximum_temperature(&self) -> ThermodynamicTemperature {
         self.egt_maximum_temperature
     }
 }
@@ -123,6 +125,7 @@ impl SimulatorReadWritable for AuxiliaryPowerUnit {
         state.apu_egt = self.get_egt();
         state.apu_caution_egt = self.get_egt_warning_temperature();
         state.apu_warning_egt = self.get_egt_maximum_temperature();
+        state.apu_air_intake_flap_opened_for = self.get_air_intake_flap_open_amount();
     }
 }
 
@@ -138,8 +141,7 @@ trait ApuState {
 
     fn is_available(&self) -> bool;
 
-    /// When true, the "FLAP OPEN" message on the ECAM APU page should be displayed.
-    fn is_air_intake_flap_fully_open(&self) -> bool;
+    fn get_air_intake_flap_open_amount(&self) -> Ratio;
 
     fn get_egt(&self) -> ThermodynamicTemperature;
 
@@ -204,8 +206,8 @@ impl ApuState for Shutdown {
         false
     }
 
-    fn is_air_intake_flap_fully_open(&self) -> bool {
-        self.air_intake_flap.is_fully_open()
+    fn get_air_intake_flap_open_amount(&self) -> Ratio {
+        self.air_intake_flap.get_open_amount()
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
@@ -363,8 +365,8 @@ impl ApuState for Starting {
         false
     }
 
-    fn is_air_intake_flap_fully_open(&self) -> bool {
-        self.air_intake_flap.is_fully_open()
+    fn get_air_intake_flap_open_amount(&self) -> Ratio {
+        self.air_intake_flap.get_open_amount()
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
@@ -454,8 +456,8 @@ impl ApuState for Running {
         true
     }
 
-    fn is_air_intake_flap_fully_open(&self) -> bool {
-        self.air_intake_flap.is_fully_open()
+    fn get_air_intake_flap_open_amount(&self) -> Ratio {
+        self.air_intake_flap.get_open_amount()
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
@@ -540,8 +542,8 @@ impl ApuState for Stopping {
         false
     }
 
-    fn is_air_intake_flap_fully_open(&self) -> bool {
-        self.air_intake_flap.is_fully_open()
+    fn get_air_intake_flap_open_amount(&self) -> Ratio {
+        self.air_intake_flap.get_open_amount()
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
@@ -718,6 +720,10 @@ impl AirIntakeFlap {
     fn is_fully_open(&self) -> bool {
         self.state == Ratio::new::<percent>(100.)
     }
+
+    fn get_open_amount(&self) -> Ratio {
+        self.state
+    }
 }
 
 #[cfg(test)]
@@ -847,7 +853,7 @@ pub mod tests {
         }
 
         fn is_air_intake_flap_fully_open(&self) -> bool {
-            self.apu.is_air_intake_flap_fully_open()
+            self.apu.get_air_intake_flap_open_amount().get::<percent>() == 100.
         }
 
         fn get_n(&self) -> Ratio {
