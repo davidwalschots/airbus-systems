@@ -39,8 +39,11 @@ use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius}
 use crate::{
     overhead::OnOffPushButton,
     pneumatic::BleedAirValve,
-    shared::{random_number, UpdateContext},
-    state::{SimVisitor, SimulatorReadWritable, SimulatorVisitable, SimulatorWriteState},
+    shared::random_number,
+    simulator::{
+        SimVisitor, SimulatorReadState, SimulatorReadWritable, SimulatorVisitable,
+        SimulatorWriteState, UpdateContext,
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -653,7 +656,7 @@ impl SimulatorVisitable for AuxiliaryPowerUnitOverheadPanel {
     }
 }
 impl SimulatorReadWritable for AuxiliaryPowerUnitOverheadPanel {
-    fn read(&mut self, state: &crate::state::SimulatorReadState) {
+    fn read(&mut self, state: &SimulatorReadState) {
         self.master.set(state.apu_master_sw_on);
         self.start.set(state.apu_start_sw_on);
     }
@@ -723,7 +726,7 @@ pub mod tests {
 
     use uom::si::thermodynamic_temperature::degree_celsius;
 
-    use crate::shared::test_helpers::context_with;
+    use crate::simulator::test_helpers::context_with;
 
     use super::*;
 
@@ -1163,8 +1166,6 @@ pub mod tests {
 
     #[cfg(test)]
     mod air_intake_flap_tests {
-        use crate::shared::test_helpers::context_with;
-
         use super::*;
 
         #[test]

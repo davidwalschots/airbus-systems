@@ -1,7 +1,6 @@
-use crate::state::SimulatorReadState;
 use crate::{
     overhead::OnOffPushButton,
-    state::{SimVisitor, SimulatorReadWritable, SimulatorVisitable},
+    simulator::{SimVisitor, SimulatorReadState, SimulatorReadWritable, SimulatorVisitable},
 };
 
 pub struct A320PneumaticOverheadPanel {

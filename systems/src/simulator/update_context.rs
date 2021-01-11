@@ -1,5 +1,4 @@
 use std::time::Duration;
-
 use uom::si::f64::*;
 
 #[derive(Debug)]

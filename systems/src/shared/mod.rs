@@ -1,11 +1,9 @@
-mod random;
-pub use random::*;
-
-mod update_context;
-pub use update_context::*;
-
+use crate::simulator::UpdateContext;
 use std::time::Duration;
 use uom::si::{f64::*, ratio::percent};
+
+mod random;
+pub use random::*;
 
 /// The delay logic gate delays the true result of a given expression by the given amount of time.
 /// False results are output immediately.
@@ -60,7 +58,7 @@ impl Engine {
 
 #[cfg(test)]
 mod delayed_true_logic_gate_tests {
-    use self::test_helpers::context_with;
+    use crate::simulator::test_helpers::context_with;
 
     use super::*;
 

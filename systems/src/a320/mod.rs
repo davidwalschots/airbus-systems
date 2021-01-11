@@ -1,3 +1,11 @@
+use self::pneumatic::A320PneumaticOverheadPanel;
+use crate::{
+    apu::{AuxiliaryPowerUnit, AuxiliaryPowerUnitOverheadPanel},
+    electrical::ExternalPowerSource,
+    shared::Engine,
+    simulator::{SimVisitor, SimulatorVisitable, UpdateContext},
+};
+
 mod electrical;
 pub use electrical::*;
 
@@ -5,15 +13,6 @@ mod hydraulic;
 pub use hydraulic::*;
 
 mod pneumatic;
-
-use crate::{
-    apu::{AuxiliaryPowerUnit, AuxiliaryPowerUnitOverheadPanel},
-    electrical::ExternalPowerSource,
-    shared::{Engine, UpdateContext},
-    state::{SimVisitor, SimulatorVisitable},
-};
-
-use self::pneumatic::A320PneumaticOverheadPanel;
 
 pub struct A320 {
     engine_1: Engine,

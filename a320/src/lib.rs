@@ -1,16 +1,18 @@
 #![cfg(any(target_arch = "wasm32", doc))]
-use airbus_systems::shared::UpdateContext;
+use airbus_systems::{
+    simulator::{
+        to_bool, ModelToSimVisitor, SimToModelVisitor, SimulatorReadState, SimulatorVisitable,
+        SimulatorWriteState, UpdateContext,
+    },
+    A320,
+};
 use msfs::{
-    legacy::{execute_calculator_code, AircraftVariable, NamedVariable},
+    legacy::{AircraftVariable, NamedVariable},
     MSFSEvent,
 };
 use uom::si::{
     f64::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
 };
-
-use airbus_systems::a320::A320;
-use airbus_systems::simulator::{to_bool, ModelToSimVisitor, SimToModelVisitor};
-use airbus_systems::state::{SimulatorReadState, SimulatorVisitable, SimulatorWriteState};
 
 #[msfs::gauge(name=airbus)]
 async fn demo(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> {

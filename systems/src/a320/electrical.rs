@@ -1,6 +1,4 @@
-use std::time::Duration;
-use uom::si::{f64::*, velocity::knot};
-
+use super::A320Hydraulic;
 use crate::{
     apu::AuxiliaryPowerUnit,
     electrical::{
@@ -8,10 +6,11 @@ use crate::{
         ExternalPowerSource, PowerConductor, Powerable, StaticInverter, TransformerRectifier,
     },
     overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
-    shared::{DelayedTrueLogicGate, Engine, UpdateContext},
+    shared::{DelayedTrueLogicGate, Engine},
+    simulator::UpdateContext,
 };
-
-use super::hydraulic::A320Hydraulic;
+use std::time::Duration;
+use uom::si::{f64::*, velocity::knot};
 
 pub struct A320Electrical {
     engine_1_gen: EngineGenerator,
