@@ -9,7 +9,6 @@ use crate::{
     apu::AuxiliaryPowerUnit,
     overhead::OnOffPushButton,
     shared::{Engine, UpdateContext},
-    visitor::Visitable,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -438,12 +437,6 @@ impl ExternalPowerSource {
     }
 
     pub fn update(&mut self, _: &UpdateContext) {}
-}
-
-impl Visitable for ExternalPowerSource {
-    fn accept(&mut self, visitor: &mut Box<dyn crate::visitor::MutableVisitor>) {
-        visitor.visit_external_power_source(self);
-    }
 }
 
 impl PowerConductor for ExternalPowerSource {

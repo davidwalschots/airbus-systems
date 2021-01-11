@@ -7,8 +7,6 @@ pub use update_context::*;
 use std::time::Duration;
 use uom::si::{f64::*, ratio::percent};
 
-use crate::visitor::Visitable;
-
 /// The delay logic gate delays the true result of a given expression by the given amount of time.
 /// False results are output immediately.
 pub struct DelayedTrueLogicGate {
@@ -58,12 +56,6 @@ impl Engine {
     }
 
     pub fn update(&mut self, _: &UpdateContext) {}
-}
-
-impl Visitable for Engine {
-    fn accept(&mut self, visitor: &mut Box<dyn crate::visitor::MutableVisitor>) {
-        visitor.visit_engine(self);
-    }
 }
 
 #[cfg(test)]

@@ -38,9 +38,9 @@ use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius}
 
 use crate::{
     overhead::OnOffPushButton,
-    pneumatic::{BleedAirValve, PneumaticOverheadPanel},
+    pneumatic::BleedAirValve,
     shared::{random_number, UpdateContext},
-    visitor::Visitable,
+    state::{SimVisitor, SimulatorReadWritable, SimulatorVisitable, SimulatorWriteState},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -72,10 +72,10 @@ impl AuxiliaryPowerUnit {
         &mut self,
         context: &UpdateContext,
         overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) {
         if let Some(state) = self.state.take() {
-            self.state = Some(state.update(context, overhead, pneumatic_overhead));
+            self.state = Some(state.update(context, overhead, apu_bleed_is_on));
         }
 
         self.egt_maximum_temperature = self.state.as_ref().unwrap().get_egt_max_temperature();
@@ -94,19 +94,32 @@ impl AuxiliaryPowerUnit {
         self.state.as_ref().unwrap().is_air_intake_flap_fully_open()
     }
 
-    fn get_egt(&self) -> ThermodynamicTemperature {
+    pub fn get_egt(&self) -> ThermodynamicTemperature {
         self.state.as_ref().unwrap().get_egt()
     }
 
-    fn get_egt_warning_temperature(&self) -> ThermodynamicTemperature {
+    pub fn get_egt_warning_temperature(&self) -> ThermodynamicTemperature {
         const MAX_ABOVE_WARNING: f64 = 33.;
         ThermodynamicTemperature::new::<degree_celsius>(
             self.egt_maximum_temperature.get::<degree_celsius>() - MAX_ABOVE_WARNING,
         )
     }
 
-    fn get_egt_maximum_temperature(&self) -> ThermodynamicTemperature {
+    pub fn get_egt_maximum_temperature(&self) -> ThermodynamicTemperature {
         self.egt_maximum_temperature
+    }
+}
+impl SimulatorVisitable for AuxiliaryPowerUnit {
+    fn accept<T: SimVisitor>(&mut self, visitor: &mut T) {
+        visitor.visit(self);
+    }
+}
+impl SimulatorReadWritable for AuxiliaryPowerUnit {
+    fn write(&self, state: &mut SimulatorWriteState) {
+        state.apu_n = self.get_n();
+        state.apu_egt = self.get_egt();
+        state.apu_caution_egt = self.get_egt_warning_temperature();
+        state.apu_warning_egt = self.get_egt_maximum_temperature();
     }
 }
 
@@ -115,7 +128,7 @@ trait ApuState {
         self: Box<Self>,
         context: &UpdateContext,
         overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) -> Box<dyn ApuState>;
 
     fn get_n(&self) -> Ratio;
@@ -156,7 +169,7 @@ impl ApuState for Shutdown {
         mut self: Box<Self>,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) -> Box<dyn ApuState> {
         if apu_overhead.master_is_on() {
             self.air_intake_flap.open();
@@ -168,7 +181,7 @@ impl ApuState for Shutdown {
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
         self.bleed_air_valve
-            .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
+            .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
 
         if self.air_intake_flap.is_fully_open()
             && apu_overhead.master_is_on()
@@ -317,7 +330,7 @@ impl ApuState for Starting {
         mut self: Box<Self>,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n();
@@ -326,7 +339,7 @@ impl ApuState for Starting {
         self.air_intake_flap.update(context);
 
         self.bleed_air_valve
-            .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
+            .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
 
         if self.n.get::<percent>() == 100. {
             Box::new(Running::new(
@@ -409,14 +422,14 @@ impl ApuState for Running {
         mut self: Box<Self>,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) -> Box<dyn ApuState> {
         self.egt = self.calculate_slow_cooldown_to_running_temperature(context);
 
         self.air_intake_flap.update(context);
 
         self.bleed_air_valve
-            .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
+            .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
 
         if apu_overhead.master_is_off() && self.is_past_bleed_air_cooldown_period() {
             Box::new(Stopping::new(
@@ -489,14 +502,14 @@ impl ApuState for Stopping {
         mut self: Box<Self>,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n(context);
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
         self.bleed_air_valve
-            .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
+            .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
 
         if self.n.get::<percent>() <= 7. {
             self.air_intake_flap.close();
@@ -578,16 +591,13 @@ impl ApuBleedAirValve {
         context: &UpdateContext,
         n: Ratio,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) {
         // Note: it might be that later we have situations in which master is on,
         // but an emergency shutdown happens and this doesn't turn off.
         // In this case, we need to modify the code below to no longer look at apu overhead state, but APU state itself.
-        self.valve.open_when(
-            apu_overhead.master_is_on()
-                && n.get::<percent>() > 95.
-                && pneumatic_overhead.apu_bleed_is_on(),
-        );
+        self.valve
+            .open_when(apu_overhead.master_is_on() && n.get::<percent>() > 95. && apu_bleed_is_on);
 
         if self.valve.is_open() {
             self.last_open_time_ago = Duration::from_secs(0);
@@ -637,10 +647,15 @@ impl AuxiliaryPowerUnitOverheadPanel {
         self.start.shows_available()
     }
 }
-
-impl Visitable for AuxiliaryPowerUnit {
-    fn accept(&mut self, visitor: &mut Box<dyn crate::visitor::MutableVisitor>) {
-        visitor.visit_auxiliary_power_unit(self);
+impl SimulatorVisitable for AuxiliaryPowerUnitOverheadPanel {
+    fn accept<T: SimVisitor>(&mut self, visitor: &mut T) {
+        visitor.visit(self);
+    }
+}
+impl SimulatorReadWritable for AuxiliaryPowerUnitOverheadPanel {
+    fn read(&mut self, state: &crate::state::SimulatorReadState) {
+        self.master.set(state.apu_master_sw_on);
+        self.start.set(state.apu_start_sw_on);
     }
 }
 
@@ -731,7 +746,7 @@ pub mod tests {
     struct AuxiliaryPowerUnitTester {
         apu: AuxiliaryPowerUnit,
         apu_overhead: AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: PneumaticOverheadPanel,
+        apu_bleed: OnOffPushButton,
         ambient_temperature: ThermodynamicTemperature,
     }
     impl AuxiliaryPowerUnitTester {
@@ -739,7 +754,7 @@ pub mod tests {
             AuxiliaryPowerUnitTester {
                 apu: AuxiliaryPowerUnit::new(),
                 apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
-                pneumatic_overhead: PneumaticOverheadPanel::new(),
+                apu_bleed: OnOffPushButton::new_on(),
                 ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
             }
         }
@@ -765,7 +780,7 @@ pub mod tests {
         }
 
         fn bleed_air_off(mut self) -> Self {
-            self.pneumatic_overhead.turn_apu_bleed_off();
+            self.apu_bleed.turn_off();
             self
         }
 
@@ -790,12 +805,12 @@ pub mod tests {
         }
 
         fn running_apu_with_bleed_air(mut self) -> Self {
-            self.pneumatic_overhead.turn_apu_bleed_on();
+            self.apu_bleed.turn_on();
             self.running_apu()
         }
 
         fn running_apu_without_bleed_air(mut self) -> Self {
-            self.pneumatic_overhead.turn_apu_bleed_off();
+            self.apu_bleed.turn_off();
             self.running_apu()
         }
 
@@ -820,7 +835,7 @@ pub mod tests {
                     .ambient_temperature(self.ambient_temperature)
                     .build(),
                 &self.apu_overhead,
-                &self.pneumatic_overhead,
+                self.apu_bleed.is_on(),
             );
 
             self.apu_overhead.update_after_apu(&self.apu);

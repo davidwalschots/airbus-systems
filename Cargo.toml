@@ -13,5 +13,5 @@ crate-type = ["cdylib"]
 [dependencies]
 uom = "0.30.0"
 rand = "0.8.0"
-msfs = "0.0.1-alpha.2"
+msfs = { git = "https://github.com/flybywiresim/msfs-rs", branch = "main" }
 ntest = "0.7.2"

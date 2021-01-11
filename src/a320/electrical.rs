@@ -9,7 +9,6 @@ use crate::{
     },
     overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
     shared::{DelayedTrueLogicGate, Engine, UpdateContext},
-    visitor::Visitable,
 };
 
 use super::hydraulic::A320Hydraulic;
@@ -425,12 +424,6 @@ impl A320Electrical {
     }
 }
 
-impl Visitable for A320Electrical {
-    fn accept(&mut self, _: &mut Box<dyn super::MutableVisitor>) {
-        // TODO
-    }
-}
-
 pub struct A320ElectricalOverheadPanel {
     bat_1: AutoOffPushButton,
     bat_2: AutoOffPushButton,
@@ -500,12 +493,6 @@ impl A320ElectricalOverheadPanel {
 
     fn bat_2_is_auto(&self) -> bool {
         self.bat_2.is_auto()
-    }
-}
-
-impl Visitable for A320ElectricalOverheadPanel {
-    fn accept(&mut self, _: &mut Box<dyn super::MutableVisitor>) {
-        // TODO
     }
 }
 

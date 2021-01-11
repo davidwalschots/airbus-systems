@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use uom::si::f64::*;
 
+#[derive(Debug)]
 pub struct UpdateContext {
     pub delta: Duration,
     pub airspeed: Velocity,

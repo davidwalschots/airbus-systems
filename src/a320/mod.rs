@@ -4,20 +4,23 @@ pub use electrical::*;
 mod hydraulic;
 pub use hydraulic::*;
 
+mod pneumatic;
+
 use crate::{
     apu::{AuxiliaryPowerUnit, AuxiliaryPowerUnitOverheadPanel},
     electrical::ExternalPowerSource,
-    pneumatic::PneumaticOverheadPanel,
     shared::{Engine, UpdateContext},
-    visitor::{MutableVisitor, Visitable},
+    state::{SimVisitor, SimulatorVisitable},
 };
+
+use self::pneumatic::A320PneumaticOverheadPanel;
 
 pub struct A320 {
     engine_1: Engine,
     engine_2: Engine,
-    pub apu: AuxiliaryPowerUnit,
-    pub apu_overhead: AuxiliaryPowerUnitOverheadPanel,
-    pneumatic_overhead: PneumaticOverheadPanel,
+    apu: AuxiliaryPowerUnit,
+    apu_overhead: AuxiliaryPowerUnitOverheadPanel,
+    pneumatic_overhead: A320PneumaticOverheadPanel,
     ext_pwr: ExternalPowerSource,
     electrical: A320Electrical,
     electrical_overhead: A320ElectricalOverheadPanel,
@@ -31,7 +34,7 @@ impl A320 {
             engine_2: Engine::new(),
             apu: AuxiliaryPowerUnit::new(),
             apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
-            pneumatic_overhead: PneumaticOverheadPanel::new(),
+            pneumatic_overhead: A320PneumaticOverheadPanel::new(),
             ext_pwr: ExternalPowerSource::new(),
             electrical: A320Electrical::new(),
             electrical_overhead: A320ElectricalOverheadPanel::new(),
@@ -43,8 +46,11 @@ impl A320 {
         self.engine_1.update(context);
         self.engine_2.update(context);
 
-        self.apu
-            .update(context, &self.apu_overhead, &self.pneumatic_overhead);
+        self.apu.update(
+            context,
+            &self.apu_overhead,
+            self.pneumatic_overhead.apu_bleed_is_on(),
+        );
         self.apu_overhead.update_after_apu(&self.apu);
 
         self.ext_pwr.update(context);
@@ -64,15 +70,10 @@ impl A320 {
         );
     }
 }
-
-impl Visitable for A320 {
-    fn accept(&mut self, visitor: &mut Box<dyn MutableVisitor>) {
-        self.engine_1.accept(visitor);
-        self.engine_2.accept(visitor);
+impl SimulatorVisitable for A320 {
+    fn accept<T: SimVisitor>(&mut self, visitor: &mut T) {
         self.apu.accept(visitor);
-        self.ext_pwr.accept(visitor);
-        self.electrical.accept(visitor);
-        self.electrical_overhead.accept(visitor);
-        self.hydraulic.accept(visitor);
+        self.apu_overhead.accept(visitor);
+        self.pneumatic_overhead.accept(visitor);
     }
 }

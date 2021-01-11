@@ -1,4 +1,4 @@
-use crate::{shared::UpdateContext, visitor::Visitable};
+use crate::shared::UpdateContext;
 
 pub struct A320Hydraulic {
     // Until hydraulic is implemented, we'll fake it with this boolean.
@@ -17,10 +17,4 @@ impl A320Hydraulic {
     }
 
     pub fn update(&mut self, _: &UpdateContext) {}
-}
-
-impl Visitable for A320Hydraulic {
-    fn accept(&mut self, _: &mut Box<dyn super::MutableVisitor>) {
-        // TODO
-    }
 }

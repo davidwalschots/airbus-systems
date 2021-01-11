@@ -244,7 +244,7 @@ checksum = "ee8025cf36f917e6a52cce185b7c7177689b838b7ec138364e50cc2277a56cf4"
 dependencies = [
  "cfg-if 0.1.10",
  "libc",
- "wasi",
+ "wasi 0.9.0+wasi-snapshot-preview1",
 ]
 
 [[package]]
@@ -317,21 +317,20 @@ checksum = "0ee1c47aaa256ecabcaea351eae4a9b01ef39ed810004e298d2511ed284b1525"
 [[package]]
 name = "msfs"
 version = "0.0.1-alpha.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15411d13863aa57d137712f43b848962d87209a6f9521a132f728189ff019b6e"
+source = "git+https://github.com/flybywiresim/msfs-rs?branch=main#2208e6229a2b924c48ea8cf36bda6cbc78a452ac"
 dependencies = [
  "bindgen",
  "cc",
  "futures",
  "msfs_derive",
  "msfs_sdk",
+ "wasi 0.10.1+wasi-snapshot-preview1",
 ]
 
 [[package]]
 name = "msfs_derive"
 version = "0.0.1-alpha.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42369c05118cccf969f6922b245da3bab987d51e62516085fae48ea20d2cef77"
+source = "git+https://github.com/flybywiresim/msfs-rs?branch=main#2208e6229a2b924c48ea8cf36bda6cbc78a452ac"
 dependencies = [
  "msfs_sdk",
  "quote",
@@ -341,8 +340,7 @@ dependencies = [
 [[package]]
 name = "msfs_sdk"
 version = "0.0.1-alpha.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0ad3f449ea14f11ab688a72684bbb3584007391b4faa29d27260b3b2ec6246d"
+source = "git+https://github.com/flybywiresim/msfs-rs?branch=main#2208e6229a2b924c48ea8cf36bda6cbc78a452ac"
 
 [[package]]
 name = "nom"
@@ -673,6 +671,12 @@ name = "wasi"
 version = "0.9.0+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cccddf32554fecc6acb585f82a32a72e28b48f8c4c1883ddfeeeaa96f7d8e519"
+
+[[package]]
+name = "wasi"
+version = "0.10.1+wasi-snapshot-preview1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93c6c3420963c5c64bca373b25e77acb562081b9bb4dd5bb864187742186cea9"
 
 [[package]]
 name = "which"
