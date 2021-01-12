@@ -34,7 +34,7 @@
 
 use std::time::Duration;
 
-use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
+use uom::si::{f64::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius};
 
 use crate::{
     overhead::OnOffPushButton,
@@ -81,7 +81,11 @@ impl AuxiliaryPowerUnit {
             self.state = Some(state.update(context, overhead, apu_bleed_is_on));
         }
 
-        self.egt_maximum_temperature = self.state.as_ref().unwrap().get_egt_max_temperature();
+        self.egt_maximum_temperature = self
+            .state
+            .as_ref()
+            .unwrap()
+            .get_egt_max_temperature(context);
     }
 
     fn get_n(&self) -> Ratio {
@@ -145,7 +149,7 @@ trait ApuState {
 
     fn get_egt(&self) -> ThermodynamicTemperature;
 
-    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature;
+    fn get_egt_max_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature;
 }
 
 struct Shutdown {
@@ -214,7 +218,7 @@ impl ApuState for Shutdown {
         self.egt
     }
 
-    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature {
+    fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when shutdown is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
@@ -373,9 +377,14 @@ impl ApuState for Starting {
         self.egt
     }
 
-    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature {
-        // TODO: Get altitude (not AGL but barometric).
-        ThermodynamicTemperature::new::<degree_celsius>(Starting::MAX_EGT_BELOW_25000_FEET)
+    fn get_egt_max_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature {
+        if context.indicated_altitude.get::<foot>() < 25_000. {
+            ThermodynamicTemperature::new::<degree_celsius>(Starting::MAX_EGT_BELOW_25000_FEET)
+        } else {
+            ThermodynamicTemperature::new::<degree_celsius>(
+                Starting::MAX_EGT_AT_OR_ABOVE_25000_FEET,
+            )
+        }
     }
 }
 
@@ -458,7 +467,7 @@ impl ApuState for Running {
         self.egt
     }
 
-    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature {
+    fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
 }
@@ -544,7 +553,7 @@ impl ApuState for Stopping {
         self.egt
     }
 
-    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature {
+    fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when stopping is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
@@ -733,13 +742,10 @@ impl AirIntakeFlap {
 
 #[cfg(test)]
 pub mod tests {
-    use std::time::Duration;
-
-    use uom::si::thermodynamic_temperature::degree_celsius;
-
-    use crate::simulator::test_helpers::context_with;
-
     use super::*;
+    use crate::simulator::test_helpers::context_with;
+    use std::time::Duration;
+    use uom::si::thermodynamic_temperature::degree_celsius;
 
     pub fn running_apu() -> AuxiliaryPowerUnit {
         tester_with().running_apu().get_apu()
@@ -762,6 +768,7 @@ pub mod tests {
         apu_overhead: AuxiliaryPowerUnitOverheadPanel,
         apu_bleed: OnOffPushButton,
         ambient_temperature: ThermodynamicTemperature,
+        indicated_altitude: Length,
     }
     impl AuxiliaryPowerUnitTester {
         fn new() -> Self {
@@ -770,6 +777,7 @@ pub mod tests {
                 apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
                 apu_bleed: OnOffPushButton::new_on(),
                 ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
+                indicated_altitude: Length::new::<foot>(5000.),
             }
         }
 
@@ -833,6 +841,11 @@ pub mod tests {
             self
         }
 
+        fn indicated_altitude(mut self, indicated_altitute: Length) -> Self {
+            self.indicated_altitude = indicated_altitute;
+            self
+        }
+
         fn and(self) -> Self {
             self
         }
@@ -845,8 +858,9 @@ pub mod tests {
             self.apu.update(
                 &context_with()
                     .delta(delta)
-                    .and()
                     .ambient_temperature(self.ambient_temperature)
+                    .and()
+                    .indicated_altitude(self.indicated_altitude)
                     .build(),
                 &self.apu_overhead,
                 self.apu_bleed.is_on(),
@@ -1193,6 +1207,34 @@ pub mod tests {
         #[ignore]
         /// Komp: Bleed adds even more. Not sure how much, 30-40 degrees as a rough guess.
         fn running_apu_supplying_bleed_air_increases_egt_by_30_to_40_degrees() {}
+
+        #[test]
+        fn max_starting_egt_below_25000_feet_is_900_degrees() {
+            let tester = tester_with()
+                .starting_apu()
+                .and()
+                .indicated_altitude(Length::new::<foot>(24999.))
+                .run(Duration::from_secs(1));
+
+            assert_about_eq!(
+                tester.get_egt_maximum_temperature().get::<degree_celsius>(),
+                900.
+            );
+        }
+
+        #[test]
+        fn max_starting_egt_at_or_above_25000_feet_is_982_degrees() {
+            let tester = tester_with()
+                .starting_apu()
+                .and()
+                .indicated_altitude(Length::new::<foot>(25000.))
+                .run(Duration::from_secs(1));
+
+            assert_about_eq!(
+                tester.get_egt_maximum_temperature().get::<degree_celsius>(),
+                982.
+            );
+        }
     }
 
     #[cfg(test)]

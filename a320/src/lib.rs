@@ -10,7 +10,9 @@ use msfs::{
     legacy::{AircraftVariable, NamedVariable},
     MSFSEvent,
 };
-use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot};
+use uom::si::{
+    f64::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
+};
 
 #[msfs::gauge(name=airbus)]
 async fn demo(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> {
@@ -50,6 +52,7 @@ pub struct SimulatorReadWriter {
     apu_n: NamedVariable,
     apu_start_sw: NamedVariable,
     indicated_airspeed: AircraftVariable,
+    indicated_altitude: AircraftVariable,
 }
 impl SimulatorReadWriter {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
@@ -63,6 +66,7 @@ impl SimulatorReadWriter {
             apu_n: NamedVariable::from("APU_N"),
             apu_start_sw: NamedVariable::from("A32NX_APU_START_ACTIVATED"),
             indicated_airspeed: AircraftVariable::from("AIRSPEED INDICATED", "Knots", 0)?,
+            indicated_altitude: AircraftVariable::from("INDICATED ALTITUDE", "Feet", 0)?,
         })
     }
 
@@ -75,6 +79,7 @@ impl SimulatorReadWriter {
             apu_start_sw_on: to_bool(self.apu_start_sw.get_value()),
             apu_bleed_sw_on: true, // TODO
             indicated_airspeed: Velocity::new::<knot>(self.indicated_airspeed.get()),
+            indicated_altitude: Length::new::<foot>(self.indicated_altitude.get()),
         }
     }
 

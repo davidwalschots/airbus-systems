@@ -68,12 +68,14 @@ pub struct SimulatorReadState {
     pub apu_start_sw_on: bool,
     pub apu_bleed_sw_on: bool,
     pub indicated_airspeed: Velocity,
+    pub indicated_altitude: Length,
 }
 impl SimulatorReadState {
     pub fn to_context(&self, delta_time: Duration) -> UpdateContext {
         UpdateContext {
             ambient_temperature: self.ambient_temperature,
             indicated_airspeed: self.indicated_airspeed,
+            indicated_altitude: self.indicated_altitude,
             delta: delta_time,
         }
     }
