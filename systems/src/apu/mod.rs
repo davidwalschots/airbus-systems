@@ -383,6 +383,7 @@ struct Running {
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
     egt: ThermodynamicTemperature,
+    base_temperature: ThermodynamicTemperature,
 }
 impl Running {
     const BLEED_AIR_COOLDOWN_DURATION_MILLIS: u64 = 120000;
@@ -393,10 +394,12 @@ impl Running {
         bleed_air_valve: ApuBleedAirValve,
         egt: ThermodynamicTemperature,
     ) -> Running {
+        let base_temperature = 340. + ((random_number() % 11) as f64);
         Running {
             air_intake_flap,
             bleed_air_valve,
             egt,
+            base_temperature: ThermodynamicTemperature::new::<degree_celsius>(base_temperature),
         }
     }
 
@@ -404,16 +407,7 @@ impl Running {
         &self,
         context: &UpdateContext,
     ) -> ThermodynamicTemperature {
-        let random_target_temperature: f64 = 500. - ((random_number() % 13) as f64);
-
-        if self.egt.get::<degree_celsius>() > random_target_temperature {
-            self.egt
-                - TemperatureInterval::new::<uom::si::temperature_interval::degree_celsius>(
-                    0.4 * context.delta.as_secs_f64(),
-                )
-        } else {
-            self.egt
-        }
+        calculate_towards_target_egt(self.egt, self.base_temperature, 0.4, context.delta)
     }
 
     fn is_past_bleed_air_cooldown_period(&self) -> bool {
@@ -561,20 +555,31 @@ fn calculate_towards_ambient_egt(
     context: &UpdateContext,
 ) -> ThermodynamicTemperature {
     const APU_AMBIENT_COEFFICIENT: f64 = 2.;
+    calculate_towards_target_egt(
+        current_egt,
+        context.ambient_temperature,
+        APU_AMBIENT_COEFFICIENT,
+        context.delta,
+    )
+}
 
-    if current_egt == context.ambient_temperature {
-        current_egt
-    } else if current_egt > context.ambient_temperature {
+fn calculate_towards_target_egt(
+    current: ThermodynamicTemperature,
+    target: ThermodynamicTemperature,
+    coefficient: f64,
+    delta: Duration,
+) -> ThermodynamicTemperature {
+    if current == target {
+        current
+    } else if current > target {
         ThermodynamicTemperature::new::<degree_celsius>(
-            (current_egt.get::<degree_celsius>()
-                - (APU_AMBIENT_COEFFICIENT * context.delta.as_secs_f64()))
-            .max(context.ambient_temperature.get::<degree_celsius>()),
+            (current.get::<degree_celsius>() - (coefficient * delta.as_secs_f64()))
+                .max(target.get::<degree_celsius>()),
         )
     } else {
         ThermodynamicTemperature::new::<degree_celsius>(
-            (current_egt.get::<degree_celsius>()
-                + (APU_AMBIENT_COEFFICIENT * context.delta.as_secs_f64()))
-            .min(context.ambient_temperature.get::<degree_celsius>()),
+            (current.get::<degree_celsius>() + (coefficient * delta.as_secs_f64()))
+                .min(target.get::<degree_celsius>()),
         )
     }
 }
@@ -1168,6 +1173,26 @@ pub mod tests {
 
             assert_eq!(tester.get_egt(), target_temperature);
         }
+
+        #[test]
+        /// Q: What would you say is a normal running EGT?
+        /// Komp: It cools down by a few degrees. Not much though. 340-350 I'd say.
+        fn running_apu_egt_stabilizes_between_340_to_350_degrees() {
+            let tester = tester_with().running_apu().run(Duration::from_secs(1_000));
+
+            let egt = tester.get_egt().get::<degree_celsius>();
+            assert!(340. <= egt && egt <= 350.);
+        }
+
+        #[test]
+        #[ignore]
+        /// Komp: APU generator supplying will add maybe like 10-15 degrees.
+        fn running_apu_with_generator_supplying_the_aircraft_increases_egt_by_10_to_15_degrees() {}
+
+        #[test]
+        #[ignore]
+        /// Komp: Bleed adds even more. Not sure how much, 30-40 degrees as a rough guess.
+        fn running_apu_supplying_bleed_air_increases_egt_by_30_to_40_degrees() {}
     }
 
     #[cfg(test)]
