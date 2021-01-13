@@ -196,7 +196,11 @@ impl ApuState for Shutdown {
             && apu_overhead.master_is_on()
             && apu_overhead.start_is_on()
         {
-            Box::new(Starting::new(self.air_intake_flap, self.bleed_air_valve))
+            Box::new(Starting::new(
+                self.air_intake_flap,
+                self.bleed_air_valve,
+                self.egt,
+            ))
         } else {
             self
         }
@@ -230,18 +234,24 @@ struct Starting {
     since: Duration,
     n: Ratio,
     egt: ThermodynamicTemperature,
+    egt_at_start: ThermodynamicTemperature,
 }
 impl Starting {
     const MAX_EGT_BELOW_25000_FEET: f64 = 900.;
     const MAX_EGT_AT_OR_ABOVE_25000_FEET: f64 = 982.;
 
-    fn new(air_intake_flap: AirIntakeFlap, bleed_air_valve: ApuBleedAirValve) -> Starting {
+    fn new(
+        air_intake_flap: AirIntakeFlap,
+        bleed_air_valve: ApuBleedAirValve,
+        egt: ThermodynamicTemperature,
+    ) -> Starting {
         Starting {
             air_intake_flap,
             bleed_air_valve,
             since: Duration::from_secs(0),
             n: Ratio::new::<percent>(0.),
-            egt: ThermodynamicTemperature::new::<degree_celsius>(0.),
+            egt,
+            egt_at_start: egt,
         }
     }
 
@@ -263,29 +273,30 @@ impl Starting {
         const APU_N_TEMP_X13: f64 = -0.00000000000000000287;
 
         let n = self.n.get::<percent>();
+        let minimum_egt = context.ambient_temperature.max(self.egt_at_start);
 
         // Results below this value momentarily go above 0, while not intended.
         if n < 5.5 {
-            context.ambient_temperature
+            minimum_egt
         } else {
-            let temperature = APU_N_TEMP_CONST
-                + (APU_N_TEMP_X * n)
-                + (APU_N_TEMP_X2 * n.powi(2))
-                + (APU_N_TEMP_X3 * n.powi(3))
-                + (APU_N_TEMP_X4 * n.powi(4))
-                + (APU_N_TEMP_X5 * n.powi(5))
-                + (APU_N_TEMP_X6 * n.powi(6))
-                + (APU_N_TEMP_X7 * n.powi(7))
-                + (APU_N_TEMP_X8 * n.powi(8))
-                + (APU_N_TEMP_X9 * n.powi(9))
-                + (APU_N_TEMP_X10 * n.powi(10))
-                + (APU_N_TEMP_X11 * n.powi(11))
-                + (APU_N_TEMP_X12 * n.powi(12))
-                + (APU_N_TEMP_X13 * n.powi(13));
+            let temperature = ThermodynamicTemperature::new::<degree_celsius>(
+                APU_N_TEMP_CONST
+                    + (APU_N_TEMP_X * n)
+                    + (APU_N_TEMP_X2 * n.powi(2))
+                    + (APU_N_TEMP_X3 * n.powi(3))
+                    + (APU_N_TEMP_X4 * n.powi(4))
+                    + (APU_N_TEMP_X5 * n.powi(5))
+                    + (APU_N_TEMP_X6 * n.powi(6))
+                    + (APU_N_TEMP_X7 * n.powi(7))
+                    + (APU_N_TEMP_X8 * n.powi(8))
+                    + (APU_N_TEMP_X9 * n.powi(9))
+                    + (APU_N_TEMP_X10 * n.powi(10))
+                    + (APU_N_TEMP_X11 * n.powi(11))
+                    + (APU_N_TEMP_X12 * n.powi(12))
+                    + (APU_N_TEMP_X13 * n.powi(13)),
+            );
 
-            ThermodynamicTemperature::new::<degree_celsius>(
-                temperature.max(context.ambient_temperature.get::<degree_celsius>()),
-            )
+            temperature.max(minimum_egt)
         }
     }
 
@@ -1254,6 +1265,32 @@ pub mod tests {
                     break;
                 }
             }
+        }
+
+        #[test]
+        fn restarting_apu_which_is_cooling_down_does_not_reduce_egt_to_ambient() {
+            let mut tester = tester_with().running_apu();
+            loop {
+                tester = tester
+                    .then_continue_with()
+                    .master_off()
+                    .run(Duration::from_secs(1));
+
+                if tester.get_n().get::<percent>() == 0. {
+                    break;
+                }
+            }
+
+            assert!(tester.get_egt().get::<degree_celsius>() > 100.);
+
+            tester = tester
+                .then_continue_with()
+                .master_on()
+                .and()
+                .start_on()
+                .run(Duration::from_secs(5));
+
+            assert!(tester.get_egt().get::<degree_celsius>() > 100.);
         }
     }
 
