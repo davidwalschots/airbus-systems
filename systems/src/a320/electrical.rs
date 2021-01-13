@@ -133,7 +133,8 @@ impl A320Electrical {
         self.emergency_gen.update(
             // ON GROUND BAT ONLY SPEED <= 100 kts scenario. We'll probably need to move this logic into
             // the ram air turbine, emergency generator and hydraulic implementation.
-            hydraulic.is_blue_pressurised() && context.indicated_airspeed > Velocity::new::<knot>(100.),
+            hydraulic.is_blue_pressurised()
+                && context.indicated_airspeed > Velocity::new::<knot>(100.),
         );
 
         let gen_1_provides_power = overhead.generator_1_is_on() && self.engine_1_gen.is_powered();
@@ -345,7 +346,8 @@ impl A320Electrical {
 
         self.ac_stat_inv_bus.powered_by(vec![&self.static_inv]);
         self.static_inv_to_ac_ess_bus_contactor.close_when(
-            self.static_inv.is_powered() && context.indicated_airspeed >= Velocity::new::<knot>(50.),
+            self.static_inv.is_powered()
+                && context.indicated_airspeed >= Velocity::new::<knot>(50.),
         );
         self.static_inv_to_ac_ess_bus_contactor
             .powered_by(vec![&self.static_inv]);

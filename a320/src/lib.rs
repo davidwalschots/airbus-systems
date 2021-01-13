@@ -1,7 +1,7 @@
 #![cfg(any(target_arch = "wasm32", doc))]
 use airbus_systems::{
     simulator::{
-        to_bool, ModelToSimulatorVisitor, SimulatorReadState, SimulatorToModelVisitor,
+        from_bool, to_bool, ModelToSimulatorVisitor, SimulatorReadState, SimulatorToModelVisitor,
         SimulatorVisitable, SimulatorWriteState,
     },
     A320,
@@ -50,7 +50,8 @@ pub struct SimulatorReadWriter {
     apu_flap_open: NamedVariable,
     apu_master_sw: AircraftVariable,
     apu_n: NamedVariable,
-    apu_start_sw: NamedVariable,
+    apu_start_sw_available: NamedVariable,
+    apu_start_sw_on: NamedVariable,
     indicated_airspeed: AircraftVariable,
     indicated_altitude: AircraftVariable,
 }
@@ -58,13 +59,14 @@ impl SimulatorReadWriter {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         Ok(SimulatorReadWriter {
             ambient_temperature: AircraftVariable::from("AMBIENT TEMPERATURE", "celsius", 0)?,
-            apu_egt: NamedVariable::from("APU_EGT"),
-            apu_egt_caution: NamedVariable::from("APU_EGT_WARN"),
-            apu_egt_warning: NamedVariable::from("APU_EGT_MAX"),
+            apu_egt: NamedVariable::from("A32NX_APU_EGT"),
+            apu_egt_caution: NamedVariable::from("A32NX_APU_EGT_CAUTION"),
+            apu_egt_warning: NamedVariable::from("A32NX_APU_EGT_WARNING"),
             apu_flap_open: NamedVariable::from("APU_FLAP_OPEN"),
             apu_master_sw: AircraftVariable::from("FUELSYSTEM VALVE SWITCH", "Bool", 8)?,
-            apu_n: NamedVariable::from("APU_N"),
-            apu_start_sw: NamedVariable::from("A32NX_APU_START_ACTIVATED"),
+            apu_n: NamedVariable::from("A32NX_APU_N"),
+            apu_start_sw_available: NamedVariable::from("A32NX_APU_AVAILABLE"),
+            apu_start_sw_on: NamedVariable::from("A32NX_APU_START_ACTIVATED"),
             indicated_airspeed: AircraftVariable::from("AIRSPEED INDICATED", "Knots", 0)?,
             indicated_altitude: AircraftVariable::from("INDICATED ALTITUDE", "Feet", 0)?,
         })
@@ -76,7 +78,7 @@ impl SimulatorReadWriter {
                 self.ambient_temperature.get(),
             ),
             apu_master_sw_on: to_bool(self.apu_master_sw.get()),
-            apu_start_sw_on: to_bool(self.apu_start_sw.get_value()),
+            apu_start_sw_on: to_bool(self.apu_start_sw_on.get_value()),
             apu_bleed_sw_on: true, // TODO
             indicated_airspeed: Velocity::new::<knot>(self.indicated_airspeed.get()),
             indicated_altitude: Length::new::<foot>(self.indicated_altitude.get()),
@@ -84,6 +86,10 @@ impl SimulatorReadWriter {
     }
 
     pub fn write(&self, state: &SimulatorWriteState) {
+        self.apu_start_sw_available
+            .set_value(from_bool(state.apu_start_sw_available));
+        self.apu_start_sw_on
+            .set_value(from_bool(state.apu_start_sw_on));
         self.apu_n.set_value(state.apu_n.get::<percent>());
         self.apu_egt
             .set_value(state.apu_egt.get::<degree_celsius>());

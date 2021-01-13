@@ -45,6 +45,14 @@ pub fn to_bool(value: f64) -> bool {
     value == 1.
 }
 
+pub fn from_bool(value: bool) -> f64 {
+    if value {
+        1.0
+    } else {
+        0.0
+    }
+}
+
 pub trait SimulatorReadWritable {
     /// Reads simulator state data into the struct.
     fn read(&mut self, state: &SimulatorReadState) {}
@@ -83,6 +91,8 @@ impl SimulatorReadState {
 
 #[derive(Default)]
 pub struct SimulatorWriteState {
+    pub apu_start_sw_available: bool,
+    pub apu_start_sw_on: bool,
     pub apu_n: Ratio,
     pub apu_egt: ThermodynamicTemperature,
     pub apu_caution_egt: ThermodynamicTemperature,

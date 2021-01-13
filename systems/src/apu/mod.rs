@@ -661,7 +661,6 @@ impl AuxiliaryPowerUnitOverheadPanel {
         self.start.is_on()
     }
 
-    #[cfg(test)]
     fn start_shows_available(&self) -> bool {
         self.start.shows_available()
     }
@@ -675,6 +674,11 @@ impl SimulatorReadWritable for AuxiliaryPowerUnitOverheadPanel {
     fn read(&mut self, state: &SimulatorReadState) {
         self.master.set(state.apu_master_sw_on);
         self.start.set(state.apu_start_sw_on);
+    }
+
+    fn write(&self, state: &mut SimulatorWriteState) {
+        state.apu_start_sw_on = self.start_is_on();
+        state.apu_start_sw_available = self.start_shows_available();
     }
 }
 
