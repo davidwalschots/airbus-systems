@@ -12,8 +12,8 @@ use uom::si::{
 
 use crate::{
     overhead::{NormalAltnPushButton, OnOffPushButton},
-    shared::{Engine, UpdateContext},
-    visitor::Visitable,
+    shared::Engine,
+    simulator::UpdateContext,
 };
 
 // TODO:

@@ -9,10 +9,9 @@ use uom::si::{
 use crate::{
     hydraulic::{LoopColor, HydLoop, Pump, EngineDrivenPump, ElectricPump, RatPump, Actuator},
     overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
-    shared::{DelayedTrueLogicGate, Engine, UpdateContext},
-    visitor::Visitable,
+    shared::{DelayedTrueLogicGate, Engine},
+    simulator::UpdateContext,
 };
-use crate::simulator::UpdateContext;
 
 pub struct A320Hydraulic {
     blue_loop: HydLoop,
@@ -67,12 +66,6 @@ impl A320Hydraulic {
     }
 
     pub fn update(&mut self, _: &UpdateContext) {}
-}
-
-impl Visitable for A320Hydraulic {
-    fn accept(&mut self, _: &mut Box<dyn super::MutableVisitor>) {
-        // TODO
-    }
 }
 
 pub struct A320HydraulicOverheadPanel {
