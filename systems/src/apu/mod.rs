@@ -326,7 +326,8 @@ impl Starting {
                 + (APU_N_X11 * ignition_turned_on_secs.powi(11))
                 + (APU_N_X12 * ignition_turned_on_secs.powi(12))
                 + (APU_N_X13 * ignition_turned_on_secs.powi(13)))
-            .min(100.);
+            .min(100.)
+            .max(0.);
 
             Ratio::new::<percent>(n)
         } else {
@@ -1238,6 +1239,21 @@ pub mod tests {
                 tester.get_egt_maximum_temperature().get::<degree_celsius>(),
                 982.
             );
+        }
+
+        #[test]
+        fn starting_apu_n_is_never_below_0() {
+            let mut tester = tester_with().starting_apu();
+
+            loop {
+                tester = tester.run(Duration::from_millis(10));
+
+                assert!(tester.get_n().get::<percent>() >= 0.);
+
+                if tester.apu_is_available() {
+                    break;
+                }
+            }
         }
     }
 
