@@ -12,6 +12,7 @@ use crate::{
     shared::{DelayedTrueLogicGate, Engine, UpdateContext},
     visitor::Visitable,
 };
+use crate::simulator::UpdateContext;
 
 pub struct A320Hydraulic {
     blue_loop: HydLoop,

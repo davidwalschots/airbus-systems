@@ -34,13 +34,16 @@
 
 use std::time::Duration;
 
-use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
+use uom::si::{f64::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius};
 
 use crate::{
     overhead::OnOffPushButton,
-    pneumatic::{BleedAirValve, PneumaticOverheadPanel},
-    shared::{random_number, UpdateContext},
-    visitor::Visitable,
+    pneumatic::BleedAirValve,
+    shared::random_number,
+    simulator::{
+        SimulatorReadState, SimulatorReadWritable, SimulatorVisitable, SimulatorVisitor,
+        SimulatorWriteState, UpdateContext,
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -72,16 +75,20 @@ impl AuxiliaryPowerUnit {
         &mut self,
         context: &UpdateContext,
         overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) {
         if let Some(state) = self.state.take() {
-            self.state = Some(state.update(context, overhead, pneumatic_overhead));
+            self.state = Some(state.update(context, overhead, apu_bleed_is_on));
         }
 
-        self.egt_maximum_temperature = self.state.as_ref().unwrap().get_egt_max_temperature();
+        self.egt_maximum_temperature = self
+            .state
+            .as_ref()
+            .unwrap()
+            .get_egt_max_temperature(context);
     }
 
-    pub fn get_n(&self) -> Ratio {
+    fn get_n(&self) -> Ratio {
         self.state.as_ref().unwrap().get_n()
     }
 
@@ -89,9 +96,11 @@ impl AuxiliaryPowerUnit {
         self.state.as_ref().unwrap().is_available()
     }
 
-    /// When true, the "FLAP OPEN" message on the ECAM APU page should be displayed.
-    fn is_air_intake_flap_fully_open(&self) -> bool {
-        self.state.as_ref().unwrap().is_air_intake_flap_fully_open()
+    fn get_air_intake_flap_open_amount(&self) -> Ratio {
+        self.state
+            .as_ref()
+            .unwrap()
+            .get_air_intake_flap_open_amount()
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
@@ -109,25 +118,38 @@ impl AuxiliaryPowerUnit {
         self.egt_maximum_temperature
     }
 }
+impl SimulatorVisitable for AuxiliaryPowerUnit {
+    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
+        visitor.visit(self);
+    }
+}
+impl SimulatorReadWritable for AuxiliaryPowerUnit {
+    fn write(&self, state: &mut SimulatorWriteState) {
+        state.apu_n = self.get_n();
+        state.apu_egt = self.get_egt();
+        state.apu_caution_egt = self.get_egt_warning_temperature();
+        state.apu_warning_egt = self.get_egt_maximum_temperature();
+        state.apu_air_intake_flap_opened_for = self.get_air_intake_flap_open_amount();
+    }
+}
 
 trait ApuState {
     fn update(
         self: Box<Self>,
         context: &UpdateContext,
         overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) -> Box<dyn ApuState>;
 
     fn get_n(&self) -> Ratio;
 
     fn is_available(&self) -> bool;
 
-    /// When true, the "FLAP OPEN" message on the ECAM APU page should be displayed.
-    fn is_air_intake_flap_fully_open(&self) -> bool;
+    fn get_air_intake_flap_open_amount(&self) -> Ratio;
 
     fn get_egt(&self) -> ThermodynamicTemperature;
 
-    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature;
+    fn get_egt_max_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature;
 }
 
 struct Shutdown {
@@ -156,7 +178,7 @@ impl ApuState for Shutdown {
         mut self: Box<Self>,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) -> Box<dyn ApuState> {
         if apu_overhead.master_is_on() {
             self.air_intake_flap.open();
@@ -168,7 +190,7 @@ impl ApuState for Shutdown {
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
         self.bleed_air_valve
-            .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
+            .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
 
         if self.air_intake_flap.is_fully_open()
             && apu_overhead.master_is_on()
@@ -188,15 +210,15 @@ impl ApuState for Shutdown {
         false
     }
 
-    fn is_air_intake_flap_fully_open(&self) -> bool {
-        self.air_intake_flap.is_fully_open()
+    fn get_air_intake_flap_open_amount(&self) -> Ratio {
+        self.air_intake_flap.get_open_amount()
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
         self.egt
     }
 
-    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature {
+    fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when shutdown is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
@@ -317,7 +339,7 @@ impl ApuState for Starting {
         mut self: Box<Self>,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n();
@@ -326,7 +348,7 @@ impl ApuState for Starting {
         self.air_intake_flap.update(context);
 
         self.bleed_air_valve
-            .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
+            .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
 
         if self.n.get::<percent>() == 100. {
             Box::new(Running::new(
@@ -347,17 +369,22 @@ impl ApuState for Starting {
         false
     }
 
-    fn is_air_intake_flap_fully_open(&self) -> bool {
-        self.air_intake_flap.is_fully_open()
+    fn get_air_intake_flap_open_amount(&self) -> Ratio {
+        self.air_intake_flap.get_open_amount()
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
         self.egt
     }
 
-    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature {
-        // TODO: Get altitude (not AGL but barometric).
-        ThermodynamicTemperature::new::<degree_celsius>(Starting::MAX_EGT_BELOW_25000_FEET)
+    fn get_egt_max_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature {
+        if context.indicated_altitude.get::<foot>() < 25_000. {
+            ThermodynamicTemperature::new::<degree_celsius>(Starting::MAX_EGT_BELOW_25000_FEET)
+        } else {
+            ThermodynamicTemperature::new::<degree_celsius>(
+                Starting::MAX_EGT_AT_OR_ABOVE_25000_FEET,
+            )
+        }
     }
 }
 
@@ -365,6 +392,7 @@ struct Running {
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
     egt: ThermodynamicTemperature,
+    base_temperature: ThermodynamicTemperature,
 }
 impl Running {
     const BLEED_AIR_COOLDOWN_DURATION_MILLIS: u64 = 120000;
@@ -375,10 +403,12 @@ impl Running {
         bleed_air_valve: ApuBleedAirValve,
         egt: ThermodynamicTemperature,
     ) -> Running {
+        let base_temperature = 340. + ((random_number() % 11) as f64);
         Running {
             air_intake_flap,
             bleed_air_valve,
             egt,
+            base_temperature: ThermodynamicTemperature::new::<degree_celsius>(base_temperature),
         }
     }
 
@@ -386,16 +416,7 @@ impl Running {
         &self,
         context: &UpdateContext,
     ) -> ThermodynamicTemperature {
-        let random_target_temperature: f64 = 500. - ((random_number() % 13) as f64);
-
-        if self.egt.get::<degree_celsius>() > random_target_temperature {
-            self.egt
-                - TemperatureInterval::new::<uom::si::temperature_interval::degree_celsius>(
-                    0.4 * context.delta.as_secs_f64(),
-                )
-        } else {
-            self.egt
-        }
+        calculate_towards_target_egt(self.egt, self.base_temperature, 0.4, context.delta)
     }
 
     fn is_past_bleed_air_cooldown_period(&self) -> bool {
@@ -409,14 +430,14 @@ impl ApuState for Running {
         mut self: Box<Self>,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) -> Box<dyn ApuState> {
         self.egt = self.calculate_slow_cooldown_to_running_temperature(context);
 
         self.air_intake_flap.update(context);
 
         self.bleed_air_valve
-            .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
+            .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
 
         if apu_overhead.master_is_off() && self.is_past_bleed_air_cooldown_period() {
             Box::new(Stopping::new(
@@ -438,15 +459,15 @@ impl ApuState for Running {
         true
     }
 
-    fn is_air_intake_flap_fully_open(&self) -> bool {
-        self.air_intake_flap.is_fully_open()
+    fn get_air_intake_flap_open_amount(&self) -> Ratio {
+        self.air_intake_flap.get_open_amount()
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
         self.egt
     }
 
-    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature {
+    fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
 }
@@ -489,14 +510,14 @@ impl ApuState for Stopping {
         mut self: Box<Self>,
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n(context);
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
         self.bleed_air_valve
-            .update(context, self.get_n(), apu_overhead, pneumatic_overhead);
+            .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
 
         if self.n.get::<percent>() <= 7. {
             self.air_intake_flap.close();
@@ -524,15 +545,15 @@ impl ApuState for Stopping {
         false
     }
 
-    fn is_air_intake_flap_fully_open(&self) -> bool {
-        self.air_intake_flap.is_fully_open()
+    fn get_air_intake_flap_open_amount(&self) -> Ratio {
+        self.air_intake_flap.get_open_amount()
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
         self.egt
     }
 
-    fn get_egt_max_temperature(&self) -> ThermodynamicTemperature {
+    fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when stopping is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
@@ -543,20 +564,31 @@ fn calculate_towards_ambient_egt(
     context: &UpdateContext,
 ) -> ThermodynamicTemperature {
     const APU_AMBIENT_COEFFICIENT: f64 = 2.;
+    calculate_towards_target_egt(
+        current_egt,
+        context.ambient_temperature,
+        APU_AMBIENT_COEFFICIENT,
+        context.delta,
+    )
+}
 
-    if current_egt == context.ambient_temperature {
-        current_egt
-    } else if current_egt > context.ambient_temperature {
+fn calculate_towards_target_egt(
+    current: ThermodynamicTemperature,
+    target: ThermodynamicTemperature,
+    coefficient: f64,
+    delta: Duration,
+) -> ThermodynamicTemperature {
+    if current == target {
+        current
+    } else if current > target {
         ThermodynamicTemperature::new::<degree_celsius>(
-            (current_egt.get::<degree_celsius>()
-                - (APU_AMBIENT_COEFFICIENT * context.delta.as_secs_f64()))
-            .max(context.ambient_temperature.get::<degree_celsius>()),
+            (current.get::<degree_celsius>() - (coefficient * delta.as_secs_f64()))
+                .max(target.get::<degree_celsius>()),
         )
     } else {
         ThermodynamicTemperature::new::<degree_celsius>(
-            (current_egt.get::<degree_celsius>()
-                + (APU_AMBIENT_COEFFICIENT * context.delta.as_secs_f64()))
-            .min(context.ambient_temperature.get::<degree_celsius>()),
+            (current.get::<degree_celsius>() + (coefficient * delta.as_secs_f64()))
+                .min(target.get::<degree_celsius>()),
         )
     }
 }
@@ -578,16 +610,13 @@ impl ApuBleedAirValve {
         context: &UpdateContext,
         n: Ratio,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: &PneumaticOverheadPanel,
+        apu_bleed_is_on: bool,
     ) {
         // Note: it might be that later we have situations in which master is on,
         // but an emergency shutdown happens and this doesn't turn off.
         // In this case, we need to modify the code below to no longer look at apu overhead state, but APU state itself.
-        self.valve.open_when(
-            apu_overhead.master_is_on()
-                && n.get::<percent>() > 95.
-                && pneumatic_overhead.apu_bleed_is_on(),
-        );
+        self.valve
+            .open_when(apu_overhead.master_is_on() && n.get::<percent>() > 95. && apu_bleed_is_on);
 
         if self.valve.is_open() {
             self.last_open_time_ago = Duration::from_secs(0);
@@ -637,10 +666,15 @@ impl AuxiliaryPowerUnitOverheadPanel {
         self.start.shows_available()
     }
 }
-
-impl Visitable for AuxiliaryPowerUnit {
-    fn accept(&mut self, visitor: &mut Box<dyn crate::visitor::MutableVisitor>) {
-        visitor.visit_auxiliary_power_unit(self);
+impl SimulatorVisitable for AuxiliaryPowerUnitOverheadPanel {
+    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
+        visitor.visit(self);
+    }
+}
+impl SimulatorReadWritable for AuxiliaryPowerUnitOverheadPanel {
+    fn read(&mut self, state: &SimulatorReadState) {
+        self.master.set(state.apu_master_sw_on);
+        self.start.set(state.apu_start_sw_on);
     }
 }
 
@@ -700,17 +734,18 @@ impl AirIntakeFlap {
     fn is_fully_open(&self) -> bool {
         self.state == Ratio::new::<percent>(100.)
     }
+
+    fn get_open_amount(&self) -> Ratio {
+        self.state
+    }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use std::time::Duration;
-
-    use uom::si::thermodynamic_temperature::degree_celsius;
-
-    use crate::shared::test_helpers::context_with;
-
     use super::*;
+    use crate::simulator::test_helpers::context_with;
+    use std::time::Duration;
+    use uom::si::thermodynamic_temperature::degree_celsius;
 
     pub fn running_apu() -> AuxiliaryPowerUnit {
         tester_with().running_apu().get_apu()
@@ -731,16 +766,18 @@ pub mod tests {
     struct AuxiliaryPowerUnitTester {
         apu: AuxiliaryPowerUnit,
         apu_overhead: AuxiliaryPowerUnitOverheadPanel,
-        pneumatic_overhead: PneumaticOverheadPanel,
+        apu_bleed: OnOffPushButton,
         ambient_temperature: ThermodynamicTemperature,
+        indicated_altitude: Length,
     }
     impl AuxiliaryPowerUnitTester {
         fn new() -> Self {
             AuxiliaryPowerUnitTester {
                 apu: AuxiliaryPowerUnit::new(),
                 apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
-                pneumatic_overhead: PneumaticOverheadPanel::new(),
+                apu_bleed: OnOffPushButton::new_on(),
                 ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
+                indicated_altitude: Length::new::<foot>(5000.),
             }
         }
 
@@ -765,7 +802,7 @@ pub mod tests {
         }
 
         fn bleed_air_off(mut self) -> Self {
-            self.pneumatic_overhead.turn_apu_bleed_off();
+            self.apu_bleed.turn_off();
             self
         }
 
@@ -790,17 +827,22 @@ pub mod tests {
         }
 
         fn running_apu_with_bleed_air(mut self) -> Self {
-            self.pneumatic_overhead.turn_apu_bleed_on();
+            self.apu_bleed.turn_on();
             self.running_apu()
         }
 
         fn running_apu_without_bleed_air(mut self) -> Self {
-            self.pneumatic_overhead.turn_apu_bleed_off();
+            self.apu_bleed.turn_off();
             self.running_apu()
         }
 
         fn ambient_temperature(mut self, ambient: ThermodynamicTemperature) -> Self {
             self.ambient_temperature = ambient;
+            self
+        }
+
+        fn indicated_altitude(mut self, indicated_altitute: Length) -> Self {
+            self.indicated_altitude = indicated_altitute;
             self
         }
 
@@ -816,11 +858,12 @@ pub mod tests {
             self.apu.update(
                 &context_with()
                     .delta(delta)
-                    .and()
                     .ambient_temperature(self.ambient_temperature)
+                    .and()
+                    .indicated_altitude(self.indicated_altitude)
                     .build(),
                 &self.apu_overhead,
-                &self.pneumatic_overhead,
+                self.apu_bleed.is_on(),
             );
 
             self.apu_overhead.update_after_apu(&self.apu);
@@ -829,7 +872,7 @@ pub mod tests {
         }
 
         fn is_air_intake_flap_fully_open(&self) -> bool {
-            self.apu.is_air_intake_flap_fully_open()
+            self.apu.get_air_intake_flap_open_amount().get::<percent>() == 100.
         }
 
         fn get_n(&self) -> Ratio {
@@ -1144,12 +1187,58 @@ pub mod tests {
 
             assert_eq!(tester.get_egt(), target_temperature);
         }
+
+        #[test]
+        /// Q: What would you say is a normal running EGT?
+        /// Komp: It cools down by a few degrees. Not much though. 340-350 I'd say.
+        fn running_apu_egt_stabilizes_between_340_to_350_degrees() {
+            let tester = tester_with().running_apu().run(Duration::from_secs(1_000));
+
+            let egt = tester.get_egt().get::<degree_celsius>();
+            assert!(340. <= egt && egt <= 350.);
+        }
+
+        #[test]
+        #[ignore]
+        /// Komp: APU generator supplying will add maybe like 10-15 degrees.
+        fn running_apu_with_generator_supplying_the_aircraft_increases_egt_by_10_to_15_degrees() {}
+
+        #[test]
+        #[ignore]
+        /// Komp: Bleed adds even more. Not sure how much, 30-40 degrees as a rough guess.
+        fn running_apu_supplying_bleed_air_increases_egt_by_30_to_40_degrees() {}
+
+        #[test]
+        fn max_starting_egt_below_25000_feet_is_900_degrees() {
+            let tester = tester_with()
+                .starting_apu()
+                .and()
+                .indicated_altitude(Length::new::<foot>(24999.))
+                .run(Duration::from_secs(1));
+
+            assert_about_eq!(
+                tester.get_egt_maximum_temperature().get::<degree_celsius>(),
+                900.
+            );
+        }
+
+        #[test]
+        fn max_starting_egt_at_or_above_25000_feet_is_982_degrees() {
+            let tester = tester_with()
+                .starting_apu()
+                .and()
+                .indicated_altitude(Length::new::<foot>(25000.))
+                .run(Duration::from_secs(1));
+
+            assert_about_eq!(
+                tester.get_egt_maximum_temperature().get::<degree_celsius>(),
+                982.
+            );
+        }
     }
 
     #[cfg(test)]
     mod air_intake_flap_tests {
-        use crate::shared::test_helpers::context_with;
-
         use super::*;
 
         #[test]

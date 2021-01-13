@@ -1,0 +1,12 @@
+[package]
+name = "airbus-systems"
+version = "0.1.0"
+authors = ["David Walschots <davidwalschots@users.noreply.github.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+uom = "0.30.0"
+rand = "0.8.0"
+ntest = "0.7.2"

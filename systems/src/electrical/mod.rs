@@ -1,15 +1,10 @@
+use crate::{
+    apu::AuxiliaryPowerUnit, overhead::OnOffPushButton, shared::Engine, simulator::UpdateContext,
+};
 use std::cmp::min;
-
 use uom::si::{
     electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f64::*,
     frequency::hertz, power::watt, ratio::percent, thermodynamic_temperature::degree_celsius,
-};
-
-use crate::{
-    apu::AuxiliaryPowerUnit,
-    overhead::OnOffPushButton,
-    shared::{Engine, UpdateContext},
-    visitor::Visitable,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -438,12 +433,6 @@ impl ExternalPowerSource {
     }
 
     pub fn update(&mut self, _: &UpdateContext) {}
-}
-
-impl Visitable for ExternalPowerSource {
-    fn accept(&mut self, visitor: &mut Box<dyn crate::visitor::MutableVisitor>) {
-        visitor.visit_external_power_source(self);
-    }
 }
 
 impl PowerConductor for ExternalPowerSource {
@@ -1073,7 +1062,7 @@ mod tests {
     mod engine_generator_tests {
         use std::time::Duration;
 
-        use crate::shared::test_helpers::context_with;
+        use crate::simulator::test_helpers::context_with;
 
         use super::*;
 
@@ -1137,7 +1126,7 @@ mod tests {
     mod integrated_drive_generator_tests {
         use std::time::Duration;
 
-        use crate::shared::test_helpers::context_with;
+        use crate::simulator::test_helpers::context_with;
 
         use super::*;
 

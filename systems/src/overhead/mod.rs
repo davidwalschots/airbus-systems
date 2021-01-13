@@ -27,7 +27,14 @@ impl OnOffPushButton {
         }
     }
 
-    #[cfg(test)]
+    pub fn set(&mut self, value: bool) {
+        self.state = if value {
+            OnOffPushButtonState::On
+        } else {
+            OnOffPushButtonState::Off
+        };
+    }
+
     pub fn turn_on(&mut self) {
         self.state = OnOffPushButtonState::On;
     }
