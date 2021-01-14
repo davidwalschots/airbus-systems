@@ -1,8 +1,8 @@
 use super::A320Hydraulic;
 use crate::{
-    apu::AuxiliaryPowerUnit,
+    apu::{ApuGenerator, AuxiliaryPowerUnit},
     electrical::{
-        ApuGenerator, Battery, Contactor, ElectricalBus, EmergencyGenerator, EngineGenerator,
+        Battery, Contactor, ElectricalBus, EmergencyGenerator, EngineGenerator,
         ExternalPowerSource, PowerConductor, Powerable, StaticInverter, TransformerRectifier,
     },
     overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
@@ -500,7 +500,7 @@ impl A320ElectricalOverheadPanel {
 #[cfg(test)]
 mod a320_electrical_circuit_tests {
     use crate::{
-        apu::tests::stopped_apu,
+        apu::tests::{running_apu, stopped_apu},
         electrical::{Current, IntegratedDriveGenerator, PowerSource},
     };
 
@@ -509,7 +509,6 @@ mod a320_electrical_circuit_tests {
     };
 
     use super::*;
-    use crate::apu::tests::running_apu;
 
     /// # Source
     /// A320 manual electrical distribution table

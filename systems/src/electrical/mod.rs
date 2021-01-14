@@ -25,7 +25,6 @@ pub enum Current {
     Direct(PowerSource, ElectricPotential, ElectricCurrent),
     None,
 }
-
 impl Current {
     pub fn is_powered(&self) -> bool {
         match self {
@@ -40,6 +39,29 @@ impl Current {
             true
         } else {
             false
+        }
+    }
+
+    pub fn get_potential(&self) -> ElectricPotential {
+        match self {
+            Current::Alternating(_, _, potential, _) => potential.clone(),
+            Current::Direct(_, potential, _) => potential.clone(),
+            Current::None => ElectricPotential::new::<volt>(0.),
+        }
+    }
+
+    pub fn get_frequency(&self) -> Frequency {
+        match self {
+            Current::Alternating(_, frequency, _, _) => frequency.clone(),
+            _ => Frequency::new::<hertz>(0.),
+        }
+    }
+
+    pub fn get_current(&self) -> ElectricCurrent {
+        match self {
+            Current::Alternating(_, _, _, current) => current.clone(),
+            Current::Direct(_, _, current) => current.clone(),
+            Current::None => ElectricCurrent::new::<ampere>(0.),
         }
     }
 
@@ -387,37 +409,6 @@ fn clamp<T: PartialOrd>(value: T, min: T, max: T) -> T {
         max
     } else {
         value
-    }
-}
-
-pub struct ApuGenerator {
-    output: Current,
-}
-
-impl ApuGenerator {
-    pub fn new() -> ApuGenerator {
-        ApuGenerator {
-            output: Current::None,
-        }
-    }
-
-    pub fn update(&mut self, apu: &AuxiliaryPowerUnit) {
-        if apu.is_available() {
-            self.output = Current::Alternating(
-                PowerSource::ApuGenerator,
-                Frequency::new::<hertz>(400.),
-                ElectricPotential::new::<volt>(115.),
-                ElectricCurrent::new::<ampere>(782.60),
-            );
-        } else {
-            self.output = Current::None
-        }
-    }
-}
-
-impl PowerConductor for ApuGenerator {
-    fn output(&self) -> Current {
-        self.output
     }
 }
 
@@ -1224,48 +1215,6 @@ mod tests {
             );
 
             assert!(idg.oil_outlet_temperature < starting_temperature);
-        }
-    }
-
-    #[cfg(test)]
-    mod apu_generator_tests {
-        use crate::apu::tests::{running_apu, stopped_apu};
-
-        use super::*;
-
-        #[test]
-        fn starts_without_output() {
-            assert!(apu_generator().output.is_unpowered());
-        }
-
-        #[test]
-        fn when_apu_running_provides_output() {
-            let mut generator = apu_generator();
-            update_below_threshold(&mut generator);
-            update_above_threshold(&mut generator);
-
-            assert!(generator.output.is_powered());
-        }
-
-        #[test]
-        fn when_apu_shutdown_provides_no_output() {
-            let mut generator = apu_generator();
-            update_above_threshold(&mut generator);
-            update_below_threshold(&mut generator);
-
-            assert!(generator.output.is_unpowered());
-        }
-
-        fn apu_generator() -> ApuGenerator {
-            ApuGenerator::new()
-        }
-
-        fn update_above_threshold(generator: &mut ApuGenerator) {
-            generator.update(&running_apu());
-        }
-
-        fn update_below_threshold(generator: &mut ApuGenerator) {
-            generator.update(&stopped_apu());
         }
     }
 

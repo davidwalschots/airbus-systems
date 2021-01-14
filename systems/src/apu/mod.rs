@@ -34,9 +34,13 @@
 
 use std::time::Duration;
 
-use uom::si::{f64::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius};
+use uom::si::{
+    electric_current::ampere, electric_potential::volt, f64::*, frequency::hertz, length::foot,
+    ratio::percent, thermodynamic_temperature::degree_celsius,
+};
 
 use crate::{
+    electrical::{Current, PowerConductor, PowerSource},
     overhead::OnOffPushButton,
     pneumatic::BleedAirValve,
     shared::random_number,
@@ -88,7 +92,7 @@ impl AuxiliaryPowerUnit {
             .get_egt_max_temperature(context);
     }
 
-    fn get_n(&self) -> Ratio {
+    pub fn get_n(&self) -> Ratio {
         self.state.as_ref().unwrap().get_n()
     }
 
@@ -642,6 +646,112 @@ impl ApuBleedAirValve {
     }
 }
 
+/// APS3200 APU Generator
+pub struct ApuGenerator {
+    output: Current,
+}
+impl ApuGenerator {
+    const APU_GEN_POWERED_N: f64 = 84.;
+
+    pub fn new() -> ApuGenerator {
+        ApuGenerator {
+            output: Current::None,
+        }
+    }
+
+    pub fn update(&mut self, apu: &AuxiliaryPowerUnit) {
+        let n = apu.get_n();
+        self.output = if n.get::<percent>() < ApuGenerator::APU_GEN_POWERED_N {
+            Current::None
+        } else {
+            Current::Alternating(
+                PowerSource::ApuGenerator,
+                self.calculate_frequency(n),
+                self.calculate_potential(n),
+                // TODO: Once we actually know what to do with the amperes, we'll have to adapt this.
+                ElectricCurrent::new::<ampere>(782.60),
+            )
+        }
+    }
+
+    fn calculate_potential(&self, n: Ratio) -> ElectricPotential {
+        let n = n.get::<percent>();
+
+        if n < ApuGenerator::APU_GEN_POWERED_N {
+            panic!("Should not be invoked for APU N below {}", n);
+        } else if n < 85. {
+            ElectricPotential::new::<volt>(105.)
+        } else if n < 100. {
+            ElectricPotential::new::<volt>(114. + (random_number() % 2) as f64)
+        } else {
+            // TODO: This should sometimes go from 115 to 114 and back.
+            // However, if we simply recalculate with a random number every tick, it will jump around too much.
+            // We need to create some type that can manage recalculations which are somewhat time limited.
+            ElectricPotential::new::<volt>(115.)
+        }
+    }
+
+    fn calculate_frequency(&self, n: Ratio) -> Frequency {
+        let n = n.get::<percent>();
+
+        // Refer to APS3200.md for details on the values below and source data.
+        if n < ApuGenerator::APU_GEN_POWERED_N {
+            panic!("Should not be invoked for APU N below {}", n);
+        } else if n < 100. {
+            const APU_FREQ_CONST: f64 = 1076894372064.8204;
+            const APU_FREQ_X: f64 = -118009165327.71873606955288934986;
+            const APU_FREQ_X2: f64 = 5296044666.71179983947567172640;
+            const APU_FREQ_X3: f64 = -108419965.09400677044360088955;
+            const APU_FREQ_X4: f64 = -36793.31899267512494461444;
+            const APU_FREQ_X5: f64 = 62934.36386220135515418897;
+            const APU_FREQ_X6: f64 = -1870.51971585477668178674;
+            const APU_FREQ_X7: f64 = 31.37647374314980530193;
+            const APU_FREQ_X8: f64 = -0.35101507164597609613;
+            const APU_FREQ_X9: f64 = 0.00272649361414786631;
+            const APU_FREQ_X10: f64 = -0.00001463272647792659;
+            const APU_FREQ_X11: f64 = 0.00000005203375009496;
+            const APU_FREQ_X12: f64 = -0.00000000011071318044;
+            const APU_FREQ_X13: f64 = 0.00000000000010697005;
+
+            Frequency::new::<hertz>(
+                APU_FREQ_CONST
+                    + (APU_FREQ_X * n)
+                    + (APU_FREQ_X2 * n.powi(2))
+                    + (APU_FREQ_X3 * n.powi(3))
+                    + (APU_FREQ_X4 * n.powi(4))
+                    + (APU_FREQ_X5 * n.powi(5))
+                    + (APU_FREQ_X6 * n.powi(6))
+                    + (APU_FREQ_X7 * n.powi(7))
+                    + (APU_FREQ_X8 * n.powi(8))
+                    + (APU_FREQ_X9 * n.powi(9))
+                    + (APU_FREQ_X10 * n.powi(10))
+                    + (APU_FREQ_X11 * n.powi(11))
+                    + (APU_FREQ_X12 * n.powi(12))
+                    + (APU_FREQ_X13 * n.powi(13)),
+            )
+        } else {
+            Frequency::new::<hertz>(400.)
+        }
+    }
+}
+impl PowerConductor for ApuGenerator {
+    fn output(&self) -> Current {
+        self.output
+    }
+}
+impl SimulatorVisitable for ApuGenerator {
+    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
+        visitor.visit(self);
+    }
+}
+impl SimulatorReadWritable for ApuGenerator {
+    fn write(&self, state: &mut SimulatorWriteState) {
+        state.apu_gen_current = self.output().get_current();
+        state.apu_gen_frequency = self.output().get_frequency();
+        state.apu_gen_potential = self.output().get_potential();
+    }
+}
+
 pub struct AuxiliaryPowerUnitOverheadPanel {
     pub master: OnOffPushButton,
     pub start: OnOffPushButton,
@@ -771,6 +881,10 @@ pub mod tests {
         tester().get_apu()
     }
 
+    fn starting_apu() -> AuxiliaryPowerUnit {
+        tester_with().starting_apu().get_apu()
+    }
+
     fn tester_with() -> AuxiliaryPowerUnitTester {
         AuxiliaryPowerUnitTester::new()
     }
@@ -783,6 +897,7 @@ pub mod tests {
         apu: AuxiliaryPowerUnit,
         apu_overhead: AuxiliaryPowerUnitOverheadPanel,
         apu_bleed: OnOffPushButton,
+        apu_generator: ApuGenerator,
         ambient_temperature: ThermodynamicTemperature,
         indicated_altitude: Length,
     }
@@ -792,6 +907,7 @@ pub mod tests {
                 apu: AuxiliaryPowerUnit::new(),
                 apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
                 apu_bleed: OnOffPushButton::new_on(),
+                apu_generator: ApuGenerator::new(),
                 ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
                 indicated_altitude: Length::new::<foot>(5000.),
             }
@@ -882,6 +998,8 @@ pub mod tests {
                 self.apu_bleed.is_on(),
             );
 
+            self.apu_generator.update(&self.apu);
+
             self.apu_overhead.update_after_apu(&self.apu);
 
             self
@@ -921,6 +1039,10 @@ pub mod tests {
 
         fn get_apu(self) -> AuxiliaryPowerUnit {
             self.apu
+        }
+
+        fn get_generator_output(&self) -> Current {
+            self.apu_generator.output()
         }
     }
 
@@ -1291,6 +1413,110 @@ pub mod tests {
                 .run(Duration::from_secs(5));
 
             assert!(tester.get_egt().get::<degree_celsius>() > 100.);
+        }
+    }
+
+    #[cfg(test)]
+    mod apu_generator_tests {
+        use ntest::assert_about_eq;
+
+        use crate::apu::tests::{running_apu, stopped_apu};
+
+        use super::*;
+
+        #[test]
+        fn starts_without_output() {
+            assert!(apu_generator().output.is_unpowered());
+        }
+
+        #[test]
+        fn when_apu_running_provides_output() {
+            let mut generator = apu_generator();
+            update_below_threshold(&mut generator);
+            update_above_threshold(&mut generator);
+
+            assert!(generator.output.is_powered());
+        }
+
+        #[test]
+        fn when_apu_shutdown_provides_no_output() {
+            let mut generator = apu_generator();
+            update_above_threshold(&mut generator);
+            update_below_threshold(&mut generator);
+
+            assert!(generator.output.is_unpowered());
+        }
+
+        #[test]
+        fn from_n_84_provides_voltage() {
+            let mut tester = tester_with().starting_apu();
+
+            loop {
+                tester = tester.run(Duration::from_millis(50));
+
+                let n = tester.get_n().get::<percent>();
+                if n > 84. {
+                    assert!(tester.get_generator_output().get_potential().get::<volt>() > 0.);
+                }
+
+                if n == 100. {
+                    break;
+                }
+            }
+        }
+
+        #[test]
+        fn from_n_84_has_frequency() {
+            let mut tester = tester_with().starting_apu();
+
+            loop {
+                tester = tester.run(Duration::from_millis(50));
+
+                let n = tester.get_n().get::<percent>();
+                if n > 84. {
+                    assert!(tester.get_generator_output().get_frequency().get::<hertz>() > 0.);
+                }
+
+                if n == 100. {
+                    break;
+                }
+            }
+        }
+
+        #[test]
+        fn in_normal_conditions_when_n_100_voltage_114_or_115() {
+            let mut tester = tester_with().running_apu();
+
+            for _ in 0..100 {
+                tester = tester.run(Duration::from_millis(50));
+
+                let voltage = tester.get_generator_output().get_potential().get::<volt>();
+                assert!(114. <= voltage && voltage <= 115.)
+            }
+        }
+
+        #[test]
+        fn in_normal_conditions_when_n_100_frequency_400() {
+            let mut tester = tester_with().running_apu();
+
+            for _ in 0..100 {
+                tester = tester.run(Duration::from_millis(50));
+
+                let frequency = tester.get_generator_output().get_frequency().get::<hertz>();
+                assert_about_eq!(frequency, 400.);
+            }
+        }
+
+        fn apu_generator() -> ApuGenerator {
+            ApuGenerator::new()
+        }
+
+        fn update_above_threshold(generator: &mut ApuGenerator) {
+            generator.update(&running_apu());
+        }
+
+        fn update_below_threshold(generator: &mut ApuGenerator) {
+            generator.update(&stopped_apu());
         }
     }
 

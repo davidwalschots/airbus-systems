@@ -91,11 +91,14 @@ impl SimulatorReadState {
 
 #[derive(Default)]
 pub struct SimulatorWriteState {
+    pub apu_caution_egt: ThermodynamicTemperature,
+    pub apu_egt: ThermodynamicTemperature,
+    pub apu_gen_current: ElectricCurrent,
+    pub apu_gen_frequency: Frequency,
+    pub apu_gen_potential: ElectricPotential,
+    pub apu_n: Ratio,
     pub apu_start_sw_available: bool,
     pub apu_start_sw_on: bool,
-    pub apu_n: Ratio,
-    pub apu_egt: ThermodynamicTemperature,
-    pub apu_caution_egt: ThermodynamicTemperature,
     pub apu_warning_egt: ThermodynamicTemperature,
     pub apu_air_intake_flap_opened_for: Ratio,
 }
