@@ -121,6 +121,10 @@ impl AuxiliaryPowerUnit {
     fn get_egt_maximum_temperature(&self) -> ThermodynamicTemperature {
         self.egt_maximum_temperature
     }
+
+    fn start_contactor_energized(&self) -> bool {
+        self.state.as_ref().unwrap().start_contactor_energized()
+    }
 }
 impl SimulatorVisitable for AuxiliaryPowerUnit {
     fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
@@ -129,11 +133,12 @@ impl SimulatorVisitable for AuxiliaryPowerUnit {
 }
 impl SimulatorReadWritable for AuxiliaryPowerUnit {
     fn write(&self, state: &mut SimulatorWriteState) {
-        state.apu_n = self.get_n();
-        state.apu_egt = self.get_egt();
-        state.apu_caution_egt = self.get_egt_warning_temperature();
-        state.apu_warning_egt = self.get_egt_maximum_temperature();
         state.apu_air_intake_flap_opened_for = self.get_air_intake_flap_open_amount();
+        state.apu_caution_egt = self.get_egt_warning_temperature();
+        state.apu_egt = self.get_egt();
+        state.apu_n = self.get_n();
+        state.apu_start_contactor_energized = self.start_contactor_energized();
+        state.apu_warning_egt = self.get_egt_maximum_temperature();
     }
 }
 
@@ -154,6 +159,8 @@ trait ApuState {
     fn get_egt(&self) -> ThermodynamicTemperature;
 
     fn get_egt_max_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature;
+
+    fn start_contactor_energized(&self) -> bool;
 }
 
 struct Shutdown {
@@ -229,6 +236,10 @@ impl ApuState for Shutdown {
     fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when shutdown is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
+    }
+
+    fn start_contactor_energized(&self) -> bool {
+        false
     }
 }
 
@@ -402,6 +413,10 @@ impl ApuState for Starting {
             )
         }
     }
+
+    fn start_contactor_energized(&self) -> bool {
+        self.get_n().get::<percent>() < 55.
+    }
 }
 
 struct Running {
@@ -485,6 +500,10 @@ impl ApuState for Running {
 
     fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
+    }
+
+    fn start_contactor_energized(&self) -> bool {
+        false
     }
 }
 
@@ -572,6 +591,10 @@ impl ApuState for Stopping {
     fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when stopping is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
+    }
+
+    fn start_contactor_energized(&self) -> bool {
+        false
     }
 }
 
@@ -1044,6 +1067,10 @@ pub mod tests {
         fn get_generator_output(&self) -> Current {
             self.apu_generator.output()
         }
+
+        fn start_contactor_energized(&self) -> bool {
+            self.apu.start_contactor_energized()
+        }
     }
 
     #[cfg(test)]
@@ -1413,6 +1440,47 @@ pub mod tests {
                 .run(Duration::from_secs(5));
 
             assert!(tester.get_egt().get::<degree_celsius>() > 100.);
+        }
+
+        #[test]
+        fn start_contactor_is_energised_when_starting_until_n_55() {
+            let mut tester = tester_with().starting_apu();
+
+            loop {
+                tester = tester.run(Duration::from_millis(50));
+                let n = tester.get_n().get::<percent>();
+                assert_eq!(tester.start_contactor_energized(), n < 55.);
+
+                if n == 100. {
+                    break;
+                }
+            }
+        }
+
+        #[test]
+        fn start_contactor_is_not_energised_when_shutdown() {
+            let tester = tester().run(Duration::from_secs(1_000));
+            assert_eq!(tester.start_contactor_energized(), false);
+        }
+
+        #[test]
+        fn start_contactor_is_not_energised_when_shutting_down() {
+            let mut tester = tester().running_apu().then_continue_with().master_off();
+
+            loop {
+                tester = tester.run(Duration::from_millis(50));
+                assert_eq!(tester.start_contactor_energized(), false);
+
+                if tester.get_n().get::<percent>() == 0. {
+                    break;
+                }
+            }
+        }
+
+        #[test]
+        fn start_contactor_is_not_energised_when_running() {
+            let tester = tester_with().running_apu().run(Duration::from_secs(1_000));
+            assert_eq!(tester.start_contactor_energized(), false);
         }
     }
 

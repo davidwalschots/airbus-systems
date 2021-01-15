@@ -97,6 +97,7 @@ pub struct SimulatorWriteState {
     pub apu_gen_frequency: Frequency,
     pub apu_gen_potential: ElectricPotential,
     pub apu_n: Ratio,
+    pub apu_start_contactor_energized: bool,
     pub apu_start_sw_available: bool,
     pub apu_start_sw_on: bool,
     pub apu_warning_egt: ThermodynamicTemperature,
