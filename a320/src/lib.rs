@@ -45,6 +45,7 @@ async fn demo(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> 
 
 pub struct SimulatorReadWriter {
     ambient_temperature: AircraftVariable,
+    apu_bleed_sw_on: AircraftVariable,
     apu_egt: NamedVariable,
     apu_egt_caution: NamedVariable,
     apu_egt_warning: NamedVariable,
@@ -66,6 +67,7 @@ impl SimulatorReadWriter {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         Ok(SimulatorReadWriter {
             ambient_temperature: AircraftVariable::from("AMBIENT TEMPERATURE", "celsius", 0)?,
+            apu_bleed_sw_on: AircraftVariable::from("BLEED AIR APU", "Bool", 0)?,
             apu_egt: NamedVariable::from("A32NX_APU_EGT"),
             apu_egt_caution: NamedVariable::from("A32NX_APU_EGT_CAUTION"),
             apu_egt_warning: NamedVariable::from("A32NX_APU_EGT_WARNING"),
@@ -94,9 +96,9 @@ impl SimulatorReadWriter {
             ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(
                 self.ambient_temperature.get(),
             ),
+            apu_bleed_sw_on: to_bool(self.apu_bleed_sw_on.get()),
             apu_master_sw_on: to_bool(self.apu_master_sw.get()),
             apu_start_sw_on: to_bool(self.apu_start_sw_on.get_value()),
-            apu_bleed_sw_on: true, // TODO
             indicated_airspeed: Velocity::new::<knot>(self.indicated_airspeed.get()),
             indicated_altitude: Length::new::<foot>(self.indicated_altitude.get()),
         }
