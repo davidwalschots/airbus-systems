@@ -125,6 +125,10 @@ impl AuxiliaryPowerUnit {
     fn start_contactor_energized(&self) -> bool {
         self.state.as_ref().unwrap().start_contactor_energized()
     }
+
+    fn bleed_air_valve_is_open(&self) -> bool {
+        self.state.as_ref().unwrap().bleed_air_valve_is_open()
+    }
 }
 impl SimulatorVisitable for AuxiliaryPowerUnit {
     fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
@@ -133,6 +137,7 @@ impl SimulatorVisitable for AuxiliaryPowerUnit {
 }
 impl SimulatorReadWritable for AuxiliaryPowerUnit {
     fn write(&self, state: &mut SimulatorWriteState) {
+        state.apu_bleed_air_valve_open = self.bleed_air_valve_is_open();
         state.apu_air_intake_flap_opened_for = self.get_air_intake_flap_open_amount();
         state.apu_caution_egt = self.get_egt_warning_temperature();
         state.apu_egt = self.get_egt();
@@ -159,6 +164,8 @@ trait ApuState {
     fn get_egt_max_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature;
 
     fn start_contactor_energized(&self) -> bool;
+
+    fn bleed_air_valve_is_open(&self) -> bool;
 }
 
 struct Shutdown {
@@ -234,6 +241,10 @@ impl ApuState for Shutdown {
 
     fn start_contactor_energized(&self) -> bool {
         false
+    }
+
+    fn bleed_air_valve_is_open(&self) -> bool {
+        self.bleed_air_valve.is_open()
     }
 }
 
@@ -419,6 +430,10 @@ impl ApuState for Starting {
     fn start_contactor_energized(&self) -> bool {
         self.get_n().get::<percent>() < 55.
     }
+
+    fn bleed_air_valve_is_open(&self) -> bool {
+        self.bleed_air_valve.is_open()
+    }
 }
 
 struct Running {
@@ -502,6 +517,10 @@ impl ApuState for Running {
 
     fn start_contactor_energized(&self) -> bool {
         false
+    }
+
+    fn bleed_air_valve_is_open(&self) -> bool {
+        self.bleed_air_valve.is_open()
     }
 }
 
@@ -590,6 +609,10 @@ impl ApuState for Stopping {
     fn start_contactor_energized(&self) -> bool {
         false
     }
+
+    fn bleed_air_valve_is_open(&self) -> bool {
+        self.bleed_air_valve.is_open()
+    }
 }
 
 fn calculate_towards_ambient_egt(
@@ -660,6 +683,10 @@ impl ApuBleedAirValve {
 
     fn was_open_in_last(&self, duration: Duration) -> bool {
         self.last_open_time_ago <= duration
+    }
+
+    fn is_open(&self) -> bool {
+        self.valve.is_open()
     }
 }
 

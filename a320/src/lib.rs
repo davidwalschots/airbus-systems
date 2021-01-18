@@ -45,6 +45,7 @@ async fn demo(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> 
 
 pub struct SimulatorReadWriter {
     ambient_temperature: AircraftVariable,
+    apu_bleed_air_valve_open: NamedVariable,
     apu_bleed_sw_on: AircraftVariable,
     apu_egt: NamedVariable,
     apu_egt_caution: NamedVariable,
@@ -67,6 +68,7 @@ impl SimulatorReadWriter {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         Ok(SimulatorReadWriter {
             ambient_temperature: AircraftVariable::from("AMBIENT TEMPERATURE", "celsius", 0)?,
+            apu_bleed_air_valve_open: NamedVariable::from("A32NX_APU_BLEED_AIR_VALVE_OPEN"),
             apu_bleed_sw_on: AircraftVariable::from("BLEED AIR APU", "Bool", 0)?,
             apu_egt: NamedVariable::from("A32NX_APU_EGT"),
             apu_egt_caution: NamedVariable::from("A32NX_APU_EGT_CAUTION"),
@@ -105,6 +107,8 @@ impl SimulatorReadWriter {
     }
 
     pub fn write(&self, state: &SimulatorWriteState) {
+        self.apu_bleed_air_valve_open
+            .set_value(from_bool(state.apu_bleed_air_valve_open));
         self.apu_egt
             .set_value(state.apu_egt.get::<degree_celsius>());
         self.apu_egt_caution
