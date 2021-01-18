@@ -756,6 +756,16 @@ impl ApuGenerator {
             Frequency::new::<hertz>(400.)
         }
     }
+
+    fn frequency_within_normal_range(&self) -> bool {
+        let hz = self.output().get_frequency().get::<hertz>();
+        390. <= hz && hz <= 410.
+    }
+
+    fn potential_within_normal_range(&self) -> bool {
+        let volts = self.output().get_potential().get::<volt>();
+        110. <= volts && volts <= 120.
+    }
 }
 impl PowerConductor for ApuGenerator {
     fn output(&self) -> Current {
@@ -771,7 +781,9 @@ impl SimulatorReadWritable for ApuGenerator {
     fn write(&self, state: &mut SimulatorWriteState) {
         state.apu_gen_current = self.output().get_current();
         state.apu_gen_frequency = self.output().get_frequency();
+        state.apu_gen_frequency_within_normal_range = self.frequency_within_normal_range();
         state.apu_gen_potential = self.output().get_potential();
+        state.apu_gen_potential_within_normal_range = self.potential_within_normal_range();
     }
 }
 
@@ -1070,6 +1082,14 @@ pub mod tests {
 
         fn start_contactor_energized(&self) -> bool {
             self.apu.start_contactor_energized()
+        }
+
+        fn generator_frequency_within_normal_range(&self) -> bool {
+            self.apu_generator.frequency_within_normal_range()
+        }
+
+        fn generator_potential_within_normal_range(&self) -> bool {
+            self.apu_generator.potential_within_normal_range()
         }
     }
 
@@ -1573,6 +1593,34 @@ pub mod tests {
                 let frequency = tester.get_generator_output().get_frequency().get::<hertz>();
                 assert_about_eq!(frequency, 400.);
             }
+        }
+
+        #[test]
+        fn when_shutdown_frequency_not_normal() {
+            let tester = tester().run(Duration::from_secs(1_000));
+
+            assert!(!tester.generator_frequency_within_normal_range());
+        }
+
+        #[test]
+        fn when_running_frequency_normal() {
+            let tester = tester().running_apu().run(Duration::from_secs(1_000));
+
+            assert!(tester.generator_frequency_within_normal_range());
+        }
+
+        #[test]
+        fn when_shutdown_potential_not_normal() {
+            let tester = tester().run(Duration::from_secs(1_000));
+
+            assert!(!tester.generator_potential_within_normal_range());
+        }
+
+        #[test]
+        fn when_running_potential_normal() {
+            let tester = tester().running_apu().run(Duration::from_secs(1_000));
+
+            assert!(tester.generator_potential_within_normal_range());
         }
 
         fn apu_generator() -> ApuGenerator {

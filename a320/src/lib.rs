@@ -51,7 +51,9 @@ pub struct SimulatorReadWriter {
     apu_flap_open: NamedVariable,
     apu_gen_amperage: NamedVariable,
     apu_gen_frequency: NamedVariable,
+    apu_gen_frequency_within_normal_range: NamedVariable,
     apu_gen_voltage: NamedVariable,
+    apu_gen_voltage_within_normal_range: NamedVariable,
     apu_master_sw: AircraftVariable,
     apu_n: NamedVariable,
     apu_start_contactor_energized: NamedVariable,
@@ -70,7 +72,11 @@ impl SimulatorReadWriter {
             apu_flap_open: NamedVariable::from("APU_FLAP_OPEN"),
             apu_gen_amperage: NamedVariable::from("A32NX_APU_GEN_AMPERAGE"),
             apu_gen_frequency: NamedVariable::from("A32NX_APU_GEN_FREQ"),
+            apu_gen_frequency_within_normal_range: NamedVariable::from("A32NX_APU_GEN_FREQ_NORMAL"),
             apu_gen_voltage: NamedVariable::from("A32NX_APU_GEN_VOLTAGE"),
+            apu_gen_voltage_within_normal_range: NamedVariable::from(
+                "A32NX_APU_GEN_VOLTAGE_NORMAL",
+            ),
             apu_master_sw: AircraftVariable::from("FUELSYSTEM VALVE SWITCH", "Bool", 8)?,
             apu_n: NamedVariable::from("A32NX_APU_N"),
             apu_start_contactor_energized: NamedVariable::from(
@@ -109,8 +115,12 @@ impl SimulatorReadWriter {
             .set_value(state.apu_gen_current.get::<ampere>());
         self.apu_gen_frequency
             .set_value(state.apu_gen_frequency.get::<hertz>());
+        self.apu_gen_frequency_within_normal_range
+            .set_value(from_bool(state.apu_gen_frequency_within_normal_range));
         self.apu_gen_voltage
             .set_value(state.apu_gen_potential.get::<volt>());
+        self.apu_gen_voltage_within_normal_range
+            .set_value(from_bool(state.apu_gen_potential_within_normal_range));
         self.apu_n.set_value(state.apu_n.get::<percent>());
         self.apu_start_contactor_energized
             .set_value(from_bool(state.apu_start_contactor_energized));
