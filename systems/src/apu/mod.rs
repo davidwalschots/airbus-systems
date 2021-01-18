@@ -97,7 +97,7 @@ impl AuxiliaryPowerUnit {
     }
 
     pub fn is_available(&self) -> bool {
-        self.state.as_ref().unwrap().is_available()
+        self.get_n().get::<percent>() > 99.5
     }
 
     fn get_air_intake_flap_open_amount(&self) -> Ratio {
@@ -151,8 +151,6 @@ trait ApuState {
     ) -> Box<dyn ApuState>;
 
     fn get_n(&self) -> Ratio;
-
-    fn is_available(&self) -> bool;
 
     fn get_air_intake_flap_open_amount(&self) -> Ratio;
 
@@ -219,10 +217,6 @@ impl ApuState for Shutdown {
 
     fn get_n(&self) -> Ratio {
         Ratio::new::<percent>(0.)
-    }
-
-    fn is_available(&self) -> bool {
-        false
     }
 
     fn get_air_intake_flap_open_amount(&self) -> Ratio {
@@ -404,10 +398,6 @@ impl ApuState for Starting {
         self.n
     }
 
-    fn is_available(&self) -> bool {
-        false
-    }
-
     fn get_air_intake_flap_open_amount(&self) -> Ratio {
         self.air_intake_flap.get_open_amount()
     }
@@ -498,10 +488,6 @@ impl ApuState for Running {
         Ratio::new::<percent>(100.)
     }
 
-    fn is_available(&self) -> bool {
-        true
-    }
-
     fn get_air_intake_flap_open_amount(&self) -> Ratio {
         self.air_intake_flap.get_open_amount()
     }
@@ -586,10 +572,6 @@ impl ApuState for Stopping {
 
     fn get_n(&self) -> Ratio {
         self.n
-    }
-
-    fn is_available(&self) -> bool {
-        false
     }
 
     fn get_air_intake_flap_open_amount(&self) -> Ratio {
@@ -997,6 +979,7 @@ pub mod tests {
             loop {
                 self = self.run(Duration::from_secs(1));
                 if self.apu.is_available() {
+                    self = self.run(Duration::from_secs(10));
                     break;
                 }
             }
@@ -1266,17 +1249,21 @@ pub mod tests {
         ) {
             // The cool down period is between 60 to 120. It is configurable by aircraft mechanics and
             // we'll make it a configurable option in the sim. For now, 120s.
-            let tester = tester_with()
-                .running_apu()
-                .and()
-                .master_off()
-                .run(Duration::from_millis(
-                    Running::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
-                ));
+            let mut tester =
+                tester_with()
+                    .running_apu()
+                    .and()
+                    .master_off()
+                    .run(Duration::from_millis(
+                        Running::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
+                    ));
 
             assert!(tester.apu_is_available());
 
-            let tester = tester.run(Duration::from_millis(1));
+            // Move from Running to Shutdown state.
+            tester = tester.run(Duration::from_millis(1));
+            // APU N reduces below 99,5%.
+            tester = tester.run(Duration::from_secs(1));
 
             assert!(!tester.apu_is_available());
         }
@@ -1287,7 +1274,7 @@ pub mod tests {
             // The cool down period requires that the bleed valve is shut for a duration (default 120s).
             // If the bleed valve was shut earlier than the MASTER SW going to OFF, that time period counts towards the cool down period.
 
-            let tester = tester_with()
+            let mut tester = tester_with()
                 .running_apu_with_bleed_air()
                 .and()
                 .bleed_air_off()
@@ -1297,24 +1284,30 @@ pub mod tests {
 
             assert!(tester.apu_is_available());
 
-            let tester = tester.master_off().run(Duration::from_millis(
+            tester = tester.master_off().run(Duration::from_millis(
                 Running::BLEED_AIR_COOLDOWN_DURATION_MILLIS / 3,
             ));
 
             assert!(tester.apu_is_available());
 
-            let tester = tester.run(Duration::from_millis(1));
+            // Move from Running to Shutdown state.
+            tester = tester.run(Duration::from_millis(1));
+            // APU N reduces below 99,5%.
+            tester = tester.run(Duration::from_secs(1));
 
             assert!(!tester.apu_is_available());
         }
 
         #[test]
         fn when_apu_bleed_valve_closed_on_shutdown_cooldown_period_is_skipped_and_apu_stops() {
-            let tester = tester_with().running_apu_without_bleed_air();
+            let mut tester = tester_with().running_apu_without_bleed_air();
 
             assert!(tester.apu_is_available());
 
-            let tester = tester.master_off().run(Duration::from_millis(1));
+            // Move from Running to Shutdown state.
+            tester = tester.master_off().run(Duration::from_millis(1));
+            // APU N reduces below 99,5%.
+            tester = tester.run(Duration::from_secs(1));
 
             assert!(!tester.apu_is_available());
         }
@@ -1529,7 +1522,10 @@ pub mod tests {
 
         #[test]
         fn start_contactor_is_not_energised_when_shutting_down() {
-            let mut tester = tester().running_apu().then_continue_with().master_off();
+            let mut tester = tester_with()
+                .running_apu()
+                .then_continue_with()
+                .master_off();
 
             loop {
                 tester = tester.run(Duration::from_millis(50));
@@ -1545,6 +1541,21 @@ pub mod tests {
         fn start_contactor_is_not_energised_when_running() {
             let tester = tester_with().running_apu().run(Duration::from_secs(1_000));
             assert_eq!(tester.start_contactor_energized(), false);
+        }
+
+        #[test]
+        fn available_when_n_above_99_5_percent() {
+            let mut tester = tester_with().starting_apu();
+
+            loop {
+                tester = tester.run(Duration::from_millis(50));
+                let n = tester.get_n().get::<percent>();
+                assert!((n > 99.5 && tester.apu_is_available()) || !tester.apu_is_available());
+
+                if n == 100. {
+                    break;
+                }
+            }
         }
     }
 
