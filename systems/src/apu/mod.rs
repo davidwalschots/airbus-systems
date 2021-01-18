@@ -249,7 +249,7 @@ struct Starting {
     since: Duration,
     n: Ratio,
     egt: ThermodynamicTemperature,
-    egt_at_start: ThermodynamicTemperature,
+    ignore_calculated_egt: bool,
 }
 impl Starting {
     const MAX_EGT_BELOW_25000_FEET: f64 = 900.;
@@ -266,11 +266,11 @@ impl Starting {
             since: Duration::from_secs(0),
             n: Ratio::new::<percent>(0.),
             egt,
-            egt_at_start: egt,
+            ignore_calculated_egt: true,
         }
     }
 
-    fn calculate_egt(&self, context: &UpdateContext) -> ThermodynamicTemperature {
+    fn calculate_egt(&mut self, context: &UpdateContext) -> ThermodynamicTemperature {
         // Refer to APS3200.md for details on the values below and source data.
         const APU_N_TEMP_CONST: f64 = 0.8260770092912485;
         const APU_N_TEMP_X: f64 = -10.521171805148322;
@@ -288,11 +288,10 @@ impl Starting {
         const APU_N_TEMP_X13: f64 = -0.00000000000000000287;
 
         let n = self.n.get::<percent>();
-        let minimum_egt = context.ambient_temperature.max(self.egt_at_start);
 
         // Results below this value momentarily go above 0, while not intended.
         if n < 5.5 {
-            minimum_egt
+            calculate_towards_ambient_egt(self.egt, context)
         } else {
             let temperature = ThermodynamicTemperature::new::<degree_celsius>(
                 APU_N_TEMP_CONST
@@ -311,7 +310,20 @@ impl Starting {
                     + (APU_N_TEMP_X13 * n.powi(13)),
             );
 
-            temperature.max(minimum_egt)
+            // The above calculated EGT can be lower than the ambient temperature,
+            // or the current APU EGT (when cooling down). To prevent sudden changes
+            // in temperature, we ignore the calculated EGT until it exceeds the current
+            // EGT.
+            let towards_ambient_egt = calculate_towards_ambient_egt(self.egt, context);
+            if temperature > towards_ambient_egt {
+                self.ignore_calculated_egt = false;
+            }
+
+            if self.ignore_calculated_egt {
+                towards_ambient_egt
+            } else {
+                temperature
+            }
         }
     }
 
@@ -974,8 +986,7 @@ pub mod tests {
         }
 
         fn starting_apu(self) -> Self {
-            self.master_on()
-                .run(Duration::from_secs(1_000))
+            self.apu_ready_to_start()
                 .then_continue_with()
                 .start_on()
                 .run(Duration::from_secs(0))
@@ -986,6 +997,34 @@ pub mod tests {
             loop {
                 self = self.run(Duration::from_secs(1));
                 if self.apu.is_available() {
+                    break;
+                }
+            }
+
+            self
+        }
+
+        fn cooling_down_apu(mut self) -> Self {
+            self = self.running_apu();
+            self = self.master_off();
+            loop {
+                self = self.run(Duration::from_secs(1));
+
+                if self.get_n().get::<percent>() == 0. {
+                    break;
+                }
+            }
+
+            self
+        }
+
+        fn apu_ready_to_start(mut self) -> Self {
+            self = self.master_on();
+
+            loop {
+                self = self.run(Duration::from_secs(1));
+
+                if self.apu.get_air_intake_flap_open_amount().get::<percent>() == 100. {
                     break;
                 }
             }
@@ -1159,11 +1198,12 @@ pub mod tests {
             const AMBIENT_TEMPERATURE: f64 = 50.;
 
             let tester = tester_with()
-                .starting_apu()
-                .and()
                 .ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(
                     AMBIENT_TEMPERATURE,
                 ))
+                .run(Duration::from_secs(500))
+                .then_continue_with()
+                .starting_apu()
                 .run(Duration::from_secs(1));
 
             assert_eq!(
@@ -1437,29 +1477,33 @@ pub mod tests {
         }
 
         #[test]
-        fn restarting_apu_which_is_cooling_down_does_not_reduce_egt_to_ambient() {
-            let mut tester = tester_with().running_apu();
-            loop {
-                tester = tester
-                    .then_continue_with()
-                    .master_off()
-                    .run(Duration::from_secs(1));
-
-                if tester.get_n().get::<percent>() == 0. {
-                    break;
-                }
-            }
+        fn restarting_apu_which_is_cooling_down_does_not_suddenly_reduce_egt_to_ambient_temperature(
+        ) {
+            let mut tester = tester_with().cooling_down_apu();
 
             assert!(tester.get_egt().get::<degree_celsius>() > 100.);
 
             tester = tester
                 .then_continue_with()
-                .master_on()
-                .and()
-                .start_on()
+                .starting_apu()
                 .run(Duration::from_secs(5));
 
             assert!(tester.get_egt().get::<degree_celsius>() > 100.);
+        }
+
+        #[test]
+        fn restarting_apu_which_is_cooling_down_does_reduce_towards_ambient_until_startup_egt_above_current_egt(
+        ) {
+            let mut tester = tester_with().cooling_down_apu();
+
+            let initial_egt = tester.get_egt();
+
+            tester = tester
+                .then_continue_with()
+                .starting_apu()
+                .run(Duration::from_secs(5));
+
+            assert!(tester.get_egt() < initial_egt);
         }
 
         #[test]
