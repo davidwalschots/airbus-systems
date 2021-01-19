@@ -80,9 +80,10 @@ impl AuxiliaryPowerUnit {
         context: &UpdateContext,
         overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
+        apu_gen_is_used: bool,
     ) {
         if let Some(state) = self.state.take() {
-            self.state = Some(state.update(context, overhead, apu_bleed_is_on));
+            self.state = Some(state.update(context, overhead, apu_bleed_is_on, apu_gen_is_used));
         }
 
         self.egt_maximum_temperature = self
@@ -153,6 +154,7 @@ trait ApuState {
         context: &UpdateContext,
         overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
+        apu_gen_is_used: bool,
     ) -> Box<dyn ApuState>;
 
     fn get_n(&self) -> Ratio;
@@ -195,6 +197,7 @@ impl ApuState for Shutdown {
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
+        _: bool,
     ) -> Box<dyn ApuState> {
         if apu_overhead.master_is_on() {
             self.air_intake_flap.open();
@@ -384,6 +387,7 @@ impl ApuState for Starting {
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
+        _: bool,
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n();
@@ -442,6 +446,7 @@ struct Running {
     egt: ThermodynamicTemperature,
     base_temperature: ThermodynamicTemperature,
     bleed_air_in_use_delta_temperature: TemperatureInterval,
+    apu_gen_in_use_delta_temperature: TemperatureInterval,
 }
 impl Running {
     const BLEED_AIR_COOLDOWN_DURATION_MILLIS: u64 = 120000;
@@ -454,6 +459,7 @@ impl Running {
     ) -> Running {
         let base_temperature = 340. + ((random_number() % 11) as f64);
         let bleed_air_in_use_delta_temperature = 30. + ((random_number() % 11) as f64);
+        let apu_gen_in_use_delta_temperature = 10. + ((random_number() % 6) as f64);
         Running {
             air_intake_flap,
             bleed_air_valve,
@@ -462,17 +468,25 @@ impl Running {
             bleed_air_in_use_delta_temperature: TemperatureInterval::new::<
                 temperature_interval::degree_celsius,
             >(bleed_air_in_use_delta_temperature),
+            apu_gen_in_use_delta_temperature: TemperatureInterval::new::<
+                temperature_interval::degree_celsius,
+            >(apu_gen_in_use_delta_temperature),
         }
     }
 
     fn calculate_slow_cooldown_to_running_temperature(
         &self,
         context: &UpdateContext,
+        apu_gen_is_used: bool,
     ) -> ThermodynamicTemperature {
         let mut target_temperature = self.base_temperature;
         if self.bleed_air_valve.is_open() {
             target_temperature += self.bleed_air_in_use_delta_temperature;
         }
+        if apu_gen_is_used {
+            target_temperature += self.apu_gen_in_use_delta_temperature;
+        }
+
         calculate_towards_target_egt(self.egt, target_temperature, 0.4, context.delta)
     }
 
@@ -488,13 +502,14 @@ impl ApuState for Running {
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
+        apu_gen_is_used: bool,
     ) -> Box<dyn ApuState> {
         self.air_intake_flap.update(context);
 
         self.bleed_air_valve
             .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
 
-        self.egt = self.calculate_slow_cooldown_to_running_temperature(context);
+        self.egt = self.calculate_slow_cooldown_to_running_temperature(context, apu_gen_is_used);
 
         if apu_overhead.master_is_off() && self.is_past_bleed_air_cooldown_period() {
             Box::new(Stopping::new(
@@ -572,6 +587,7 @@ impl ApuState for Stopping {
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
+        _: bool,
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n(context);
@@ -965,6 +981,7 @@ pub mod tests {
         apu_generator: ApuGenerator,
         ambient_temperature: ThermodynamicTemperature,
         indicated_altitude: Length,
+        apu_gen_is_used: bool,
     }
     impl AuxiliaryPowerUnitTester {
         fn new() -> Self {
@@ -975,6 +992,7 @@ pub mod tests {
                 apu_generator: ApuGenerator::new(),
                 ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
                 indicated_altitude: Length::new::<foot>(5000.),
+                apu_gen_is_used: true,
             }
         }
 
@@ -1008,6 +1026,11 @@ pub mod tests {
                 .then_continue_with()
                 .start_on()
                 .run(Duration::from_secs(0))
+        }
+
+        fn apu_gen_not_used(mut self) -> Self {
+            self.apu_gen_is_used = false;
+            self
         }
 
         fn running_apu(mut self) -> Self {
@@ -1089,6 +1112,7 @@ pub mod tests {
                     .build(),
                 &self.apu_overhead,
                 self.apu_bleed.is_on(),
+                self.apu_gen_is_used,
             );
 
             self.apu_generator.update(&self.apu);
@@ -1448,6 +1472,8 @@ pub mod tests {
         fn running_apu_egt_without_bleed_air_usage_stabilizes_between_340_to_350_degrees() {
             let tester = tester_with()
                 .running_apu_without_bleed_air()
+                .and()
+                .apu_gen_not_used()
                 .run(Duration::from_secs(1_000));
 
             let egt = tester.get_egt().get::<degree_celsius>();
@@ -1455,21 +1481,41 @@ pub mod tests {
         }
 
         #[test]
-        #[ignore]
         /// Komp: APU generator supplying will add maybe like 10-15 degrees.
-        fn running_apu_with_generator_supplying_the_aircraft_increases_egt_by_10_to_15_degrees() {}
+        fn running_apu_with_generator_supplying_electricity_increases_egt_by_10_to_15_degrees_to_between_350_to_365_degrees(
+        ) {
+            let tester = tester_with()
+                .running_apu_without_bleed_air()
+                .run(Duration::from_secs(1_000));
+
+            let egt = tester.get_egt().get::<degree_celsius>();
+            assert!(350. <= egt && egt <= 365.);
+        }
 
         #[test]
-        #[ignore]
         /// Komp: Bleed adds even more. Not sure how much, 30-40 degrees as a rough guess.
         fn running_apu_supplying_bleed_air_increases_egt_by_30_to_40_degrees_to_between_370_to_390_degrees(
+        ) {
+            let tester = tester_with()
+                .running_apu_with_bleed_air()
+                .and()
+                .apu_gen_not_used()
+                .run(Duration::from_secs(1_000));
+
+            let egt = tester.get_egt().get::<degree_celsius>();
+            assert!(370. <= egt && egt <= 390.);
+        }
+
+        #[test]
+        /// Komp: Bleed adds even more. Not sure how much, 30-40 degrees as a rough guess.
+        fn running_apu_supplying_bleed_air_and_electrical_increases_egt_to_between_380_to_405_degrees(
         ) {
             let tester = tester_with()
                 .running_apu_with_bleed_air()
                 .run(Duration::from_secs(1_000));
 
             let egt = tester.get_egt().get::<degree_celsius>();
-            assert!(370. <= egt && egt <= 390.);
+            assert!(380. <= egt && egt <= 405.);
         }
 
         #[test]

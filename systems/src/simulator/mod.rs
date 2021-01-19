@@ -72,9 +72,12 @@ pub trait SimulatorVisitor {
 #[derive(Default)]
 pub struct SimulatorReadState {
     pub ambient_temperature: ThermodynamicTemperature,
+    pub apu_bleed_sw_on: bool,
+    pub apu_gen_sw_on: bool,
     pub apu_master_sw_on: bool,
     pub apu_start_sw_on: bool,
-    pub apu_bleed_sw_on: bool,
+    pub external_power_available: bool,
+    pub external_power_sw_on: bool,
     pub indicated_airspeed: Velocity,
     pub indicated_altitude: Length,
 }

@@ -54,6 +54,7 @@ pub struct SimulatorReadWriter {
     apu_gen_amperage: NamedVariable,
     apu_gen_frequency: NamedVariable,
     apu_gen_frequency_within_normal_range: NamedVariable,
+    apu_gen_sw_on: AircraftVariable,
     apu_gen_voltage: NamedVariable,
     apu_gen_voltage_within_normal_range: NamedVariable,
     apu_master_sw: AircraftVariable,
@@ -61,6 +62,8 @@ pub struct SimulatorReadWriter {
     apu_start_contactor_energized: NamedVariable,
     apu_start_sw_available: NamedVariable,
     apu_start_sw_on: NamedVariable,
+    external_power_available: AircraftVariable,
+    external_power_sw_on: AircraftVariable,
     indicated_airspeed: AircraftVariable,
     indicated_altitude: AircraftVariable,
 }
@@ -77,6 +80,7 @@ impl SimulatorReadWriter {
             apu_gen_amperage: NamedVariable::from("A32NX_APU_GEN_AMPERAGE"),
             apu_gen_frequency: NamedVariable::from("A32NX_APU_GEN_FREQ"),
             apu_gen_frequency_within_normal_range: NamedVariable::from("A32NX_APU_GEN_FREQ_NORMAL"),
+            apu_gen_sw_on: AircraftVariable::from("APU GENERATOR SWITCH", "Bool", 0)?,
             apu_gen_voltage: NamedVariable::from("A32NX_APU_GEN_VOLTAGE"),
             apu_gen_voltage_within_normal_range: NamedVariable::from(
                 "A32NX_APU_GEN_VOLTAGE_NORMAL",
@@ -88,6 +92,12 @@ impl SimulatorReadWriter {
             ),
             apu_start_sw_available: NamedVariable::from("A32NX_APU_AVAILABLE"),
             apu_start_sw_on: NamedVariable::from("A32NX_APU_START_ACTIVATED"),
+            external_power_available: AircraftVariable::from(
+                "EXTERNAL POWER AVAILABLE",
+                "Bool",
+                0,
+            )?,
+            external_power_sw_on: AircraftVariable::from("EXTERNAL POWER ON", "Bool", 0)?,
             indicated_airspeed: AircraftVariable::from("AIRSPEED INDICATED", "Knots", 0)?,
             indicated_altitude: AircraftVariable::from("INDICATED ALTITUDE", "Feet", 0)?,
         })
@@ -99,8 +109,11 @@ impl SimulatorReadWriter {
                 self.ambient_temperature.get(),
             ),
             apu_bleed_sw_on: to_bool(self.apu_bleed_sw_on.get()),
+            apu_gen_sw_on: to_bool(self.apu_gen_sw_on.get()),
             apu_master_sw_on: to_bool(self.apu_master_sw.get()),
             apu_start_sw_on: to_bool(self.apu_start_sw_on.get_value()),
+            external_power_available: to_bool(self.external_power_available.get()),
+            external_power_sw_on: to_bool(self.external_power_sw_on.get()),
             indicated_airspeed: Velocity::new::<knot>(self.indicated_airspeed.get()),
             indicated_altitude: Length::new::<foot>(self.indicated_altitude.get()),
         }

@@ -47,10 +47,18 @@ impl A320 {
         self.engine_1.update(context);
         self.engine_2.update(context);
 
+        self.electrical_overhead.update(context);
+
         self.apu.update(
             context,
             &self.apu_overhead,
             self.pneumatic_overhead.apu_bleed_is_on(),
+            // This will be replaced when integrating the whole electrical system.
+            // For now we use the same logic as found in the JavaScript code; ignoring whether or not
+            // the engine generators are supplying electricity.
+            self.electrical_overhead.apu_generator_is_on()
+                && !(self.electrical_overhead.external_power_is_on()
+                    && self.electrical_overhead.external_power_is_available()),
         );
         self.apu_generator.update(&self.apu);
         self.apu_overhead.update_after_apu(&self.apu);
@@ -78,5 +86,6 @@ impl SimulatorVisitable for A320 {
         self.apu_generator.accept(visitor);
         self.apu_overhead.accept(visitor);
         self.pneumatic_overhead.accept(visitor);
+        self.electrical_overhead.accept(visitor);
     }
 }

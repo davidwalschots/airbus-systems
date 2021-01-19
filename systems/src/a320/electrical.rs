@@ -7,7 +7,10 @@ use crate::{
     },
     overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
     shared::{DelayedTrueLogicGate, Engine},
-    simulator::UpdateContext,
+    simulator::{
+        SimulatorReadState, SimulatorReadWritable, SimulatorVisitable, SimulatorVisitor,
+        UpdateContext,
+    },
 };
 use std::time::Duration;
 use uom::si::{f64::*, velocity::knot};
@@ -439,7 +442,6 @@ pub struct A320ElectricalOverheadPanel {
     ext_pwr: OnOffPushButton,
     commercial: OnOffPushButton,
 }
-
 impl A320ElectricalOverheadPanel {
     pub fn new() -> A320ElectricalOverheadPanel {
         A320ElectricalOverheadPanel {
@@ -468,11 +470,15 @@ impl A320ElectricalOverheadPanel {
         self.gen_2.is_on()
     }
 
-    fn external_power_is_on(&self) -> bool {
+    pub fn external_power_is_available(&self) -> bool {
+        self.ext_pwr.shows_available()
+    }
+
+    pub fn external_power_is_on(&self) -> bool {
         self.ext_pwr.is_on()
     }
 
-    fn apu_generator_is_on(&self) -> bool {
+    pub fn apu_generator_is_on(&self) -> bool {
         self.apu_gen.is_on()
     }
 
@@ -494,6 +500,18 @@ impl A320ElectricalOverheadPanel {
 
     fn bat_2_is_auto(&self) -> bool {
         self.bat_2.is_auto()
+    }
+}
+impl SimulatorVisitable for A320ElectricalOverheadPanel {
+    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
+        visitor.visit(self);
+    }
+}
+impl SimulatorReadWritable for A320ElectricalOverheadPanel {
+    fn read(&mut self, state: &SimulatorReadState) {
+        self.ext_pwr.set_available(state.external_power_available);
+        self.ext_pwr.set(state.external_power_sw_on);
+        self.apu_gen.set(state.apu_gen_sw_on);
     }
 }
 
