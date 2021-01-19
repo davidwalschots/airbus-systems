@@ -1,4 +1,4 @@
-use self::pneumatic::A320PneumaticOverheadPanel;
+use self::{fuel::A320Fuel, pneumatic::A320PneumaticOverheadPanel};
 use crate::{
     apu::{ApuGenerator, AuxiliaryPowerUnit, AuxiliaryPowerUnitOverheadPanel},
     electrical::ExternalPowerSource,
@@ -12,6 +12,8 @@ pub use electrical::*;
 mod hydraulic;
 pub use hydraulic::*;
 
+mod fuel;
+
 mod pneumatic;
 
 pub struct A320 {
@@ -24,6 +26,7 @@ pub struct A320 {
     ext_pwr: ExternalPowerSource,
     electrical: A320Electrical,
     electrical_overhead: A320ElectricalOverheadPanel,
+    fuel: A320Fuel,
     hydraulic: A320Hydraulic,
 }
 
@@ -39,6 +42,7 @@ impl A320 {
             ext_pwr: ExternalPowerSource::new(),
             electrical: A320Electrical::new(),
             electrical_overhead: A320ElectricalOverheadPanel::new(),
+            fuel: A320Fuel::new(),
             hydraulic: A320Hydraulic::new(),
         }
     }
@@ -48,6 +52,7 @@ impl A320 {
         self.engine_2.update(context);
 
         self.electrical_overhead.update(context);
+        self.fuel.update();
 
         self.apu.update(
             context,
@@ -59,6 +64,7 @@ impl A320 {
             self.electrical_overhead.apu_generator_is_on()
                 && !(self.electrical_overhead.external_power_is_on()
                     && self.electrical_overhead.external_power_is_available()),
+            self.fuel.has_fuel_remaining(),
         );
         self.apu_generator.update(&self.apu);
         self.apu_overhead.update_after_apu(&self.apu);
@@ -85,7 +91,8 @@ impl SimulatorVisitable for A320 {
         self.apu.accept(visitor);
         self.apu_generator.accept(visitor);
         self.apu_overhead.accept(visitor);
-        self.pneumatic_overhead.accept(visitor);
         self.electrical_overhead.accept(visitor);
+        self.fuel.accept(visitor);
+        self.pneumatic_overhead.accept(visitor);
     }
 }

@@ -12,7 +12,7 @@ use msfs::{
 };
 use uom::si::{
     electric_current::ampere, electric_potential::volt, f64::*, frequency::hertz, length::foot,
-    ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
+    mass::pound, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
 };
 
 #[msfs::gauge(name=airbus)]
@@ -66,6 +66,8 @@ pub struct SimulatorReadWriter {
     external_power_sw_on: AircraftVariable,
     indicated_airspeed: AircraftVariable,
     indicated_altitude: AircraftVariable,
+    total_fuel_weight: AircraftVariable,
+    unlimited_fuel: AircraftVariable,
 }
 impl SimulatorReadWriter {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
@@ -100,6 +102,8 @@ impl SimulatorReadWriter {
             external_power_sw_on: AircraftVariable::from("EXTERNAL POWER ON", "Bool", 0)?,
             indicated_airspeed: AircraftVariable::from("AIRSPEED INDICATED", "Knots", 0)?,
             indicated_altitude: AircraftVariable::from("INDICATED ALTITUDE", "Feet", 0)?,
+            total_fuel_weight: AircraftVariable::from("FUEL TOTAL QUANTITY WEIGHT", "Pounds", 0)?,
+            unlimited_fuel: AircraftVariable::from("UNLIMITED FUEL", "Bool", 0)?,
         })
     }
 
@@ -116,6 +120,8 @@ impl SimulatorReadWriter {
             external_power_sw_on: to_bool(self.external_power_sw_on.get()),
             indicated_airspeed: Velocity::new::<knot>(self.indicated_airspeed.get()),
             indicated_altitude: Length::new::<foot>(self.indicated_altitude.get()),
+            total_fuel_weight: Mass::new::<pound>(self.total_fuel_weight.get()),
+            unlimited_fuel: to_bool(self.unlimited_fuel.get()),
         }
     }
 

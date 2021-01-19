@@ -53,7 +53,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ShutdownReason {
     Manual,
-    Automatic, // Will be split further later into all kinds of reasons for automatic shutdown.
+    AutomaticNoFuel, // Will be split further later into all kinds of reasons for automatic shutdown.
 }
 
 pub struct AuxiliaryPowerUnit {
@@ -81,9 +81,16 @@ impl AuxiliaryPowerUnit {
         overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
         apu_gen_is_used: bool,
+        has_fuel_remaining: bool,
     ) {
         if let Some(state) = self.state.take() {
-            self.state = Some(state.update(context, overhead, apu_bleed_is_on, apu_gen_is_used));
+            self.state = Some(state.update(
+                context,
+                overhead,
+                apu_bleed_is_on,
+                apu_gen_is_used,
+                has_fuel_remaining,
+            ));
         }
 
         self.egt_maximum_temperature = self
@@ -155,6 +162,7 @@ trait ApuState {
         overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
         apu_gen_is_used: bool,
+        has_fuel_remaining: bool,
     ) -> Box<dyn ApuState>;
 
     fn get_n(&self) -> Ratio;
@@ -198,6 +206,7 @@ impl ApuState for Shutdown {
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
         _: bool,
+        has_fuel_remaining: bool,
     ) -> Box<dyn ApuState> {
         if apu_overhead.master_is_on() {
             self.air_intake_flap.open();
@@ -214,6 +223,7 @@ impl ApuState for Shutdown {
         if self.air_intake_flap.is_fully_open()
             && apu_overhead.master_is_on()
             && apu_overhead.start_is_on()
+            && has_fuel_remaining
         {
             Box::new(Starting::new(
                 self.air_intake_flap,
@@ -388,7 +398,18 @@ impl ApuState for Starting {
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
         _: bool,
+        has_fuel_remaining: bool,
     ) -> Box<dyn ApuState> {
+        if !has_fuel_remaining {
+            return Box::new(Stopping::new(
+                self.air_intake_flap,
+                self.bleed_air_valve,
+                self.egt,
+                self.n,
+                ShutdownReason::AutomaticNoFuel,
+            ));
+        }
+
         self.since = self.since + context.delta;
         self.n = self.calculate_n();
         self.egt = self.calculate_egt(context);
@@ -503,7 +524,18 @@ impl ApuState for Running {
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
         apu_gen_is_used: bool,
+        has_fuel_remaining: bool,
     ) -> Box<dyn ApuState> {
+        if !has_fuel_remaining {
+            return Box::new(Stopping::new(
+                self.air_intake_flap,
+                self.bleed_air_valve,
+                self.egt,
+                Ratio::new::<percent>(100.),
+                ShutdownReason::AutomaticNoFuel,
+            ));
+        }
+
         self.air_intake_flap.update(context);
 
         self.bleed_air_valve
@@ -516,6 +548,7 @@ impl ApuState for Running {
                 self.air_intake_flap,
                 self.bleed_air_valve,
                 self.egt,
+                Ratio::new::<percent>(100.),
                 ShutdownReason::Manual,
             ))
         } else {
@@ -561,6 +594,7 @@ impl Stopping {
         air_intake_flap: AirIntakeFlap,
         bleed_air_valve: ApuBleedAirValve,
         egt: ThermodynamicTemperature,
+        n: Ratio,
         reason: ShutdownReason,
     ) -> Stopping {
         Stopping {
@@ -568,7 +602,7 @@ impl Stopping {
             bleed_air_valve,
             since: Duration::from_secs(0),
             reason,
-            n: Ratio::new::<percent>(100.),
+            n,
             egt,
         }
     }
@@ -587,6 +621,7 @@ impl ApuState for Stopping {
         context: &UpdateContext,
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
+        _: bool,
         _: bool,
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
@@ -982,6 +1017,7 @@ pub mod tests {
         ambient_temperature: ThermodynamicTemperature,
         indicated_altitude: Length,
         apu_gen_is_used: bool,
+        has_fuel_remaining: bool,
     }
     impl AuxiliaryPowerUnitTester {
         fn new() -> Self {
@@ -993,6 +1029,7 @@ pub mod tests {
                 ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
                 indicated_altitude: Length::new::<foot>(5000.),
                 apu_gen_is_used: true,
+                has_fuel_remaining: true,
             }
         }
 
@@ -1030,6 +1067,11 @@ pub mod tests {
 
         fn apu_gen_not_used(mut self) -> Self {
             self.apu_gen_is_used = false;
+            self
+        }
+
+        fn no_fuel_available(mut self) -> Self {
+            self.has_fuel_remaining = false;
             self
         }
 
@@ -1113,6 +1155,7 @@ pub mod tests {
                 &self.apu_overhead,
                 self.apu_bleed.is_on(),
                 self.apu_gen_is_used,
+                self.has_fuel_remaining,
             );
 
             self.apu_generator.update(&self.apu);
@@ -1648,6 +1691,43 @@ pub mod tests {
                     break;
                 }
             }
+        }
+
+        #[test]
+        fn shutdown_apu_cannot_start_when_no_fuel_available() {
+            let tester = tester_with()
+                .no_fuel_available()
+                .run(Duration::from_secs(1_000))
+                .then_continue_with()
+                .starting_apu()
+                .run(Duration::from_secs(1_000));
+
+            assert_eq!(tester.apu_is_available(), false);
+        }
+
+        #[test]
+        fn starting_apu_shuts_down_when_no_more_fuel_available() {
+            let tester = tester_with()
+                .starting_apu()
+                .run(Duration::from_secs(10))
+                .then_continue_with()
+                .no_fuel_available()
+                .run(Duration::from_secs(1_000));
+
+            assert_eq!(tester.apu_is_available(), false);
+        }
+
+        #[test]
+        fn running_apu_shuts_down_when_no_more_fuel_available() {
+            let tester = tester_with()
+                .running_apu()
+                .then_continue_with()
+                .no_fuel_available()
+                // Two runs, because of state change from Running to Stopping.
+                .run(Duration::from_millis(1))
+                .run(Duration::from_secs(1_000));
+
+            assert_eq!(tester.apu_is_available(), false);
         }
     }
 

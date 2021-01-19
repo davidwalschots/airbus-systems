@@ -80,6 +80,8 @@ pub struct SimulatorReadState {
     pub external_power_sw_on: bool,
     pub indicated_airspeed: Velocity,
     pub indicated_altitude: Length,
+    pub total_fuel_weight: Mass,
+    pub unlimited_fuel: bool,
 }
 impl SimulatorReadState {
     pub fn to_context(&self, delta_time: Duration) -> UpdateContext {
