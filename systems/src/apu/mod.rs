@@ -36,7 +36,7 @@ use std::time::Duration;
 
 use uom::si::{
     electric_current::ampere, electric_potential::volt, f64::*, frequency::hertz, length::foot,
-    ratio::percent, thermodynamic_temperature::degree_celsius,
+    ratio::percent, temperature_interval, thermodynamic_temperature::degree_celsius,
 };
 
 use crate::{
@@ -441,6 +441,7 @@ struct Running {
     bleed_air_valve: ApuBleedAirValve,
     egt: ThermodynamicTemperature,
     base_temperature: ThermodynamicTemperature,
+    bleed_air_in_use_delta_temperature: TemperatureInterval,
 }
 impl Running {
     const BLEED_AIR_COOLDOWN_DURATION_MILLIS: u64 = 120000;
@@ -452,11 +453,15 @@ impl Running {
         egt: ThermodynamicTemperature,
     ) -> Running {
         let base_temperature = 340. + ((random_number() % 11) as f64);
+        let bleed_air_in_use_delta_temperature = 30. + ((random_number() % 11) as f64);
         Running {
             air_intake_flap,
             bleed_air_valve,
             egt,
             base_temperature: ThermodynamicTemperature::new::<degree_celsius>(base_temperature),
+            bleed_air_in_use_delta_temperature: TemperatureInterval::new::<
+                temperature_interval::degree_celsius,
+            >(bleed_air_in_use_delta_temperature),
         }
     }
 
@@ -464,7 +469,11 @@ impl Running {
         &self,
         context: &UpdateContext,
     ) -> ThermodynamicTemperature {
-        calculate_towards_target_egt(self.egt, self.base_temperature, 0.4, context.delta)
+        let mut target_temperature = self.base_temperature;
+        if self.bleed_air_valve.is_open() {
+            target_temperature += self.bleed_air_in_use_delta_temperature;
+        }
+        calculate_towards_target_egt(self.egt, target_temperature, 0.4, context.delta)
     }
 
     fn is_past_bleed_air_cooldown_period(&self) -> bool {
@@ -480,12 +489,12 @@ impl ApuState for Running {
         apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
     ) -> Box<dyn ApuState> {
-        self.egt = self.calculate_slow_cooldown_to_running_temperature(context);
-
         self.air_intake_flap.update(context);
 
         self.bleed_air_valve
             .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
+
+        self.egt = self.calculate_slow_cooldown_to_running_temperature(context);
 
         if apu_overhead.master_is_off() && self.is_past_bleed_air_cooldown_period() {
             Box::new(Stopping::new(
@@ -1436,8 +1445,10 @@ pub mod tests {
         #[test]
         /// Q: What would you say is a normal running EGT?
         /// Komp: It cools down by a few degrees. Not much though. 340-350 I'd say.
-        fn running_apu_egt_stabilizes_between_340_to_350_degrees() {
-            let tester = tester_with().running_apu().run(Duration::from_secs(1_000));
+        fn running_apu_egt_without_bleed_air_usage_stabilizes_between_340_to_350_degrees() {
+            let tester = tester_with()
+                .running_apu_without_bleed_air()
+                .run(Duration::from_secs(1_000));
 
             let egt = tester.get_egt().get::<degree_celsius>();
             assert!(340. <= egt && egt <= 350.);
@@ -1451,7 +1462,15 @@ pub mod tests {
         #[test]
         #[ignore]
         /// Komp: Bleed adds even more. Not sure how much, 30-40 degrees as a rough guess.
-        fn running_apu_supplying_bleed_air_increases_egt_by_30_to_40_degrees() {}
+        fn running_apu_supplying_bleed_air_increases_egt_by_30_to_40_degrees_to_between_370_to_390_degrees(
+        ) {
+            let tester = tester_with()
+                .running_apu_with_bleed_air()
+                .run(Duration::from_secs(1_000));
+
+            let egt = tester.get_egt().get::<degree_celsius>();
+            assert!(370. <= egt && egt <= 390.);
+        }
 
         #[test]
         fn max_starting_egt_below_25000_feet_is_900_degrees() {
