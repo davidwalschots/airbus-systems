@@ -42,7 +42,7 @@ use uom::si::{
 use crate::{
     electrical::{Current, PowerConductor, PowerSource},
     overhead::OnOffPushButton,
-    pneumatic::BleedAirValve,
+    pneumatic::{BleedAirValve, Valve},
     shared::random_number,
     simulator::{
         SimulatorReadState, SimulatorReadWritable, SimulatorVisitable, SimulatorVisitor,
@@ -85,8 +85,13 @@ trait AirIntakeFlapController {
     fn should_open_air_intake_flap(&self) -> bool;
 }
 
-trait ApuStartController {
+trait ApuStartStopController {
     fn should_start(&self) -> bool;
+    fn should_stop(&self) -> bool;
+}
+
+trait BleedAirValveController {
+    fn should_open_bleed_air_valve(&self) -> bool;
 }
 
 /// Powered by the DC BAT BUS (801PP).
@@ -97,20 +102,31 @@ struct ElectronicControlBox {
     start_is_on: bool,
     start_contactor_is_energized: bool,
     apu_n: Ratio,
+    bleed_is_on: bool,
+    bleed_air_valve_last_open_time_ago: Duration,
 }
 impl ElectronicControlBox {
+    const BLEED_AIR_COOLDOWN_DURATION_MILLIS: u64 = 120000;
+
     fn new() -> Self {
         ElectronicControlBox {
             master_is_on: false,
             start_is_on: false,
             start_contactor_is_energized: false,
             apu_n: Ratio::new::<percent>(0.),
+            bleed_is_on: false,
+            bleed_air_valve_last_open_time_ago: Duration::from_secs(1000),
         }
     }
 
-    fn update_before_state(&mut self, overhead: &AuxiliaryPowerUnitOverheadPanel) {
+    fn update_before_state(
+        &mut self,
+        overhead: &AuxiliaryPowerUnitOverheadPanel,
+        apu_bleed_is_on: bool,
+    ) {
         self.master_is_on = overhead.master_is_on();
         self.start_is_on = overhead.start_is_on();
+        self.bleed_is_on = apu_bleed_is_on;
     }
 
     fn update_after_start_contactor<T: PowerConductor>(&mut self, start_contactor: &T) {
@@ -121,10 +137,26 @@ impl ElectronicControlBox {
         self.apu_n = apu_n;
     }
 
+    fn update_after_bleed_air_valve<T: Valve>(
+        &mut self,
+        context: &UpdateContext,
+        bleed_air_valve: &T,
+    ) {
+        if bleed_air_valve.is_open() {
+            self.bleed_air_valve_last_open_time_ago = Duration::from_secs(0);
+        } else {
+            self.bleed_air_valve_last_open_time_ago += context.delta;
+        }
+    }
+
     /// Indicates if a fault has occurred which would cause the
     /// MASTER SW fault light to turn on.
     fn has_fault(&self) -> bool {
         false
+    }
+
+    fn bleed_air_valve_was_open_in_last(&self, duration: Duration) -> bool {
+        self.bleed_air_valve_last_open_time_ago <= duration
     }
 }
 impl ApuStartContactorController for ElectronicControlBox {
@@ -142,10 +174,22 @@ impl AirIntakeFlapController for ElectronicControlBox {
         self.master_is_on || 7. < self.apu_n.get::<percent>()
     }
 }
-impl ApuStartController for ElectronicControlBox {
+impl ApuStartStopController for ElectronicControlBox {
     /// Indicates if the start sequence should be started.
     fn should_start(&self) -> bool {
         self.start_contactor_is_energized
+    }
+
+    fn should_stop(&self) -> bool {
+        !self.master_is_on
+            && !self.bleed_air_valve_was_open_in_last(Duration::from_millis(
+                ElectronicControlBox::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
+            ))
+    }
+}
+impl BleedAirValveController for ElectronicControlBox {
+    fn should_open_bleed_air_valve(&self) -> bool {
+        self.master_is_on && self.apu_n.get::<percent>() > 95. && self.bleed_is_on
     }
 }
 
@@ -161,12 +205,12 @@ pub struct AuxiliaryPowerUnit {
     ecb: ElectronicControlBox,
     start_contactor: ApuStartContactor,
     air_intake_flap: AirIntakeFlap,
+    bleed_air_valve: ApuBleedAirValve,
 }
 impl AuxiliaryPowerUnit {
     pub fn new() -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
             state: Some(Box::new(Shutdown::new(
-                ApuBleedAirValve::new(),
                 ShutdownReason::Manual,
                 ThermodynamicTemperature::new::<degree_celsius>(0.),
             ))),
@@ -176,6 +220,7 @@ impl AuxiliaryPowerUnit {
             ecb: ElectronicControlBox::new(),
             start_contactor: ApuStartContactor::new(),
             air_intake_flap: AirIntakeFlap::new(),
+            bleed_air_valve: ApuBleedAirValve::new(),
         }
     }
 
@@ -187,15 +232,14 @@ impl AuxiliaryPowerUnit {
         apu_gen_is_used: bool,
         has_fuel_remaining: bool,
     ) {
-        self.ecb.update_before_state(overhead);
+        self.ecb.update_before_state(overhead, apu_bleed_is_on);
         self.start_contactor.update_before_state(&self.ecb);
         self.ecb.update_after_start_contactor(&self.start_contactor);
 
         if let Some(state) = self.state.take() {
             self.state = Some(state.update(
                 context,
-                overhead,
-                apu_bleed_is_on,
+                self.bleed_air_valve.is_open(),
                 apu_gen_is_used,
                 has_fuel_remaining,
                 &self.ecb,
@@ -203,6 +247,9 @@ impl AuxiliaryPowerUnit {
         }
 
         self.ecb.update_after_state(self.get_n());
+        self.bleed_air_valve.update_after_state(&self.ecb);
+        self.ecb
+            .update_after_bleed_air_valve(context, &self.bleed_air_valve);
         self.air_intake_flap.update_after_state(context, &self.ecb);
 
         self.egt_maximum_temperature = self
@@ -244,7 +291,7 @@ impl AuxiliaryPowerUnit {
     }
 
     fn bleed_air_valve_is_open(&self) -> bool {
-        self.state.as_ref().unwrap().bleed_air_valve_is_open()
+        self.bleed_air_valve.is_open()
     }
 }
 impl SimulatorVisitable for AuxiliaryPowerUnit {
@@ -268,11 +315,10 @@ trait ApuState {
     fn update(
         self: Box<Self>,
         context: &UpdateContext,
-        overhead: &AuxiliaryPowerUnitOverheadPanel,
-        apu_bleed_is_on: bool,
+        apu_bleed_is_used: bool,
         apu_gen_is_used: bool,
         has_fuel_remaining: bool,
-        controller: &dyn ApuStartController,
+        controller: &dyn ApuStartStopController,
     ) -> Box<dyn ApuState>;
 
     fn get_n(&self) -> Ratio;
@@ -280,45 +326,30 @@ trait ApuState {
     fn get_egt(&self) -> ThermodynamicTemperature;
 
     fn get_egt_max_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature;
-
-    fn bleed_air_valve_is_open(&self) -> bool;
 }
 
 struct Shutdown {
-    bleed_air_valve: ApuBleedAirValve,
     reason: ShutdownReason,
     egt: ThermodynamicTemperature,
 }
 impl Shutdown {
-    fn new(
-        bleed_air_valve: ApuBleedAirValve,
-        reason: ShutdownReason,
-        egt: ThermodynamicTemperature,
-    ) -> Shutdown {
-        Shutdown {
-            bleed_air_valve,
-            reason,
-            egt,
-        }
+    fn new(reason: ShutdownReason, egt: ThermodynamicTemperature) -> Shutdown {
+        Shutdown { reason, egt }
     }
 }
 impl ApuState for Shutdown {
     fn update(
         mut self: Box<Self>,
         context: &UpdateContext,
-        apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        apu_bleed_is_on: bool,
+        _: bool,
         _: bool,
         has_fuel_remaining: bool,
-        controller: &dyn ApuStartController,
+        controller: &dyn ApuStartStopController,
     ) -> Box<dyn ApuState> {
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
-        self.bleed_air_valve
-            .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
-
         if controller.should_start() && has_fuel_remaining {
-            Box::new(Starting::new(self.bleed_air_valve, self.egt))
+            Box::new(Starting::new(self.egt))
         } else {
             self
         }
@@ -336,14 +367,9 @@ impl ApuState for Shutdown {
         // Not a programming error, MAX EGT displayed when shutdown is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
-
-    fn bleed_air_valve_is_open(&self) -> bool {
-        self.bleed_air_valve.is_open()
-    }
 }
 
 struct Starting {
-    bleed_air_valve: ApuBleedAirValve,
     since: Duration,
     n: Ratio,
     egt: ThermodynamicTemperature,
@@ -353,9 +379,8 @@ impl Starting {
     const MAX_EGT_BELOW_25000_FEET: f64 = 900.;
     const MAX_EGT_AT_OR_ABOVE_25000_FEET: f64 = 982.;
 
-    fn new(bleed_air_valve: ApuBleedAirValve, egt: ThermodynamicTemperature) -> Starting {
+    fn new(egt: ThermodynamicTemperature) -> Starting {
         Starting {
-            bleed_air_valve,
             since: Duration::from_secs(0),
             n: Ratio::new::<percent>(0.),
             egt,
@@ -470,15 +495,13 @@ impl ApuState for Starting {
     fn update(
         mut self: Box<Self>,
         context: &UpdateContext,
-        apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        apu_bleed_is_on: bool,
+        _: bool,
         _: bool,
         has_fuel_remaining: bool,
-        _: &dyn ApuStartController,
+        _: &dyn ApuStartStopController,
     ) -> Box<dyn ApuState> {
         if !has_fuel_remaining {
             return Box::new(Stopping::new(
-                self.bleed_air_valve,
                 self.egt,
                 self.n,
                 ShutdownReason::AutomaticNoFuel,
@@ -489,11 +512,8 @@ impl ApuState for Starting {
         self.n = self.calculate_n();
         self.egt = self.calculate_egt(context);
 
-        self.bleed_air_valve
-            .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
-
         if self.n.get::<percent>() == 100. {
-            Box::new(Running::new(self.bleed_air_valve, self.egt))
+            Box::new(Running::new(self.egt))
         } else {
             self
         }
@@ -516,29 +536,22 @@ impl ApuState for Starting {
             )
         }
     }
-
-    fn bleed_air_valve_is_open(&self) -> bool {
-        self.bleed_air_valve.is_open()
-    }
 }
 
 struct Running {
-    bleed_air_valve: ApuBleedAirValve,
     egt: ThermodynamicTemperature,
     base_temperature: ThermodynamicTemperature,
     bleed_air_in_use_delta_temperature: TemperatureInterval,
     apu_gen_in_use_delta_temperature: TemperatureInterval,
 }
 impl Running {
-    const BLEED_AIR_COOLDOWN_DURATION_MILLIS: u64 = 120000;
     const MAX_EGT: f64 = 682.;
 
-    fn new(bleed_air_valve: ApuBleedAirValve, egt: ThermodynamicTemperature) -> Running {
+    fn new(egt: ThermodynamicTemperature) -> Running {
         let base_temperature = 340. + ((random_number() % 11) as f64);
         let bleed_air_in_use_delta_temperature = 30. + ((random_number() % 11) as f64);
         let apu_gen_in_use_delta_temperature = 10. + ((random_number() % 6) as f64);
         Running {
-            bleed_air_valve,
             egt,
             base_temperature: ThermodynamicTemperature::new::<degree_celsius>(base_temperature),
             bleed_air_in_use_delta_temperature: TemperatureInterval::new::<
@@ -554,9 +567,10 @@ impl Running {
         &self,
         context: &UpdateContext,
         apu_gen_is_used: bool,
+        apu_bleed_is_used: bool,
     ) -> ThermodynamicTemperature {
         let mut target_temperature = self.base_temperature;
-        if self.bleed_air_valve.is_open() {
+        if apu_bleed_is_used {
             target_temperature += self.bleed_air_in_use_delta_temperature;
         }
         if apu_gen_is_used {
@@ -565,40 +579,32 @@ impl Running {
 
         calculate_towards_target_egt(self.egt, target_temperature, 0.4, context.delta)
     }
-
-    fn is_past_bleed_air_cooldown_period(&self) -> bool {
-        !self.bleed_air_valve.was_open_in_last(Duration::from_millis(
-            Running::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
-        ))
-    }
 }
 impl ApuState for Running {
     fn update(
         mut self: Box<Self>,
         context: &UpdateContext,
-        apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        apu_bleed_is_on: bool,
+        apu_bleed_is_used: bool,
         apu_gen_is_used: bool,
         has_fuel_remaining: bool,
-        _: &dyn ApuStartController,
+        controller: &dyn ApuStartStopController,
     ) -> Box<dyn ApuState> {
         if !has_fuel_remaining {
             return Box::new(Stopping::new(
-                self.bleed_air_valve,
                 self.egt,
                 Ratio::new::<percent>(100.),
                 ShutdownReason::AutomaticNoFuel,
             ));
         }
 
-        self.bleed_air_valve
-            .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
+        self.egt = self.calculate_slow_cooldown_to_running_temperature(
+            context,
+            apu_gen_is_used,
+            apu_bleed_is_used,
+        );
 
-        self.egt = self.calculate_slow_cooldown_to_running_temperature(context, apu_gen_is_used);
-
-        if apu_overhead.master_is_off() && self.is_past_bleed_air_cooldown_period() {
+        if controller.should_stop() {
             Box::new(Stopping::new(
-                self.bleed_air_valve,
                 self.egt,
                 Ratio::new::<percent>(100.),
                 ShutdownReason::Manual,
@@ -619,28 +625,17 @@ impl ApuState for Running {
     fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
-
-    fn bleed_air_valve_is_open(&self) -> bool {
-        self.bleed_air_valve.is_open()
-    }
 }
 
 struct Stopping {
-    bleed_air_valve: ApuBleedAirValve,
     reason: ShutdownReason,
     since: Duration,
     n: Ratio,
     egt: ThermodynamicTemperature,
 }
 impl Stopping {
-    fn new(
-        bleed_air_valve: ApuBleedAirValve,
-        egt: ThermodynamicTemperature,
-        n: Ratio,
-        reason: ShutdownReason,
-    ) -> Stopping {
+    fn new(egt: ThermodynamicTemperature, n: Ratio, reason: ShutdownReason) -> Stopping {
         Stopping {
-            bleed_air_valve,
             since: Duration::from_secs(0),
             reason,
             n,
@@ -660,21 +655,17 @@ impl ApuState for Stopping {
     fn update(
         mut self: Box<Self>,
         context: &UpdateContext,
-        apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        apu_bleed_is_on: bool,
         _: bool,
         _: bool,
-        _: &dyn ApuStartController,
+        _: bool,
+        _: &dyn ApuStartStopController,
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n(context);
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
-        self.bleed_air_valve
-            .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
-
         if self.n.get::<percent>() == 0. {
-            Box::new(Shutdown::new(self.bleed_air_valve, self.reason, self.egt))
+            Box::new(Shutdown::new(self.reason, self.egt))
         } else {
             self
         }
@@ -691,10 +682,6 @@ impl ApuState for Stopping {
     fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when stopping is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
-    }
-
-    fn bleed_air_valve_is_open(&self) -> bool {
-        self.bleed_air_valve.is_open()
     }
 }
 
@@ -744,30 +731,12 @@ impl ApuBleedAirValve {
         }
     }
 
-    fn update(
-        &mut self,
-        context: &UpdateContext,
-        n: Ratio,
-        apu_overhead: &AuxiliaryPowerUnitOverheadPanel,
-        apu_bleed_is_on: bool,
-    ) {
-        // Note: it might be that later we have situations in which master is on,
-        // but an emergency shutdown happens and this doesn't turn off.
-        // In this case, we need to modify the code below to no longer look at apu overhead state, but APU state itself.
+    fn update_after_state<T: BleedAirValveController>(&mut self, controller: &T) {
         self.valve
-            .open_when(apu_overhead.master_is_on() && n.get::<percent>() > 95. && apu_bleed_is_on);
-
-        if self.valve.is_open() {
-            self.last_open_time_ago = Duration::from_secs(0);
-        } else {
-            self.last_open_time_ago += context.delta;
-        }
+            .open_when(controller.should_open_bleed_air_valve());
     }
-
-    fn was_open_in_last(&self, duration: Duration) -> bool {
-        self.last_open_time_ago <= duration
-    }
-
+}
+impl Valve for ApuBleedAirValve {
     fn is_open(&self) -> bool {
         self.valve.is_open()
     }
@@ -1379,7 +1348,7 @@ pub mod tests {
                     .and()
                     .master_off()
                     .run(Duration::from_millis(
-                        Running::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
+                        ElectronicControlBox::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
                     ));
 
             assert!(tester.apu_is_available());
@@ -1403,13 +1372,13 @@ pub mod tests {
                 .and()
                 .bleed_air_off()
                 .run(Duration::from_millis(
-                    (Running::BLEED_AIR_COOLDOWN_DURATION_MILLIS / 3) * 2,
+                    (ElectronicControlBox::BLEED_AIR_COOLDOWN_DURATION_MILLIS / 3) * 2,
                 ));
 
             assert!(tester.apu_is_available());
 
             tester = tester.master_off().run(Duration::from_millis(
-                Running::BLEED_AIR_COOLDOWN_DURATION_MILLIS / 3,
+                ElectronicControlBox::BLEED_AIR_COOLDOWN_DURATION_MILLIS / 3,
             ));
 
             assert!(tester.apu_is_available());
@@ -1443,7 +1412,7 @@ pub mod tests {
                 .and()
                 .master_off()
                 .run(Duration::from_millis(
-                    Running::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
+                    ElectronicControlBox::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
                 ));
 
             let tester = tester
