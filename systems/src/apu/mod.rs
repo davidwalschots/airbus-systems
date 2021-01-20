@@ -50,6 +50,105 @@ use crate::{
     },
 };
 
+/// This type will be here until we have a full ELEC implementation.
+struct ApuStartContactor {
+    closed: bool,
+}
+impl ApuStartContactor {
+    fn new() -> Self {
+        ApuStartContactor { closed: false }
+    }
+
+    fn update_before_state<T: ApuStartContactorController>(&mut self, controller: &T) {
+        self.closed = controller.should_close_start_contactor();
+    }
+}
+impl PowerConductor for ApuStartContactor {
+    fn output(&self) -> Current {
+        if self.closed {
+            Current::Direct(
+                PowerSource::Battery(1),
+                ElectricPotential::new::<volt>(28.5),
+                ElectricCurrent::new::<ampere>(35.),
+            )
+        } else {
+            Current::None
+        }
+    }
+}
+
+trait ApuStartContactorController {
+    fn should_close_start_contactor(&self) -> bool;
+}
+
+trait AirIntakeFlapController {
+    fn should_open_air_intake_flap(&self) -> bool;
+}
+
+trait ApuStartController {
+    fn should_start(&self) -> bool;
+}
+
+/// Powered by the DC BAT BUS (801PP).
+/// Not yet implemented. Will power this up when implementing the electrical system.
+/// It is powered when MASTER SW is ON.
+struct ElectronicControlBox {
+    master_is_on: bool,
+    start_is_on: bool,
+    start_contactor_is_energized: bool,
+    apu_n: Ratio,
+}
+impl ElectronicControlBox {
+    fn new() -> Self {
+        ElectronicControlBox {
+            master_is_on: false,
+            start_is_on: false,
+            start_contactor_is_energized: false,
+            apu_n: Ratio::new::<percent>(0.),
+        }
+    }
+
+    fn update_before_state(&mut self, overhead: &AuxiliaryPowerUnitOverheadPanel) {
+        self.master_is_on = overhead.master_is_on();
+        self.start_is_on = overhead.start_is_on();
+    }
+
+    fn update_after_start_contactor<T: PowerConductor>(&mut self, start_contactor: &T) {
+        self.start_contactor_is_energized = start_contactor.is_powered()
+    }
+
+    fn update_after_state(&mut self, apu_n: Ratio) {
+        self.apu_n = apu_n;
+    }
+
+    /// Indicates if a fault has occurred which would cause the
+    /// MASTER SW fault light to turn on.
+    fn has_fault(&self) -> bool {
+        false
+    }
+}
+impl ApuStartContactorController for ElectronicControlBox {
+    /// Indicates if the APU start contactor should be closed.
+    fn should_close_start_contactor(&self) -> bool {
+        !self.has_fault()
+            && self.master_is_on
+            && self.start_is_on
+            && self.apu_n.get::<percent>() < 55.
+    }
+}
+impl AirIntakeFlapController for ElectronicControlBox {
+    /// Indicates if the air intake flap should be opened.
+    fn should_open_air_intake_flap(&self) -> bool {
+        self.master_is_on || 7. < self.apu_n.get::<percent>()
+    }
+}
+impl ApuStartController for ElectronicControlBox {
+    /// Indicates if the start sequence should be started.
+    fn should_start(&self) -> bool {
+        self.start_contactor_is_energized
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ShutdownReason {
     Manual,
@@ -59,12 +158,14 @@ enum ShutdownReason {
 pub struct AuxiliaryPowerUnit {
     state: Option<Box<dyn ApuState>>,
     egt_maximum_temperature: ThermodynamicTemperature,
+    ecb: ElectronicControlBox,
+    start_contactor: ApuStartContactor,
+    air_intake_flap: AirIntakeFlap,
 }
 impl AuxiliaryPowerUnit {
     pub fn new() -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
             state: Some(Box::new(Shutdown::new(
-                AirIntakeFlap::new(),
                 ApuBleedAirValve::new(),
                 ShutdownReason::Manual,
                 ThermodynamicTemperature::new::<degree_celsius>(0.),
@@ -72,6 +173,9 @@ impl AuxiliaryPowerUnit {
             egt_maximum_temperature: ThermodynamicTemperature::new::<degree_celsius>(
                 Running::MAX_EGT,
             ),
+            ecb: ElectronicControlBox::new(),
+            start_contactor: ApuStartContactor::new(),
+            air_intake_flap: AirIntakeFlap::new(),
         }
     }
 
@@ -83,6 +187,10 @@ impl AuxiliaryPowerUnit {
         apu_gen_is_used: bool,
         has_fuel_remaining: bool,
     ) {
+        self.ecb.update_before_state(overhead);
+        self.start_contactor.update_before_state(&self.ecb);
+        self.ecb.update_after_start_contactor(&self.start_contactor);
+
         if let Some(state) = self.state.take() {
             self.state = Some(state.update(
                 context,
@@ -90,8 +198,12 @@ impl AuxiliaryPowerUnit {
                 apu_bleed_is_on,
                 apu_gen_is_used,
                 has_fuel_remaining,
+                &self.ecb,
             ));
         }
+
+        self.ecb.update_after_state(self.get_n());
+        self.air_intake_flap.update_after_state(context, &self.ecb);
 
         self.egt_maximum_temperature = self
             .state
@@ -109,10 +221,7 @@ impl AuxiliaryPowerUnit {
     }
 
     fn get_air_intake_flap_open_amount(&self) -> Ratio {
-        self.state
-            .as_ref()
-            .unwrap()
-            .get_air_intake_flap_open_amount()
+        self.air_intake_flap.get_open_amount()
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
@@ -131,7 +240,7 @@ impl AuxiliaryPowerUnit {
     }
 
     fn start_contactor_energized(&self) -> bool {
-        self.state.as_ref().unwrap().start_contactor_energized()
+        self.start_contactor.is_powered()
     }
 
     fn bleed_air_valve_is_open(&self) -> bool {
@@ -163,36 +272,30 @@ trait ApuState {
         apu_bleed_is_on: bool,
         apu_gen_is_used: bool,
         has_fuel_remaining: bool,
+        controller: &dyn ApuStartController,
     ) -> Box<dyn ApuState>;
 
     fn get_n(&self) -> Ratio;
-
-    fn get_air_intake_flap_open_amount(&self) -> Ratio;
 
     fn get_egt(&self) -> ThermodynamicTemperature;
 
     fn get_egt_max_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature;
 
-    fn start_contactor_energized(&self) -> bool;
-
     fn bleed_air_valve_is_open(&self) -> bool;
 }
 
 struct Shutdown {
-    air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
     reason: ShutdownReason,
     egt: ThermodynamicTemperature,
 }
 impl Shutdown {
     fn new(
-        air_intake_flap: AirIntakeFlap,
         bleed_air_valve: ApuBleedAirValve,
         reason: ShutdownReason,
         egt: ThermodynamicTemperature,
     ) -> Shutdown {
         Shutdown {
-            air_intake_flap,
             bleed_air_valve,
             reason,
             egt,
@@ -207,29 +310,15 @@ impl ApuState for Shutdown {
         apu_bleed_is_on: bool,
         _: bool,
         has_fuel_remaining: bool,
+        controller: &dyn ApuStartController,
     ) -> Box<dyn ApuState> {
-        if apu_overhead.master_is_on() {
-            self.air_intake_flap.open();
-        } else {
-            self.air_intake_flap.close();
-        }
-        self.air_intake_flap.update(context);
-
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
         self.bleed_air_valve
             .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
 
-        if self.air_intake_flap.is_fully_open()
-            && apu_overhead.master_is_on()
-            && apu_overhead.start_is_on()
-            && has_fuel_remaining
-        {
-            Box::new(Starting::new(
-                self.air_intake_flap,
-                self.bleed_air_valve,
-                self.egt,
-            ))
+        if controller.should_start() && has_fuel_remaining {
+            Box::new(Starting::new(self.bleed_air_valve, self.egt))
         } else {
             self
         }
@@ -237,10 +326,6 @@ impl ApuState for Shutdown {
 
     fn get_n(&self) -> Ratio {
         Ratio::new::<percent>(0.)
-    }
-
-    fn get_air_intake_flap_open_amount(&self) -> Ratio {
-        self.air_intake_flap.get_open_amount()
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
@@ -252,17 +337,12 @@ impl ApuState for Shutdown {
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
 
-    fn start_contactor_energized(&self) -> bool {
-        false
-    }
-
     fn bleed_air_valve_is_open(&self) -> bool {
         self.bleed_air_valve.is_open()
     }
 }
 
 struct Starting {
-    air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
     since: Duration,
     n: Ratio,
@@ -273,13 +353,8 @@ impl Starting {
     const MAX_EGT_BELOW_25000_FEET: f64 = 900.;
     const MAX_EGT_AT_OR_ABOVE_25000_FEET: f64 = 982.;
 
-    fn new(
-        air_intake_flap: AirIntakeFlap,
-        bleed_air_valve: ApuBleedAirValve,
-        egt: ThermodynamicTemperature,
-    ) -> Starting {
+    fn new(bleed_air_valve: ApuBleedAirValve, egt: ThermodynamicTemperature) -> Starting {
         Starting {
-            air_intake_flap,
             bleed_air_valve,
             since: Duration::from_secs(0),
             n: Ratio::new::<percent>(0.),
@@ -399,10 +474,10 @@ impl ApuState for Starting {
         apu_bleed_is_on: bool,
         _: bool,
         has_fuel_remaining: bool,
+        _: &dyn ApuStartController,
     ) -> Box<dyn ApuState> {
         if !has_fuel_remaining {
             return Box::new(Stopping::new(
-                self.air_intake_flap,
                 self.bleed_air_valve,
                 self.egt,
                 self.n,
@@ -414,17 +489,11 @@ impl ApuState for Starting {
         self.n = self.calculate_n();
         self.egt = self.calculate_egt(context);
 
-        self.air_intake_flap.update(context);
-
         self.bleed_air_valve
             .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
 
         if self.n.get::<percent>() == 100. {
-            Box::new(Running::new(
-                self.air_intake_flap,
-                self.bleed_air_valve,
-                self.egt,
-            ))
+            Box::new(Running::new(self.bleed_air_valve, self.egt))
         } else {
             self
         }
@@ -432,10 +501,6 @@ impl ApuState for Starting {
 
     fn get_n(&self) -> Ratio {
         self.n
-    }
-
-    fn get_air_intake_flap_open_amount(&self) -> Ratio {
-        self.air_intake_flap.get_open_amount()
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
@@ -452,17 +517,12 @@ impl ApuState for Starting {
         }
     }
 
-    fn start_contactor_energized(&self) -> bool {
-        self.get_n().get::<percent>() < 55.
-    }
-
     fn bleed_air_valve_is_open(&self) -> bool {
         self.bleed_air_valve.is_open()
     }
 }
 
 struct Running {
-    air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
     egt: ThermodynamicTemperature,
     base_temperature: ThermodynamicTemperature,
@@ -473,16 +533,11 @@ impl Running {
     const BLEED_AIR_COOLDOWN_DURATION_MILLIS: u64 = 120000;
     const MAX_EGT: f64 = 682.;
 
-    fn new(
-        air_intake_flap: AirIntakeFlap,
-        bleed_air_valve: ApuBleedAirValve,
-        egt: ThermodynamicTemperature,
-    ) -> Running {
+    fn new(bleed_air_valve: ApuBleedAirValve, egt: ThermodynamicTemperature) -> Running {
         let base_temperature = 340. + ((random_number() % 11) as f64);
         let bleed_air_in_use_delta_temperature = 30. + ((random_number() % 11) as f64);
         let apu_gen_in_use_delta_temperature = 10. + ((random_number() % 6) as f64);
         Running {
-            air_intake_flap,
             bleed_air_valve,
             egt,
             base_temperature: ThermodynamicTemperature::new::<degree_celsius>(base_temperature),
@@ -525,18 +580,16 @@ impl ApuState for Running {
         apu_bleed_is_on: bool,
         apu_gen_is_used: bool,
         has_fuel_remaining: bool,
+        _: &dyn ApuStartController,
     ) -> Box<dyn ApuState> {
         if !has_fuel_remaining {
             return Box::new(Stopping::new(
-                self.air_intake_flap,
                 self.bleed_air_valve,
                 self.egt,
                 Ratio::new::<percent>(100.),
                 ShutdownReason::AutomaticNoFuel,
             ));
         }
-
-        self.air_intake_flap.update(context);
 
         self.bleed_air_valve
             .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
@@ -545,7 +598,6 @@ impl ApuState for Running {
 
         if apu_overhead.master_is_off() && self.is_past_bleed_air_cooldown_period() {
             Box::new(Stopping::new(
-                self.air_intake_flap,
                 self.bleed_air_valve,
                 self.egt,
                 Ratio::new::<percent>(100.),
@@ -560,10 +612,6 @@ impl ApuState for Running {
         Ratio::new::<percent>(100.)
     }
 
-    fn get_air_intake_flap_open_amount(&self) -> Ratio {
-        self.air_intake_flap.get_open_amount()
-    }
-
     fn get_egt(&self) -> ThermodynamicTemperature {
         self.egt
     }
@@ -572,17 +620,12 @@ impl ApuState for Running {
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
 
-    fn start_contactor_energized(&self) -> bool {
-        false
-    }
-
     fn bleed_air_valve_is_open(&self) -> bool {
         self.bleed_air_valve.is_open()
     }
 }
 
 struct Stopping {
-    air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
     reason: ShutdownReason,
     since: Duration,
@@ -591,14 +634,12 @@ struct Stopping {
 }
 impl Stopping {
     fn new(
-        air_intake_flap: AirIntakeFlap,
         bleed_air_valve: ApuBleedAirValve,
         egt: ThermodynamicTemperature,
         n: Ratio,
         reason: ShutdownReason,
     ) -> Stopping {
         Stopping {
-            air_intake_flap,
             bleed_air_valve,
             since: Duration::from_secs(0),
             reason,
@@ -623,6 +664,7 @@ impl ApuState for Stopping {
         apu_bleed_is_on: bool,
         _: bool,
         _: bool,
+        _: &dyn ApuStartController,
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n(context);
@@ -631,19 +673,8 @@ impl ApuState for Stopping {
         self.bleed_air_valve
             .update(context, self.get_n(), apu_overhead, apu_bleed_is_on);
 
-        if self.n.get::<percent>() <= 7. {
-            self.air_intake_flap.close();
-        }
-
-        self.air_intake_flap.update(context);
-
         if self.n.get::<percent>() == 0. {
-            Box::new(Shutdown::new(
-                self.air_intake_flap,
-                self.bleed_air_valve,
-                self.reason,
-                self.egt,
-            ))
+            Box::new(Shutdown::new(self.bleed_air_valve, self.reason, self.egt))
         } else {
             self
         }
@@ -653,10 +684,6 @@ impl ApuState for Stopping {
         self.n
     }
 
-    fn get_air_intake_flap_open_amount(&self) -> Ratio {
-        self.air_intake_flap.get_open_amount()
-    }
-
     fn get_egt(&self) -> ThermodynamicTemperature {
         self.egt
     }
@@ -664,10 +691,6 @@ impl ApuState for Stopping {
     fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when stopping is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
-    }
-
-    fn start_contactor_energized(&self) -> bool {
-        false
     }
 
     fn bleed_air_valve_is_open(&self) -> bool {
@@ -929,7 +952,6 @@ enum AirIntakeFlapTarget {
 #[derive(Debug)]
 struct AirIntakeFlap {
     state: Ratio,
-    target: AirIntakeFlapTarget,
     delay: u8,
 }
 impl AirIntakeFlap {
@@ -940,18 +962,21 @@ impl AirIntakeFlap {
 
         AirIntakeFlap {
             state: Ratio::new::<percent>(0.),
-            target: AirIntakeFlapTarget::Closed,
             delay,
         }
     }
 
-    fn update(&mut self, context: &UpdateContext) {
-        if self.target == AirIntakeFlapTarget::Open && self.state < Ratio::new::<percent>(100.) {
+    fn update_after_state<T: AirIntakeFlapController>(
+        &mut self,
+        context: &UpdateContext,
+        controller: &T,
+    ) {
+        if controller.should_open_air_intake_flap() && self.state < Ratio::new::<percent>(100.) {
             self.state += Ratio::new::<percent>(
                 self.get_flap_change_for_delta(context)
                     .min(100. - self.state.get::<percent>()),
             );
-        } else if self.target == AirIntakeFlapTarget::Closed
+        } else if !controller.should_open_air_intake_flap()
             && self.state > Ratio::new::<percent>(0.)
         {
             self.state -= Ratio::new::<percent>(
@@ -963,14 +988,6 @@ impl AirIntakeFlap {
 
     fn get_flap_change_for_delta(&self, context: &UpdateContext) -> f64 {
         100. * (context.delta.as_secs_f64() / self.delay as f64)
-    }
-
-    fn open(&mut self) {
-        self.target = AirIntakeFlapTarget::Open;
-    }
-
-    fn close(&mut self) {
-        self.target = AirIntakeFlapTarget::Closed;
     }
 
     fn is_fully_open(&self) -> bool {
@@ -1144,7 +1161,11 @@ pub mod tests {
             self
         }
 
-        fn run(mut self, delta: Duration) -> Self {
+        fn run(self, delta: Duration) -> Self {
+            self.run_inner(delta).run_inner(Duration::from_secs(0))
+        }
+
+        fn run_inner(mut self, delta: Duration) -> Self {
             self.apu.update(
                 &context_with()
                     .delta(delta)
@@ -1462,7 +1483,6 @@ pub mod tests {
         }
 
         #[test]
-        #[timeout(500)]
         fn when_apu_shutting_down_at_7_percent_n_air_inlet_flap_closes() {
             let mut tester = tester_with().running_apu().and().master_off();
 
@@ -1867,12 +1887,38 @@ pub mod tests {
     mod air_intake_flap_tests {
         use super::*;
 
+        struct TestFlapController {
+            should_open: bool,
+        }
+        impl TestFlapController {
+            fn new() -> Self {
+                TestFlapController { should_open: false }
+            }
+
+            fn open(&mut self) {
+                self.should_open = true;
+            }
+
+            fn close(&mut self) {
+                self.should_open = false;
+            }
+        }
+        impl AirIntakeFlapController for TestFlapController {
+            fn should_open_air_intake_flap(&self) -> bool {
+                self.should_open
+            }
+        }
+
         #[test]
         fn starts_opening_when_target_is_open() {
             let mut flap = AirIntakeFlap::new();
-            flap.open();
+            let mut controller = TestFlapController::new();
+            controller.open();
 
-            flap.update(&context_with().delta(Duration::from_secs(5)).build());
+            flap.update_after_state(
+                &context_with().delta(Duration::from_secs(5)).build(),
+                &controller,
+            );
 
             assert!(flap.state.get::<percent>() > 0.);
         }
@@ -1880,14 +1926,16 @@ pub mod tests {
         #[test]
         fn does_not_instantly_open() {
             let mut flap = AirIntakeFlap::new();
-            flap.open();
+            let mut controller = TestFlapController::new();
+            controller.open();
 
-            flap.update(
+            flap.update_after_state(
                 &context_with()
                     .delta(Duration::from_secs(
                         (AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS - 1) as u64,
                     ))
                     .build(),
+                &controller,
             );
 
             assert_ne!(flap.state.get::<percent>(), 100.);
@@ -1896,12 +1944,20 @@ pub mod tests {
         #[test]
         fn closes_when_target_is_closed() {
             let mut flap = AirIntakeFlap::new();
-            flap.open();
-            flap.update(&context_with().delta(Duration::from_secs(5)).build());
+            let mut controller = TestFlapController::new();
+            controller.open();
+
+            flap.update_after_state(
+                &context_with().delta(Duration::from_secs(5)).build(),
+                &controller,
+            );
             let open_percentage = flap.state.get::<percent>();
 
-            flap.close();
-            flap.update(&context_with().delta(Duration::from_secs(2)).build());
+            controller.close();
+            flap.update_after_state(
+                &context_with().delta(Duration::from_secs(2)).build(),
+                &controller,
+            );
 
             assert!(flap.state.get::<percent>() < open_percentage);
         }
@@ -1909,16 +1965,22 @@ pub mod tests {
         #[test]
         fn does_not_instantly_close() {
             let mut flap = AirIntakeFlap::new();
-            flap.open();
-            flap.update(&context_with().delta(Duration::from_secs(5)).build());
+            let mut controller = TestFlapController::new();
+            controller.open();
 
-            flap.close();
-            flap.update(
+            flap.update_after_state(
+                &context_with().delta(Duration::from_secs(5)).build(),
+                &controller,
+            );
+
+            controller.close();
+            flap.update_after_state(
                 &context_with()
                     .delta(Duration::from_secs(
                         (AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS - 1) as u64,
                     ))
                     .build(),
+                &controller,
             );
 
             assert_ne!(flap.state.get::<percent>(), 0.);
@@ -1927,8 +1989,13 @@ pub mod tests {
         #[test]
         fn never_closes_beyond_0_percent() {
             let mut flap = AirIntakeFlap::new();
-            flap.close();
-            flap.update(&context_with().delta(Duration::from_secs(1_000)).build());
+            let mut controller = TestFlapController::new();
+            controller.close();
+
+            flap.update_after_state(
+                &context_with().delta(Duration::from_secs(1_000)).build(),
+                &controller,
+            );
 
             assert_eq!(flap.state.get::<percent>(), 0.);
         }
@@ -1936,8 +2003,13 @@ pub mod tests {
         #[test]
         fn never_opens_beyond_100_percent() {
             let mut flap = AirIntakeFlap::new();
-            flap.open();
-            flap.update(&context_with().delta(Duration::from_secs(1_000)).build());
+            let mut controller = TestFlapController::new();
+            controller.open();
+
+            flap.update_after_state(
+                &context_with().delta(Duration::from_secs(1_000)).build(),
+                &controller,
+            );
 
             assert_eq!(flap.state.get::<percent>(), 100.);
         }
@@ -1952,8 +2024,13 @@ pub mod tests {
         #[test]
         fn is_fully_open_returns_true_when_open() {
             let mut flap = AirIntakeFlap::new();
-            flap.open();
-            flap.update(&context_with().delta(Duration::from_secs(1_000)).build());
+            let mut controller = TestFlapController::new();
+            controller.open();
+
+            flap.update_after_state(
+                &context_with().delta(Duration::from_secs(1_000)).build(),
+                &controller,
+            );
 
             assert_eq!(flap.is_fully_open(), true)
         }
