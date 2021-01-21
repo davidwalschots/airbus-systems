@@ -35,6 +35,10 @@ impl OnOffPushButton {
         };
     }
 
+    pub fn set_fault(&mut self, fault: bool) {
+        self.fault = fault;
+    }
+
     pub fn turn_on(&mut self) {
         self.state = OnOffPushButtonState::On;
     }
@@ -49,6 +53,10 @@ impl OnOffPushButton {
 
     pub fn shows_available(&self) -> bool {
         self.available
+    }
+
+    pub fn has_fault(&self) -> bool {
+        self.fault
     }
 
     pub fn is_on(&self) -> bool {

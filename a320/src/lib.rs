@@ -58,6 +58,7 @@ pub struct SimulatorReadWriter {
     apu_gen_voltage: NamedVariable,
     apu_gen_voltage_within_normal_range: NamedVariable,
     apu_master_sw: AircraftVariable,
+    apu_master_sw_fault: NamedVariable,
     apu_n: NamedVariable,
     apu_start_contactor_energized: NamedVariable,
     apu_start_sw_available: NamedVariable,
@@ -88,6 +89,7 @@ impl SimulatorReadWriter {
                 "A32NX_APU_GEN_VOLTAGE_NORMAL",
             ),
             apu_master_sw: AircraftVariable::from("FUELSYSTEM VALVE SWITCH", "Bool", 8)?,
+            apu_master_sw_fault: NamedVariable::from("A32NX_APU_MASTER_FAULT"),
             apu_n: NamedVariable::from("A32NX_APU_N"),
             apu_start_contactor_energized: NamedVariable::from(
                 "A32NX_APU_START_CONTACTOR_ENERGIZED",
@@ -146,6 +148,8 @@ impl SimulatorReadWriter {
             .set_value(state.apu_gen_potential.get::<volt>());
         self.apu_gen_voltage_within_normal_range
             .set_value(from_bool(state.apu_gen_potential_within_normal_range));
+        self.apu_master_sw_fault
+            .set_value(from_bool(state.apu_master_sw_fault));
         self.apu_n.set_value(state.apu_n.get::<percent>());
         self.apu_start_contactor_energized
             .set_value(from_bool(state.apu_start_contactor_energized));

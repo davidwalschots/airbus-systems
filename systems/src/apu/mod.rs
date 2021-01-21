@@ -104,6 +104,9 @@ struct ElectronicControlBox {
     apu_n: Ratio,
     bleed_is_on: bool,
     bleed_air_valve_last_open_time_ago: Duration,
+    fault: Option<ApuFault>,
+    air_intake_flap_fully_open: bool,
+    is_starting: bool,
 }
 impl ElectronicControlBox {
     const BLEED_AIR_COOLDOWN_DURATION_MILLIS: u64 = 120000;
@@ -116,6 +119,9 @@ impl ElectronicControlBox {
             apu_n: Ratio::new::<percent>(0.),
             bleed_is_on: false,
             bleed_air_valve_last_open_time_ago: Duration::from_secs(1000),
+            fault: None,
+            air_intake_flap_fully_open: false,
+            is_starting: false,
         }
     }
 
@@ -123,18 +129,32 @@ impl ElectronicControlBox {
         &mut self,
         overhead: &AuxiliaryPowerUnitOverheadPanel,
         apu_bleed_is_on: bool,
+        air_intake_flap: &AirIntakeFlap,
     ) {
         self.master_is_on = overhead.master_is_on();
         self.start_is_on = overhead.start_is_on();
         self.bleed_is_on = apu_bleed_is_on;
+        self.air_intake_flap_fully_open = air_intake_flap.is_fully_open();
     }
 
     fn update_after_start_contactor<T: PowerConductor>(&mut self, start_contactor: &T) {
         self.start_contactor_is_energized = start_contactor.is_powered()
     }
 
-    fn update_after_state(&mut self, apu_n: Ratio) {
+    fn update_after_state(&mut self, apu_n: Ratio, fault: Option<ApuFault>, is_starting: bool) {
         self.apu_n = apu_n;
+
+        if self.fault.is_none() {
+            self.fault = fault;
+        }
+
+        if !self.master_is_on && self.apu_n.get::<percent>() == 0. {
+            // We reset the fault when master is not on and the APU is not running.
+            // Once electrical is implemented, the ECB will be unpowered that will reset the fault.
+            self.fault = None;
+        }
+
+        self.is_starting = is_starting;
     }
 
     fn update_after_bleed_air_valve<T: Valve>(
@@ -152,7 +172,7 @@ impl ElectronicControlBox {
     /// Indicates if a fault has occurred which would cause the
     /// MASTER SW fault light to turn on.
     fn has_fault(&self) -> bool {
-        false
+        self.fault.is_some()
     }
 
     fn bleed_air_valve_was_open_in_last(&self, duration: Duration) -> bool {
@@ -162,16 +182,25 @@ impl ElectronicControlBox {
 impl ApuStartContactorController for ElectronicControlBox {
     /// Indicates if the APU start contactor should be closed.
     fn should_close_start_contactor(&self) -> bool {
-        !self.has_fault()
-            && self.master_is_on
-            && self.start_is_on
-            && self.apu_n.get::<percent>() < 55.
+        if self.has_fault() {
+            false
+        } else {
+            self.apu_n.get::<percent>() < 55.
+                && ((self.master_is_on && self.start_is_on && self.air_intake_flap_fully_open)
+                    || self.is_starting)
+        }
     }
 }
 impl AirIntakeFlapController for ElectronicControlBox {
     /// Indicates if the air intake flap should be opened.
     fn should_open_air_intake_flap(&self) -> bool {
-        self.master_is_on || 7. < self.apu_n.get::<percent>()
+        self.master_is_on || 
+            // While running, the air intake flap remains open.
+            // Manual shutdown sequence: the air intake flap closes at N = 7%.
+            7. < self.apu_n.get::<percent>() 
+                // While starting, the air intake flap remains open; even when the
+                // starting sequence has only just begun and the MASTER SW is turned off.
+                || self.is_starting
     }
 }
 impl ApuStartStopController for ElectronicControlBox {
@@ -181,10 +210,11 @@ impl ApuStartStopController for ElectronicControlBox {
     }
 
     fn should_stop(&self) -> bool {
-        !self.master_is_on
-            && !self.bleed_air_valve_was_open_in_last(Duration::from_millis(
-                ElectronicControlBox::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
-            ))
+        self.has_fault()
+            || !self.master_is_on
+                && !self.bleed_air_valve_was_open_in_last(Duration::from_millis(
+                    ElectronicControlBox::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
+                ))
     }
 }
 impl BleedAirValveController for ElectronicControlBox {
@@ -194,9 +224,8 @@ impl BleedAirValveController for ElectronicControlBox {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum ShutdownReason {
-    Manual,
-    AutomaticNoFuel, // Will be split further later into all kinds of reasons for automatic shutdown.
+enum ApuFault {
+    FuelLowPressure,
 }
 
 pub struct AuxiliaryPowerUnit {
@@ -211,7 +240,7 @@ impl AuxiliaryPowerUnit {
     pub fn new() -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
             state: Some(Box::new(Shutdown::new(
-                ShutdownReason::Manual,
+                None,
                 ThermodynamicTemperature::new::<degree_celsius>(0.),
             ))),
             egt_maximum_temperature: ThermodynamicTemperature::new::<degree_celsius>(
@@ -232,21 +261,27 @@ impl AuxiliaryPowerUnit {
         apu_gen_is_used: bool,
         has_fuel_remaining: bool,
     ) {
-        self.ecb.update_before_state(overhead, apu_bleed_is_on);
+        self.ecb
+            .update_before_state(overhead, apu_bleed_is_on, &self.air_intake_flap);
         self.start_contactor.update_before_state(&self.ecb);
         self.ecb.update_after_start_contactor(&self.start_contactor);
 
         if let Some(state) = self.state.take() {
-            self.state = Some(state.update(
+            let mut new_state = state.update(
                 context,
                 self.bleed_air_valve.is_open(),
                 apu_gen_is_used,
                 has_fuel_remaining,
                 &self.ecb,
-            ));
+            );
+            let fault = new_state.take_fault();
+            let is_starting = new_state.is_starting();
+            self.state = Some(new_state);
+
+            self.ecb
+                .update_after_state(self.get_n(), fault, is_starting);
         }
 
-        self.ecb.update_after_state(self.get_n());
         self.bleed_air_valve.update_after_state(&self.ecb);
         self.ecb
             .update_after_bleed_air_valve(context, &self.bleed_air_valve);
@@ -293,6 +328,10 @@ impl AuxiliaryPowerUnit {
     fn bleed_air_valve_is_open(&self) -> bool {
         self.bleed_air_valve.is_open()
     }
+
+    fn has_fault(&self) -> bool {
+        self.ecb.has_fault()
+    }
 }
 impl SimulatorVisitable for AuxiliaryPowerUnit {
     fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
@@ -326,15 +365,19 @@ trait ApuState {
     fn get_egt(&self) -> ThermodynamicTemperature;
 
     fn get_egt_max_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature;
+
+    fn take_fault(&mut self) -> Option<ApuFault>;
+
+    fn is_starting(&self) -> bool;
 }
 
 struct Shutdown {
-    reason: ShutdownReason,
+    fault: Option<ApuFault>,
     egt: ThermodynamicTemperature,
 }
 impl Shutdown {
-    fn new(reason: ShutdownReason, egt: ThermodynamicTemperature) -> Shutdown {
-        Shutdown { reason, egt }
+    fn new(fault: Option<ApuFault>, egt: ThermodynamicTemperature) -> Shutdown {
+        Shutdown { fault, egt }
     }
 }
 impl ApuState for Shutdown {
@@ -343,12 +386,12 @@ impl ApuState for Shutdown {
         context: &UpdateContext,
         _: bool,
         _: bool,
-        has_fuel_remaining: bool,
+        _: bool,
         controller: &dyn ApuStartStopController,
     ) -> Box<dyn ApuState> {
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
-        if controller.should_start() && has_fuel_remaining {
+        if controller.should_start() {
             Box::new(Starting::new(self.egt))
         } else {
             self
@@ -366,6 +409,14 @@ impl ApuState for Shutdown {
     fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when shutdown is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
+    }
+
+    fn take_fault(&mut self) -> Option<ApuFault> {
+        self.fault.take()
+    }
+
+    fn is_starting(&self) -> bool {
+        false
     }
 }
 
@@ -504,7 +555,7 @@ impl ApuState for Starting {
             return Box::new(Stopping::new(
                 self.egt,
                 self.n,
-                ShutdownReason::AutomaticNoFuel,
+                Some(ApuFault::FuelLowPressure),
             ));
         }
 
@@ -535,6 +586,14 @@ impl ApuState for Starting {
                 Starting::MAX_EGT_AT_OR_ABOVE_25000_FEET,
             )
         }
+    }
+
+    fn take_fault(&mut self) -> Option<ApuFault> {
+        None
+    }
+
+    fn is_starting(&self) -> bool {
+        true
     }
 }
 
@@ -593,7 +652,7 @@ impl ApuState for Running {
             return Box::new(Stopping::new(
                 self.egt,
                 Ratio::new::<percent>(100.),
-                ShutdownReason::AutomaticNoFuel,
+                Some(ApuFault::FuelLowPressure),
             ));
         }
 
@@ -604,11 +663,7 @@ impl ApuState for Running {
         );
 
         if controller.should_stop() {
-            Box::new(Stopping::new(
-                self.egt,
-                Ratio::new::<percent>(100.),
-                ShutdownReason::Manual,
-            ))
+            Box::new(Stopping::new(self.egt, Ratio::new::<percent>(100.), None))
         } else {
             self
         }
@@ -625,19 +680,27 @@ impl ApuState for Running {
     fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
+
+    fn take_fault(&mut self) -> Option<ApuFault> {
+        None
+    }
+
+    fn is_starting(&self) -> bool {
+        false
+    }
 }
 
 struct Stopping {
-    reason: ShutdownReason,
+    fault: Option<ApuFault>,
     since: Duration,
     n: Ratio,
     egt: ThermodynamicTemperature,
 }
 impl Stopping {
-    fn new(egt: ThermodynamicTemperature, n: Ratio, reason: ShutdownReason) -> Stopping {
+    fn new(egt: ThermodynamicTemperature, n: Ratio, fault: Option<ApuFault>) -> Stopping {
         Stopping {
             since: Duration::from_secs(0),
-            reason,
+            fault,
             n,
             egt,
         }
@@ -665,7 +728,7 @@ impl ApuState for Stopping {
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
         if self.n.get::<percent>() == 0. {
-            Box::new(Shutdown::new(self.reason, self.egt))
+            Box::new(Shutdown::new(self.fault, self.egt))
         } else {
             self
         }
@@ -682,6 +745,14 @@ impl ApuState for Stopping {
     fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when stopping is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
+    }
+
+    fn take_fault(&mut self) -> Option<ApuFault> {
+        self.fault.take()
+    }
+
+    fn is_starting(&self) -> bool {
+        false
     }
 }
 
@@ -721,13 +792,11 @@ fn calculate_towards_target_egt(
 
 struct ApuBleedAirValve {
     valve: BleedAirValve,
-    last_open_time_ago: Duration,
 }
 impl ApuBleedAirValve {
     fn new() -> Self {
         ApuBleedAirValve {
             valve: BleedAirValve::new(),
-            last_open_time_ago: Duration::from_secs(1000),
         }
     }
 
@@ -874,17 +943,19 @@ impl AuxiliaryPowerUnitOverheadPanel {
 
     pub fn update_after_apu(&mut self, apu: &AuxiliaryPowerUnit) {
         self.start.set_available(apu.is_available());
-        if self.start_is_on() && apu.is_available() {
+        if self.start_is_on() && (apu.is_available() || apu.has_fault()) {
             self.start.turn_off();
         }
+
+        self.master.set_fault(apu.has_fault());
+    }
+
+    fn master_has_fault(&self) -> bool {
+        self.master.has_fault()
     }
 
     fn master_is_on(&self) -> bool {
         self.master.is_on()
-    }
-
-    fn master_is_off(&self) -> bool {
-        self.master.is_off()
     }
 
     fn start_is_on(&self) -> bool {
@@ -907,27 +978,24 @@ impl SimulatorReadWritable for AuxiliaryPowerUnitOverheadPanel {
     }
 
     fn write(&self, state: &mut SimulatorWriteState) {
+        state.apu_master_sw_fault = self.master_has_fault();
         state.apu_start_sw_on = self.start_is_on();
         state.apu_start_sw_available = self.start_shows_available();
     }
 }
 
-#[derive(Debug, PartialEq)]
-enum AirIntakeFlapTarget {
-    Open,
-    Closed,
-}
-
 #[derive(Debug)]
 struct AirIntakeFlap {
     state: Ratio,
-    delay: u8,
+    delay: Duration,
 }
 impl AirIntakeFlap {
     const MINIMUM_TRAVEL_TIME_SECS: u8 = 3;
 
     fn new() -> AirIntakeFlap {
-        let delay = AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS + (random_number() % 13);
+        let delay = Duration::from_secs(
+            (AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS + (random_number() % 13)) as u64,
+        );
 
         AirIntakeFlap {
             state: Ratio::new::<percent>(0.),
@@ -956,7 +1024,7 @@ impl AirIntakeFlap {
     }
 
     fn get_flap_change_for_delta(&self, context: &UpdateContext) -> f64 {
-        100. * (context.delta.as_secs_f64() / self.delay as f64)
+        100. * (context.delta.as_secs_f64() / self.delay.as_secs_f64())
     }
 
     fn is_fully_open(&self) -> bool {
@@ -1017,6 +1085,11 @@ pub mod tests {
                 apu_gen_is_used: true,
                 has_fuel_remaining: true,
             }
+        }
+
+        fn air_intake_flap_that_opens_in(mut self, duration: Duration) -> Self {
+            self.apu.air_intake_flap.delay = duration;
+            self
         }
 
         fn master_on(mut self) -> Self {
@@ -1187,6 +1260,10 @@ pub mod tests {
             self.apu_overhead.start_shows_available()
         }
 
+        fn master_has_fault(&self) -> bool {
+            self.apu_overhead.master_has_fault()
+        }
+
         fn get_apu(self) -> AuxiliaryPowerUnit {
             self.apu
         }
@@ -1221,6 +1298,38 @@ pub mod tests {
             let tester = tester_with().master_on().run(Duration::from_secs(20));
 
             assert_eq!(tester.is_air_intake_flap_fully_open(), true)
+        }
+
+        #[test]
+        fn when_apu_master_sw_turned_on_and_air_intake_flap_not_yet_open_apu_does_not_start() {
+            let tester = tester_with()
+                .air_intake_flap_that_opens_in(Duration::from_secs(20))
+                .master_on()
+                .run(Duration::from_millis(1))
+                .then_continue_with()
+                .start_on()
+                .run(Duration::from_secs(0))
+                .run(Duration::from_secs(15));
+
+            assert_eq!(tester.get_n().get::<percent>(), 0.);
+        }
+
+        #[test]
+        fn while_starting_below_n_7_when_apu_master_sw_turned_off_air_intake_flap_does_not_close() {
+            let mut tester = tester_with().starting_apu();
+            let mut n = 0.;
+
+            loop {
+                tester = tester.run(Duration::from_millis(50));
+                n = tester.get_n().get::<percent>();
+                if n > 1. {
+                    break;
+                }
+            }
+
+            assert!(n < 2.);
+            tester = tester.master_off().run(Duration::from_millis(50));
+            assert!(tester.is_air_intake_flap_fully_open());
         }
 
         #[test]
@@ -1630,6 +1739,27 @@ pub mod tests {
             loop {
                 tester = tester.run(Duration::from_millis(50));
                 let n = tester.get_n().get::<percent>();
+
+                assert_eq!(tester.start_contactor_energized(), n < 55.);
+
+                if n == 100. {
+                    break;
+                }
+            }
+        }
+
+        #[test]
+        fn start_contactor_is_energised_when_starting_until_n_55_even_if_master_sw_turned_off() {
+            let mut tester = tester_with().starting_apu();
+
+            loop {
+                tester = tester.run(Duration::from_millis(50));
+                let n = tester.get_n().get::<percent>();
+
+                if n > 30. {
+                    tester = tester.master_off();
+                }
+
                 assert_eq!(tester.start_contactor_energized(), n < 55.);
 
                 if n == 100. {
@@ -1692,6 +1822,8 @@ pub mod tests {
                 .run(Duration::from_secs(1_000));
 
             assert_eq!(tester.apu_is_available(), false);
+            assert!(tester.master_has_fault());
+            assert!(!tester.start_is_on());
         }
 
         #[test]
@@ -1704,6 +1836,8 @@ pub mod tests {
                 .run(Duration::from_secs(1_000));
 
             assert_eq!(tester.apu_is_available(), false);
+            assert!(tester.master_has_fault());
+            assert!(!tester.start_is_on());
         }
 
         #[test]
@@ -1717,6 +1851,8 @@ pub mod tests {
                 .run(Duration::from_secs(1_000));
 
             assert_eq!(tester.apu_is_available(), false);
+            assert!(tester.master_has_fault());
+            assert!(!tester.start_is_on());
         }
     }
 
