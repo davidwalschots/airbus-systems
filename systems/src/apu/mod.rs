@@ -178,6 +178,10 @@ impl ElectronicControlBox {
     fn bleed_air_valve_was_open_in_last(&self, duration: Duration) -> bool {
         self.bleed_air_valve_last_open_time_ago <= duration
     }
+
+    fn is_available(&self) -> bool {
+        !self.has_fault() && self.apu_n.get::<percent>() > 99.5
+    }
 }
 impl ApuStartContactorController for ElectronicControlBox {
     /// Indicates if the APU start contactor should be closed.
@@ -299,7 +303,7 @@ impl AuxiliaryPowerUnit {
     }
 
     pub fn is_available(&self) -> bool {
-        self.get_n().get::<percent>() > 99.5
+        self.ecb.is_available()
     }
 
     fn get_air_intake_flap_open_amount(&self) -> Ratio {
@@ -551,19 +555,17 @@ impl ApuState for Starting {
         has_fuel_remaining: bool,
         _: &dyn ApuStartStopController,
     ) -> Box<dyn ApuState> {
-        if !has_fuel_remaining {
-            return Box::new(Stopping::new(
-                self.egt,
-                self.n,
-                Some(ApuFault::FuelLowPressure),
-            ));
-        }
-
         self.since = self.since + context.delta;
         self.n = self.calculate_n();
         self.egt = self.calculate_egt(context);
 
-        if self.n.get::<percent>() == 100. {
+        if !has_fuel_remaining && self.n.get::<percent>() >= 3. {
+            Box::new(Stopping::new(
+                self.egt,
+                self.n,
+                Some(ApuFault::FuelLowPressure),
+            ))
+        } else if self.n.get::<percent>() == 100. {
             Box::new(Running::new(self.egt))
         } else {
             self
@@ -1813,13 +1815,22 @@ pub mod tests {
         }
 
         #[test]
-        fn shutdown_apu_cannot_start_when_no_fuel_available() {
-            let tester = tester_with()
+        #[timeout(500)]
+        fn without_fuel_apu_starts_until_approximately_n_3_percent_and_then_shuts_down_with_fault() {
+            let mut tester = tester_with()
                 .no_fuel_available()
                 .run(Duration::from_secs(1_000))
                 .then_continue_with()
-                .starting_apu()
-                .run(Duration::from_secs(1_000));
+                .starting_apu();
+
+            loop {
+                tester = tester.run(Duration::from_millis(50));
+                if tester.get_n().get::<percent>() >= 3.  {
+                    break;
+                }
+            }
+
+            tester = tester.run(Duration::from_secs(10));
 
             assert_eq!(tester.apu_is_available(), false);
             assert!(tester.master_has_fault());
