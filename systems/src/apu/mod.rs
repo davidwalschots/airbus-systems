@@ -218,6 +218,14 @@ impl ElectronicControlBox {
         self.fault.is_some()
     }
 
+    fn has_fuel_low_pressure_fault(&self) -> bool {
+        if let Some(fault) = self.fault {
+            fault == ApuFault::FuelLowPressure
+        } else {
+            false
+        }
+    }
+
     fn bleed_air_valve_was_open_in_last(&self, duration: Duration) -> bool {
         self.bleed_air_valve_last_open_time_ago <= duration
     }
@@ -384,6 +392,10 @@ impl AuxiliaryPowerUnit {
     fn get_egt_warning_temperature(&self) -> ThermodynamicTemperature {
         self.ecb.get_egt_warning_temperature()
     }
+
+    fn has_fuel_low_pressure_fault(&self) -> bool {
+        self.ecb.has_fuel_low_pressure_fault()
+    }
 }
 impl SimulatorVisitable for AuxiliaryPowerUnit {
     fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
@@ -396,6 +408,7 @@ impl SimulatorReadWritable for AuxiliaryPowerUnit {
         state.apu_air_intake_flap_opened_for = self.get_air_intake_flap_open_amount();
         state.apu_caution_egt = self.get_egt_caution_temperature();
         state.apu_egt = self.get_egt();
+        state.apu_low_fuel_pressure_fault = self.has_fuel_low_pressure_fault();
         state.apu_n = self.get_n();
         state.apu_start_contactor_energized = self.start_contactor_energized();
         state.apu_warning_egt = self.get_egt_warning_temperature();
@@ -1272,6 +1285,10 @@ pub mod tests {
         fn generator_potential_within_normal_range(&self) -> bool {
             self.apu_generator.potential_within_normal_range()
         }
+
+        fn has_fuel_low_pressure_fault(&self) -> bool {
+            self.apu.has_fuel_low_pressure_fault()
+        }
     }
 
     #[cfg(test)]
@@ -1820,6 +1837,7 @@ pub mod tests {
             tester = tester.run(Duration::from_secs(10));
 
             assert_eq!(tester.apu_is_available(), false);
+            assert_eq!(tester.has_fuel_low_pressure_fault(), true);
             assert!(tester.master_has_fault());
             assert!(!tester.start_is_on());
         }
@@ -1834,6 +1852,7 @@ pub mod tests {
                 .run(Duration::from_secs(1_000));
 
             assert_eq!(tester.apu_is_available(), false);
+            assert_eq!(tester.has_fuel_low_pressure_fault(), true);
             assert!(tester.master_has_fault());
             assert!(!tester.start_is_on());
         }
@@ -1849,6 +1868,7 @@ pub mod tests {
                 .run(Duration::from_secs(1_000));
 
             assert_eq!(tester.apu_is_available(), false);
+            assert_eq!(tester.has_fuel_low_pressure_fault(), true);
             assert!(tester.master_has_fault());
             assert!(!tester.start_is_on());
         }
