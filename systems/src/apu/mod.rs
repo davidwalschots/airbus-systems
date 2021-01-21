@@ -59,7 +59,7 @@ impl ApuStartContactor {
         ApuStartContactor { closed: false }
     }
 
-    fn update_before_state<T: ApuStartContactorController>(&mut self, controller: &T) {
+    fn update<T: ApuStartContactorController>(&mut self, controller: &T) {
         self.closed = controller.should_close_start_contactor();
     }
 }
@@ -107,6 +107,8 @@ struct ElectronicControlBox {
     fault: Option<ApuFault>,
     air_intake_flap_fully_open: bool,
     is_starting: bool,
+    egt: ThermodynamicTemperature,
+    egt_warning_temperature: ThermodynamicTemperature,
 }
 impl ElectronicControlBox {
     const BLEED_AIR_COOLDOWN_DURATION_MILLIS: u64 = 120000;
@@ -122,30 +124,34 @@ impl ElectronicControlBox {
             fault: None,
             air_intake_flap_fully_open: false,
             is_starting: false,
+            egt: ThermodynamicTemperature::new::<degree_celsius>(0.),
+            egt_warning_temperature: ThermodynamicTemperature::new::<degree_celsius>(
+                Running::MAX_EGT,
+            ),
         }
     }
 
-    fn update_before_state(
-        &mut self,
-        overhead: &AuxiliaryPowerUnitOverheadPanel,
-        apu_bleed_is_on: bool,
-        air_intake_flap: &AirIntakeFlap,
-    ) {
+    fn update_overhead_panel_state(&mut self, overhead: &AuxiliaryPowerUnitOverheadPanel, apu_bleed_is_on: bool) {
         self.master_is_on = overhead.master_is_on();
         self.start_is_on = overhead.start_is_on();
         self.bleed_is_on = apu_bleed_is_on;
+    }
+
+    fn update_air_intake_flap_state(&mut self, air_intake_flap: &AirIntakeFlap) {
         self.air_intake_flap_fully_open = air_intake_flap.is_fully_open();
     }
 
-    fn update_after_start_contactor<T: PowerConductor>(&mut self, start_contactor: &T) {
+    fn update_start_contactor_state<T: PowerConductor>(&mut self, start_contactor: &T) {
         self.start_contactor_is_energized = start_contactor.is_powered()
     }
 
-    fn update_after_state(&mut self, apu_n: Ratio, fault: Option<ApuFault>, is_starting: bool) {
-        self.apu_n = apu_n;
+    fn update(&mut self, context: &UpdateContext, state: &mut dyn ApuState) {
+        self.apu_n = state.get_n();
+        self.egt = state.get_egt();
+        self.egt_warning_temperature = state.get_egt_warning_temperature(context);
 
         if self.fault.is_none() {
-            self.fault = fault;
+            self.fault = state.take_fault();
         }
 
         if !self.master_is_on && self.apu_n.get::<percent>() == 0. {
@@ -154,10 +160,10 @@ impl ElectronicControlBox {
             self.fault = None;
         }
 
-        self.is_starting = is_starting;
+        self.is_starting = state.is_starting();
     }
 
-    fn update_after_bleed_air_valve<T: Valve>(
+    fn update_bleed_air_valve_state<T: Valve>(
         &mut self,
         context: &UpdateContext,
         bleed_air_valve: &T,
@@ -182,6 +188,25 @@ impl ElectronicControlBox {
     fn is_available(&self) -> bool {
         !self.has_fault() && self.apu_n.get::<percent>() > 99.5
     }
+
+    fn get_egt_warning_temperature(&self) -> ThermodynamicTemperature {
+        self.egt_warning_temperature
+    }
+
+    fn get_egt_caution_temperature(&self) -> ThermodynamicTemperature {
+        const WARNING_TO_CAUTION_DIFFERENCE: f64 = 33.;
+        ThermodynamicTemperature::new::<degree_celsius>(
+            self.egt_warning_temperature.get::<degree_celsius>() - WARNING_TO_CAUTION_DIFFERENCE,
+        )
+    }
+
+    fn get_egt(&self) -> ThermodynamicTemperature {
+        self.egt
+    }
+
+    fn get_n(&self) -> Ratio {
+        self.apu_n
+    }
 }
 impl ApuStartContactorController for ElectronicControlBox {
     /// Indicates if the APU start contactor should be closed.
@@ -201,7 +226,7 @@ impl AirIntakeFlapController for ElectronicControlBox {
         self.master_is_on || 
             // While running, the air intake flap remains open.
             // Manual shutdown sequence: the air intake flap closes at N = 7%.
-            7. < self.apu_n.get::<percent>() 
+            7. <= self.apu_n.get::<percent>() 
                 // While starting, the air intake flap remains open; even when the
                 // starting sequence has only just begun and the MASTER SW is turned off.
                 || self.is_starting
@@ -234,7 +259,6 @@ enum ApuFault {
 
 pub struct AuxiliaryPowerUnit {
     state: Option<Box<dyn ApuState>>,
-    egt_maximum_temperature: ThermodynamicTemperature,
     ecb: ElectronicControlBox,
     start_contactor: ApuStartContactor,
     air_intake_flap: AirIntakeFlap,
@@ -247,9 +271,6 @@ impl AuxiliaryPowerUnit {
                 None,
                 ThermodynamicTemperature::new::<degree_celsius>(0.),
             ))),
-            egt_maximum_temperature: ThermodynamicTemperature::new::<degree_celsius>(
-                Running::MAX_EGT,
-            ),
             ecb: ElectronicControlBox::new(),
             start_contactor: ApuStartContactor::new(),
             air_intake_flap: AirIntakeFlap::new(),
@@ -265,10 +286,9 @@ impl AuxiliaryPowerUnit {
         apu_gen_is_used: bool,
         has_fuel_remaining: bool,
     ) {
-        self.ecb
-            .update_before_state(overhead, apu_bleed_is_on, &self.air_intake_flap);
-        self.start_contactor.update_before_state(&self.ecb);
-        self.ecb.update_after_start_contactor(&self.start_contactor);
+        self.ecb.update_overhead_panel_state(overhead, apu_bleed_is_on);
+        self.start_contactor.update(&self.ecb);
+        self.ecb.update_start_contactor_state(&self.start_contactor);
 
         if let Some(state) = self.state.take() {
             let mut new_state = state.update(
@@ -278,28 +298,20 @@ impl AuxiliaryPowerUnit {
                 has_fuel_remaining,
                 &self.ecb,
             );
-            let fault = new_state.take_fault();
-            let is_starting = new_state.is_starting();
-            self.state = Some(new_state);
 
-            self.ecb
-                .update_after_state(self.get_n(), fault, is_starting);
+            self.ecb.update(context, new_state.as_mut());
+
+            self.state = Some(new_state);
         }
 
-        self.bleed_air_valve.update_after_state(&self.ecb);
-        self.ecb
-            .update_after_bleed_air_valve(context, &self.bleed_air_valve);
-        self.air_intake_flap.update_after_state(context, &self.ecb);
-
-        self.egt_maximum_temperature = self
-            .state
-            .as_ref()
-            .unwrap()
-            .get_egt_max_temperature(context);
+        self.air_intake_flap.update(context, &self.ecb);
+        self.ecb.update_air_intake_flap_state(&self.air_intake_flap);
+        self.bleed_air_valve.update(&self.ecb);
+        self.ecb.update_bleed_air_valve_state(context, &self.bleed_air_valve);
     }
 
     pub fn get_n(&self) -> Ratio {
-        self.state.as_ref().unwrap().get_n()
+        self.ecb.get_n()
     }
 
     pub fn is_available(&self) -> bool {
@@ -311,18 +323,7 @@ impl AuxiliaryPowerUnit {
     }
 
     fn get_egt(&self) -> ThermodynamicTemperature {
-        self.state.as_ref().unwrap().get_egt()
-    }
-
-    fn get_egt_warning_temperature(&self) -> ThermodynamicTemperature {
-        const MAX_ABOVE_WARNING: f64 = 33.;
-        ThermodynamicTemperature::new::<degree_celsius>(
-            self.egt_maximum_temperature.get::<degree_celsius>() - MAX_ABOVE_WARNING,
-        )
-    }
-
-    fn get_egt_maximum_temperature(&self) -> ThermodynamicTemperature {
-        self.egt_maximum_temperature
+        self.ecb.get_egt()
     }
 
     fn start_contactor_energized(&self) -> bool {
@@ -336,6 +337,14 @@ impl AuxiliaryPowerUnit {
     fn has_fault(&self) -> bool {
         self.ecb.has_fault()
     }
+
+    fn get_egt_caution_temperature(&self) -> ThermodynamicTemperature {
+        self.ecb.get_egt_caution_temperature()
+    }
+
+    fn get_egt_warning_temperature(&self) -> ThermodynamicTemperature {
+        self.ecb.get_egt_warning_temperature()
+    }
 }
 impl SimulatorVisitable for AuxiliaryPowerUnit {
     fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
@@ -346,11 +355,11 @@ impl SimulatorReadWritable for AuxiliaryPowerUnit {
     fn write(&self, state: &mut SimulatorWriteState) {
         state.apu_bleed_air_valve_open = self.bleed_air_valve_is_open();
         state.apu_air_intake_flap_opened_for = self.get_air_intake_flap_open_amount();
-        state.apu_caution_egt = self.get_egt_warning_temperature();
+        state.apu_caution_egt = self.get_egt_caution_temperature();
         state.apu_egt = self.get_egt();
         state.apu_n = self.get_n();
         state.apu_start_contactor_energized = self.start_contactor_energized();
-        state.apu_warning_egt = self.get_egt_maximum_temperature();
+        state.apu_warning_egt = self.get_egt_warning_temperature();
     }
 }
 
@@ -368,7 +377,7 @@ trait ApuState {
 
     fn get_egt(&self) -> ThermodynamicTemperature;
 
-    fn get_egt_max_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature;
+    fn get_egt_warning_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature;
 
     fn take_fault(&mut self) -> Option<ApuFault>;
 
@@ -410,7 +419,7 @@ impl ApuState for Shutdown {
         self.egt
     }
 
-    fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
+    fn get_egt_warning_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when shutdown is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
@@ -580,7 +589,7 @@ impl ApuState for Starting {
         self.egt
     }
 
-    fn get_egt_max_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature {
+    fn get_egt_warning_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature {
         if context.indicated_altitude.get::<foot>() < 25_000. {
             ThermodynamicTemperature::new::<degree_celsius>(Starting::MAX_EGT_BELOW_25000_FEET)
         } else {
@@ -679,7 +688,7 @@ impl ApuState for Running {
         self.egt
     }
 
-    fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
+    fn get_egt_warning_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
 
@@ -744,7 +753,7 @@ impl ApuState for Stopping {
         self.egt
     }
 
-    fn get_egt_max_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
+    fn get_egt_warning_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when stopping is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
@@ -802,7 +811,7 @@ impl ApuBleedAirValve {
         }
     }
 
-    fn update_after_state<T: BleedAirValveController>(&mut self, controller: &T) {
+    fn update<T: BleedAirValveController>(&mut self, controller: &T) {
         self.valve
             .open_when(controller.should_open_bleed_air_valve());
     }
@@ -1005,7 +1014,7 @@ impl AirIntakeFlap {
         }
     }
 
-    fn update_after_state<T: AirIntakeFlapController>(
+    fn update<T: AirIntakeFlapController>(
         &mut self,
         context: &UpdateContext,
         controller: &T,
@@ -1242,12 +1251,12 @@ pub mod tests {
             self.apu.get_egt()
         }
 
-        fn get_egt_maximum_temperature(&self) -> ThermodynamicTemperature {
-            self.apu.get_egt_maximum_temperature()
-        }
-
         fn get_egt_warning_temperature(&self) -> ThermodynamicTemperature {
             self.apu.get_egt_warning_temperature()
+        }
+
+        fn get_egt_caution_temperature(&self) -> ThermodynamicTemperature {
+            self.apu.get_egt_caution_temperature()
         }
 
         fn apu_is_available(&self) -> bool {
@@ -1426,8 +1435,8 @@ pub mod tests {
                 tester = tester.run(Duration::from_secs(1));
 
                 assert_about_eq!(
-                    tester.get_egt_maximum_temperature().get::<degree_celsius>(),
-                    tester.get_egt_warning_temperature().get::<degree_celsius>() + 33.
+                    tester.get_egt_warning_temperature().get::<degree_celsius>(),
+                    tester.get_egt_caution_temperature().get::<degree_celsius>() + 33.
                 );
             }
         }
@@ -1567,7 +1576,7 @@ pub mod tests {
             let mut tester = tester_with().running_apu().and().master_off();
 
             loop {
-                tester = tester.run(Duration::from_secs(1));
+                tester = tester.run(Duration::from_millis(50));
 
                 if tester.get_n().get::<percent>() <= 7. {
                     break;
@@ -1670,7 +1679,7 @@ pub mod tests {
                 .run(Duration::from_secs(1));
 
             assert_about_eq!(
-                tester.get_egt_maximum_temperature().get::<degree_celsius>(),
+                tester.get_egt_warning_temperature().get::<degree_celsius>(),
                 900.
             );
         }
@@ -1684,7 +1693,7 @@ pub mod tests {
                 .run(Duration::from_secs(1));
 
             assert_about_eq!(
-                tester.get_egt_maximum_temperature().get::<degree_celsius>(),
+                tester.get_egt_warning_temperature().get::<degree_celsius>(),
                 982.
             );
         }
@@ -2031,7 +2040,7 @@ pub mod tests {
             let mut controller = TestFlapController::new();
             controller.open();
 
-            flap.update_after_state(
+            flap.update(
                 &context_with().delta(Duration::from_secs(5)).build(),
                 &controller,
             );
@@ -2045,7 +2054,7 @@ pub mod tests {
             let mut controller = TestFlapController::new();
             controller.open();
 
-            flap.update_after_state(
+            flap.update(
                 &context_with()
                     .delta(Duration::from_secs(
                         (AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS - 1) as u64,
@@ -2063,14 +2072,14 @@ pub mod tests {
             let mut controller = TestFlapController::new();
             controller.open();
 
-            flap.update_after_state(
+            flap.update(
                 &context_with().delta(Duration::from_secs(5)).build(),
                 &controller,
             );
             let open_percentage = flap.state.get::<percent>();
 
             controller.close();
-            flap.update_after_state(
+            flap.update(
                 &context_with().delta(Duration::from_secs(2)).build(),
                 &controller,
             );
@@ -2084,13 +2093,13 @@ pub mod tests {
             let mut controller = TestFlapController::new();
             controller.open();
 
-            flap.update_after_state(
+            flap.update(
                 &context_with().delta(Duration::from_secs(5)).build(),
                 &controller,
             );
 
             controller.close();
-            flap.update_after_state(
+            flap.update(
                 &context_with()
                     .delta(Duration::from_secs(
                         (AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS - 1) as u64,
@@ -2108,7 +2117,7 @@ pub mod tests {
             let mut controller = TestFlapController::new();
             controller.close();
 
-            flap.update_after_state(
+            flap.update(
                 &context_with().delta(Duration::from_secs(1_000)).build(),
                 &controller,
             );
@@ -2122,7 +2131,7 @@ pub mod tests {
             let mut controller = TestFlapController::new();
             controller.open();
 
-            flap.update_after_state(
+            flap.update(
                 &context_with().delta(Duration::from_secs(1_000)).build(),
                 &controller,
             );
@@ -2143,7 +2152,7 @@ pub mod tests {
             let mut controller = TestFlapController::new();
             controller.open();
 
-            flap.update_after_state(
+            flap.update(
                 &context_with().delta(Duration::from_secs(1_000)).build(),
                 &controller,
             );
