@@ -67,7 +67,7 @@ pub struct SimulatorReadWriter {
     external_power_sw_on: AircraftVariable,
     indicated_airspeed: AircraftVariable,
     indicated_altitude: AircraftVariable,
-    total_fuel_weight: AircraftVariable,
+    left_inner_tank_fuel_quantity: AircraftVariable,
     unlimited_fuel: AircraftVariable,
 }
 impl SimulatorReadWriter {
@@ -104,7 +104,11 @@ impl SimulatorReadWriter {
             external_power_sw_on: AircraftVariable::from("EXTERNAL POWER ON", "Bool", 0)?,
             indicated_airspeed: AircraftVariable::from("AIRSPEED INDICATED", "Knots", 0)?,
             indicated_altitude: AircraftVariable::from("INDICATED ALTITUDE", "Feet", 0)?,
-            total_fuel_weight: AircraftVariable::from("FUEL TOTAL QUANTITY WEIGHT", "Pounds", 0)?,
+            left_inner_tank_fuel_quantity: AircraftVariable::from(
+                "FUEL TANK LEFT MAIN QUANTITY",
+                "Pounds",
+                0,
+            )?,
             unlimited_fuel: AircraftVariable::from("UNLIMITED FUEL", "Bool", 0)?,
         })
     }
@@ -122,7 +126,9 @@ impl SimulatorReadWriter {
             external_power_sw_on: to_bool(self.external_power_sw_on.get()),
             indicated_airspeed: Velocity::new::<knot>(self.indicated_airspeed.get()),
             indicated_altitude: Length::new::<foot>(self.indicated_altitude.get()),
-            total_fuel_weight: Mass::new::<pound>(self.total_fuel_weight.get()),
+            left_inner_tank_fuel_quantity: Mass::new::<pound>(
+                self.left_inner_tank_fuel_quantity.get(),
+            ),
             unlimited_fuel: to_bool(self.unlimited_fuel.get()),
         }
     }

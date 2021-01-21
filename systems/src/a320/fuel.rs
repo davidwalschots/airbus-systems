@@ -5,20 +5,20 @@ use uom::si::{f64::*, mass::kilogram};
 
 pub struct A320Fuel {
     unlimited_fuel: bool,
-    total_fuel_weight: Mass,
+    left_inner_tank_fuel_quantity: Mass,
 }
 impl A320Fuel {
     pub fn new() -> Self {
         A320Fuel {
             unlimited_fuel: false,
-            total_fuel_weight: Mass::new::<kilogram>(0.),
+            left_inner_tank_fuel_quantity: Mass::new::<kilogram>(0.),
         }
     }
 
     pub fn update(&mut self) {}
 
-    pub fn has_fuel_remaining(&self) -> bool {
-        self.unlimited_fuel || self.total_fuel_weight > Mass::new::<kilogram>(0.)
+    pub fn left_inner_tank_has_fuel_remaining(&self) -> bool {
+        self.unlimited_fuel || self.left_inner_tank_fuel_quantity > Mass::new::<kilogram>(0.)
     }
 }
 impl SimulatorVisitable for A320Fuel {
@@ -29,6 +29,6 @@ impl SimulatorVisitable for A320Fuel {
 impl SimulatorReadWritable for A320Fuel {
     fn read(&mut self, state: &SimulatorReadState) {
         self.unlimited_fuel = state.unlimited_fuel;
-        self.total_fuel_weight = state.total_fuel_weight;
+        self.left_inner_tank_fuel_quantity = state.left_inner_tank_fuel_quantity;
     }
 }

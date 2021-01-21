@@ -64,7 +64,7 @@ impl A320 {
             self.electrical_overhead.apu_generator_is_on()
                 && !(self.electrical_overhead.external_power_is_on()
                     && self.electrical_overhead.external_power_is_available()),
-            self.fuel.has_fuel_remaining(),
+            self.fuel.left_inner_tank_has_fuel_remaining(),
         );
         self.apu_generator.update(&self.apu);
         self.apu_overhead.update_after_apu(&self.apu);

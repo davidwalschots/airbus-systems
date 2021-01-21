@@ -80,7 +80,7 @@ pub struct SimulatorReadState {
     pub external_power_sw_on: bool,
     pub indicated_airspeed: Velocity,
     pub indicated_altitude: Length,
-    pub total_fuel_weight: Mass,
+    pub left_inner_tank_fuel_quantity: Mass,
     pub unlimited_fuel: bool,
 }
 impl SimulatorReadState {
