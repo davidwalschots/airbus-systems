@@ -1,11 +1,5 @@
 //! This module models the APS3200 APU.
 //!
-//! Internally it contains a state machine with the following states:
-//! - Shutdown
-//! - Starting
-//! - Running
-//! - Stopping
-//!
 //! > Not all characteristics have been verified as of yet. Meaning things such as
 //! > EGT increases, EGT warning level, etc. are there but might not reflect the
 //! > real APU fully. This involves further tweaking as we get more information.
@@ -108,7 +102,7 @@ trait AirIntakeFlapController {
     fn should_open_air_intake_flap(&self) -> bool;
 }
 
-trait ApuStartStopController {
+trait TurbineController {
     fn should_start(&self) -> bool;
     fn should_stop(&self) -> bool;
 }
@@ -121,6 +115,7 @@ trait BleedAirValveController {
 /// Not yet implemented. Will power this up when implementing the electrical system.
 /// It is powered when MASTER SW is ON.
 struct ElectronicControlBox {
+    turbine_state: TurbineState,
     master_is_on: bool,
     start_is_on: bool,
     start_contactor_is_energized: bool,
@@ -129,15 +124,16 @@ struct ElectronicControlBox {
     bleed_air_valve_last_open_time_ago: Duration,
     fault: Option<ApuFault>,
     air_intake_flap_fully_open: bool,
-    is_starting: bool,
     egt: ThermodynamicTemperature,
     egt_warning_temperature: ThermodynamicTemperature,
 }
 impl ElectronicControlBox {
+    const RUNNING_WARNING_EGT: f64 = 682.;
     const BLEED_AIR_COOLDOWN_DURATION_MILLIS: u64 = 120000;
 
     fn new() -> Self {
         ElectronicControlBox {
+            turbine_state: TurbineState::Shutdown,
             master_is_on: false,
             start_is_on: false,
             start_contactor_is_energized: false,
@@ -146,10 +142,9 @@ impl ElectronicControlBox {
             bleed_air_valve_last_open_time_ago: Duration::from_secs(1000),
             fault: None,
             air_intake_flap_fully_open: false,
-            is_starting: false,
             egt: ThermodynamicTemperature::new::<degree_celsius>(0.),
             egt_warning_temperature: ThermodynamicTemperature::new::<degree_celsius>(
-                Running::MAX_EGT,
+                ElectronicControlBox::RUNNING_WARNING_EGT
             ),
         }
     }
@@ -168,18 +163,17 @@ impl ElectronicControlBox {
         self.start_contactor_is_energized = start_contactor.is_powered()
     }
 
-    fn update(&mut self, context: &UpdateContext, state: &mut dyn ApuState) {
-        self.apu_n = state.get_n();
-        self.egt = state.get_egt();
-        self.egt_warning_temperature = state.get_egt_warning_temperature(context);
+    fn update(&mut self, context: &UpdateContext, turbine: &mut dyn Turbine) {
+        self.apu_n = turbine.get_n();
+        self.egt = turbine.get_egt();
+        self.turbine_state = turbine.get_state();
+        self.egt_warning_temperature = ElectronicControlBox::calculate_egt_warning_temperature(context, &self.turbine_state);
 
         if !self.master_is_on && self.apu_n.get::<percent>() == 0. {
             // We reset the fault when master is not on and the APU is not running.
             // Once electrical is implemented, the ECB will be unpowered that will reset the fault.
             self.fault = None;
         }
-
-        self.is_starting = state.is_starting();
     }
 
     fn update_bleed_air_valve_state<T: Valve>(
@@ -197,6 +191,24 @@ impl ElectronicControlBox {
     fn update_fuel_pressure_switch_state(&mut self, fuel_pressure_switch: &FuelPressureSwitch) {
         if 3. <= self.apu_n.get::<percent>() && !fuel_pressure_switch.has_pressure() {
             self.fault = Some(ApuFault::FuelLowPressure);
+        }
+    }
+
+    fn calculate_egt_warning_temperature(context: &UpdateContext, turbine_state: &TurbineState) -> ThermodynamicTemperature {
+        let running_warning_temperature = ThermodynamicTemperature::new::<degree_celsius>(ElectronicControlBox::RUNNING_WARNING_EGT);
+        match turbine_state {
+            TurbineState::Shutdown => running_warning_temperature,
+            TurbineState::Starting => {
+                const STARTING_WARNING_EGT_BELOW_25000_FEET: f64 = 900.;
+                const STARTING_WARNING_EGT_AT_OR_ABOVE_25000_FEET: f64 = 982.;
+                if context.indicated_altitude.get::<foot>() < 25_000. {
+                    ThermodynamicTemperature::new::<degree_celsius>(STARTING_WARNING_EGT_BELOW_25000_FEET)
+                } else {
+                    ThermodynamicTemperature::new::<degree_celsius>(STARTING_WARNING_EGT_AT_OR_ABOVE_25000_FEET)
+                }
+            },
+            TurbineState::Running => running_warning_temperature,
+            TurbineState::Stopping => running_warning_temperature
         }
     }
 
@@ -241,7 +253,7 @@ impl ApuStartContactorController for ElectronicControlBox {
         } else {
             self.apu_n.get::<percent>() < 55.
                 && ((self.master_is_on && self.start_is_on && self.air_intake_flap_fully_open)
-                    || self.is_starting)
+                    || self.turbine_state == TurbineState::Starting)
         }
     }
 }
@@ -254,10 +266,10 @@ impl AirIntakeFlapController for ElectronicControlBox {
             7. <= self.apu_n.get::<percent>() 
                 // While starting, the air intake flap remains open; even when the
                 // starting sequence has only just begun and the MASTER SW is turned off.
-                || self.is_starting
+                || self.turbine_state == TurbineState::Starting
     }
 }
-impl ApuStartStopController for ElectronicControlBox {
+impl TurbineController for ElectronicControlBox {
     /// Indicates if the start sequence should be started.
     fn should_start(&self) -> bool {
         self.start_contactor_is_energized
@@ -265,7 +277,7 @@ impl ApuStartStopController for ElectronicControlBox {
 
     fn should_stop(&self) -> bool {
         self.has_fault()
-            || (!self.master_is_on && !self.is_starting
+            || (!self.master_is_on && self.turbine_state != TurbineState::Starting
                 && !self.bleed_air_valve_was_open_in_last(Duration::from_millis(
                     ElectronicControlBox::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
                 )))
@@ -283,7 +295,7 @@ enum ApuFault {
 }
 
 pub struct AuxiliaryPowerUnit {
-    state: Option<Box<dyn ApuState>>,
+    turbine: Option<Box<dyn Turbine>>,
     ecb: ElectronicControlBox,
     start_contactor: ApuStartContactor,
     air_intake_flap: AirIntakeFlap,
@@ -293,7 +305,7 @@ pub struct AuxiliaryPowerUnit {
 impl AuxiliaryPowerUnit {
     pub fn new() -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
-            state: Some(Box::new(Shutdown::new(
+            turbine: Some(Box::new(ShutdownTurbine::new(
                 ThermodynamicTemperature::new::<degree_celsius>(0.),
             ))),
             ecb: ElectronicControlBox::new(),
@@ -318,17 +330,17 @@ impl AuxiliaryPowerUnit {
         self.fuel_pressure_switch.update(has_fuel_remaining);
         self.ecb.update_fuel_pressure_switch_state(&self.fuel_pressure_switch);
 
-        if let Some(state) = self.state.take() {
-            let mut new_state = state.update(
+        if let Some(turbine) = self.turbine.take() {
+            let mut updated_turbine = turbine.update(
                 context,
                 self.bleed_air_valve.is_open(),
                 apu_gen_is_used,
                 &self.ecb,
             );
 
-            self.ecb.update(context, new_state.as_mut());
+            self.ecb.update(context, updated_turbine.as_mut());
 
-            self.state = Some(new_state);
+            self.turbine = Some(updated_turbine);
         }
 
         self.air_intake_flap.update(context, &self.ecb);
@@ -390,40 +402,43 @@ impl SimulatorReadWritable for AuxiliaryPowerUnit {
     }
 }
 
-trait ApuState {
+trait Turbine {
     fn update(
         self: Box<Self>,
         context: &UpdateContext,
         apu_bleed_is_used: bool,
         apu_gen_is_used: bool,
-        controller: &dyn ApuStartStopController,
-    ) -> Box<dyn ApuState>;
-
+        controller: &dyn TurbineController,
+    ) -> Box<dyn Turbine>;
     fn get_n(&self) -> Ratio;
-
     fn get_egt(&self) -> ThermodynamicTemperature;
-
-    fn get_egt_warning_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature;
-
-    fn is_starting(&self) -> bool;
+    fn get_state(&self) -> TurbineState;
 }
 
-struct Shutdown {
+#[derive(PartialEq)]
+enum TurbineState {
+    Shutdown,
+    Starting,
+    Running,
+    Stopping
+}
+
+struct ShutdownTurbine {
     egt: ThermodynamicTemperature,
 }
-impl Shutdown {
-    fn new(egt: ThermodynamicTemperature) -> Shutdown {
-        Shutdown { egt }
+impl ShutdownTurbine {
+    fn new(egt: ThermodynamicTemperature) -> Self {
+        ShutdownTurbine { egt }
     }
 }
-impl ApuState for Shutdown {
+impl Turbine for ShutdownTurbine {
     fn update(
         mut self: Box<Self>,
         context: &UpdateContext,
         _: bool,
         _: bool,
-        controller: &dyn ApuStartStopController,
-    ) -> Box<dyn ApuState> {
+        controller: &dyn TurbineController,
+    ) -> Box<dyn Turbine> {
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
         if controller.should_start() {
@@ -441,13 +456,8 @@ impl ApuState for Shutdown {
         self.egt
     }
 
-    fn get_egt_warning_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
-        // Not a programming error, MAX EGT displayed when shutdown is the running max EGT.
-        ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
-    }
-
-    fn is_starting(&self) -> bool {
-        false
+    fn get_state(&self) -> TurbineState {
+        TurbineState::Shutdown
     }
 }
 
@@ -458,9 +468,6 @@ struct Starting {
     ignore_calculated_egt: bool,
 }
 impl Starting {
-    const MAX_EGT_BELOW_25000_FEET: f64 = 900.;
-    const MAX_EGT_AT_OR_ABOVE_25000_FEET: f64 = 982.;
-
     fn new(egt: ThermodynamicTemperature) -> Starting {
         Starting {
             since: Duration::from_secs(0),
@@ -573,14 +580,14 @@ impl Starting {
         }
     }
 }
-impl ApuState for Starting {
+impl Turbine for Starting {
     fn update(
         mut self: Box<Self>,
         context: &UpdateContext,
         _: bool,
         _: bool,
-        controller: &dyn ApuStartStopController,
-    ) -> Box<dyn ApuState> {
+        controller: &dyn TurbineController,
+    ) -> Box<dyn Turbine> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n();
         self.egt = self.calculate_egt(context);
@@ -605,18 +612,8 @@ impl ApuState for Starting {
         self.egt
     }
 
-    fn get_egt_warning_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature {
-        if context.indicated_altitude.get::<foot>() < 25_000. {
-            ThermodynamicTemperature::new::<degree_celsius>(Starting::MAX_EGT_BELOW_25000_FEET)
-        } else {
-            ThermodynamicTemperature::new::<degree_celsius>(
-                Starting::MAX_EGT_AT_OR_ABOVE_25000_FEET,
-            )
-        }
-    }
-
-    fn is_starting(&self) -> bool {
-        true
+    fn get_state(&self) -> TurbineState {
+        TurbineState::Starting
     }
 }
 
@@ -627,8 +624,6 @@ struct Running {
     apu_gen_in_use_delta_temperature: TemperatureInterval,
 }
 impl Running {
-    const MAX_EGT: f64 = 682.;
-
     fn new(egt: ThermodynamicTemperature) -> Running {
         let base_temperature = 340. + ((random_number() % 11) as f64);
         let bleed_air_in_use_delta_temperature = 30. + ((random_number() % 11) as f64);
@@ -662,14 +657,14 @@ impl Running {
         calculate_towards_target_egt(self.egt, target_temperature, 0.4, context.delta)
     }
 }
-impl ApuState for Running {
+impl Turbine for Running {
     fn update(
         mut self: Box<Self>,
         context: &UpdateContext,
         apu_bleed_is_used: bool,
         apu_gen_is_used: bool,
-        controller: &dyn ApuStartStopController,
-    ) -> Box<dyn ApuState> {
+        controller: &dyn TurbineController,
+    ) -> Box<dyn Turbine> {
         self.egt = self.calculate_slow_cooldown_to_running_temperature(
             context,
             apu_gen_is_used,
@@ -691,12 +686,8 @@ impl ApuState for Running {
         self.egt
     }
 
-    fn get_egt_warning_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
-        ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
-    }
-
-    fn is_starting(&self) -> bool {
-        false
+    fn get_state(&self) -> TurbineState {
+        TurbineState::Running
     }
 }
 
@@ -722,20 +713,20 @@ impl Stopping {
         Ratio::new::<percent>(n)
     }
 }
-impl ApuState for Stopping {
+impl Turbine for Stopping {
     fn update(
         mut self: Box<Self>,
         context: &UpdateContext,
         _: bool,
         _: bool,
-        _: &dyn ApuStartStopController,
-    ) -> Box<dyn ApuState> {
+        _: &dyn TurbineController,
+    ) -> Box<dyn Turbine> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n(context);
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
         if self.n.get::<percent>() == 0. {
-            Box::new(Shutdown::new(self.egt))
+            Box::new(ShutdownTurbine::new(self.egt))
         } else {
             self
         }
@@ -749,13 +740,8 @@ impl ApuState for Stopping {
         self.egt
     }
 
-    fn get_egt_warning_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
-        // Not a programming error, MAX EGT displayed when stopping is the running max EGT.
-        ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
-    }
-
-    fn is_starting(&self) -> bool {
-        false
+    fn get_state(&self) -> TurbineState {
+        TurbineState::Stopping
     }
 }
 
@@ -1465,7 +1451,7 @@ pub mod tests {
 
             assert!(tester.apu_is_available());
 
-            // Move from Running to Shutdown state.
+            // Move from Running to Shutdown turbine state.
             tester = tester.run(Duration::from_millis(1));
             // APU N reduces below 99,5%.
             tester = tester.run(Duration::from_secs(1));
@@ -1495,7 +1481,7 @@ pub mod tests {
 
             assert!(tester.apu_is_available());
 
-            // Move from Running to Shutdown state.
+            // Move from Running to Shutdown turbine state.
             tester = tester.run(Duration::from_millis(1));
             // APU N reduces below 99,5%.
             tester = tester.run(Duration::from_secs(1));
@@ -1509,7 +1495,7 @@ pub mod tests {
 
             assert!(tester.apu_is_available());
 
-            // Move from Running to Shutdown state.
+            // Move from Running to Shutdown turbine state.
             tester = tester.master_off().run(Duration::from_millis(1));
             // APU N reduces below 99,5%.
             tester = tester.run(Duration::from_secs(1));
@@ -1858,7 +1844,7 @@ pub mod tests {
                 .running_apu()
                 .then_continue_with()
                 .no_fuel_available()
-                // Two runs, because of state change from Running to Stopping.
+                // Two runs, because of turbine state change from Running to Stopping.
                 .run(Duration::from_millis(1))
                 .run(Duration::from_secs(1_000));
 
