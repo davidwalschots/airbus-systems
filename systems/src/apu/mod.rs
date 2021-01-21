@@ -77,6 +77,29 @@ impl PowerConductor for ApuStartContactor {
     }
 }
 
+/// Komp: There is a pressure switch between the fuel valve and the APU.
+/// It switches from 0 to 1 when the pressure is >=17 PSI and the signal is received by the ECB
+/// And there is a small hysteresis, means it switches back to 0 when <=16 PSI
+/// This type will be here until we have a full FUEL implementation.
+struct FuelPressureSwitch {
+    has_fuel_remaining: bool
+}
+impl FuelPressureSwitch {
+    fn new() -> Self {
+        FuelPressureSwitch {
+            has_fuel_remaining: false
+        }
+    }
+
+    fn update(&mut self, has_fuel_remaining: bool) {
+        self.has_fuel_remaining = has_fuel_remaining;
+    }
+
+    fn has_pressure(&self) -> bool {
+        self.has_fuel_remaining
+    }
+}
+
 trait ApuStartContactorController {
     fn should_close_start_contactor(&self) -> bool;
 }
@@ -150,10 +173,6 @@ impl ElectronicControlBox {
         self.egt = state.get_egt();
         self.egt_warning_temperature = state.get_egt_warning_temperature(context);
 
-        if self.fault.is_none() {
-            self.fault = state.take_fault();
-        }
-
         if !self.master_is_on && self.apu_n.get::<percent>() == 0. {
             // We reset the fault when master is not on and the APU is not running.
             // Once electrical is implemented, the ECB will be unpowered that will reset the fault.
@@ -172,6 +191,12 @@ impl ElectronicControlBox {
             self.bleed_air_valve_last_open_time_ago = Duration::from_secs(0);
         } else {
             self.bleed_air_valve_last_open_time_ago += context.delta;
+        }
+    }
+
+    fn update_fuel_pressure_switch_state(&mut self, fuel_pressure_switch: &FuelPressureSwitch) {
+        if 3. <= self.apu_n.get::<percent>() && !fuel_pressure_switch.has_pressure() {
+            self.fault = Some(ApuFault::FuelLowPressure);
         }
     }
 
@@ -240,10 +265,10 @@ impl ApuStartStopController for ElectronicControlBox {
 
     fn should_stop(&self) -> bool {
         self.has_fault()
-            || !self.master_is_on
+            || (!self.master_is_on && !self.is_starting
                 && !self.bleed_air_valve_was_open_in_last(Duration::from_millis(
                     ElectronicControlBox::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
-                ))
+                )))
     }
 }
 impl BleedAirValveController for ElectronicControlBox {
@@ -263,18 +288,19 @@ pub struct AuxiliaryPowerUnit {
     start_contactor: ApuStartContactor,
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
+    fuel_pressure_switch: FuelPressureSwitch
 }
 impl AuxiliaryPowerUnit {
     pub fn new() -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
             state: Some(Box::new(Shutdown::new(
-                None,
                 ThermodynamicTemperature::new::<degree_celsius>(0.),
             ))),
             ecb: ElectronicControlBox::new(),
             start_contactor: ApuStartContactor::new(),
             air_intake_flap: AirIntakeFlap::new(),
             bleed_air_valve: ApuBleedAirValve::new(),
+            fuel_pressure_switch: FuelPressureSwitch::new(),
         }
     }
 
@@ -289,13 +315,14 @@ impl AuxiliaryPowerUnit {
         self.ecb.update_overhead_panel_state(overhead, apu_bleed_is_on);
         self.start_contactor.update(&self.ecb);
         self.ecb.update_start_contactor_state(&self.start_contactor);
+        self.fuel_pressure_switch.update(has_fuel_remaining);
+        self.ecb.update_fuel_pressure_switch_state(&self.fuel_pressure_switch);
 
         if let Some(state) = self.state.take() {
             let mut new_state = state.update(
                 context,
                 self.bleed_air_valve.is_open(),
                 apu_gen_is_used,
-                has_fuel_remaining,
                 &self.ecb,
             );
 
@@ -369,7 +396,6 @@ trait ApuState {
         context: &UpdateContext,
         apu_bleed_is_used: bool,
         apu_gen_is_used: bool,
-        has_fuel_remaining: bool,
         controller: &dyn ApuStartStopController,
     ) -> Box<dyn ApuState>;
 
@@ -379,25 +405,21 @@ trait ApuState {
 
     fn get_egt_warning_temperature(&self, context: &UpdateContext) -> ThermodynamicTemperature;
 
-    fn take_fault(&mut self) -> Option<ApuFault>;
-
     fn is_starting(&self) -> bool;
 }
 
 struct Shutdown {
-    fault: Option<ApuFault>,
     egt: ThermodynamicTemperature,
 }
 impl Shutdown {
-    fn new(fault: Option<ApuFault>, egt: ThermodynamicTemperature) -> Shutdown {
-        Shutdown { fault, egt }
+    fn new(egt: ThermodynamicTemperature) -> Shutdown {
+        Shutdown { egt }
     }
 }
 impl ApuState for Shutdown {
     fn update(
         mut self: Box<Self>,
         context: &UpdateContext,
-        _: bool,
         _: bool,
         _: bool,
         controller: &dyn ApuStartStopController,
@@ -422,10 +444,6 @@ impl ApuState for Shutdown {
     fn get_egt_warning_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when shutdown is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
-    }
-
-    fn take_fault(&mut self) -> Option<ApuFault> {
-        self.fault.take()
     }
 
     fn is_starting(&self) -> bool {
@@ -561,18 +579,16 @@ impl ApuState for Starting {
         context: &UpdateContext,
         _: bool,
         _: bool,
-        has_fuel_remaining: bool,
-        _: &dyn ApuStartStopController,
+        controller: &dyn ApuStartStopController,
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
         self.n = self.calculate_n();
         self.egt = self.calculate_egt(context);
 
-        if !has_fuel_remaining && self.n.get::<percent>() >= 3. {
+        if controller.should_stop() {
             Box::new(Stopping::new(
                 self.egt,
-                self.n,
-                Some(ApuFault::FuelLowPressure),
+                self.n
             ))
         } else if self.n.get::<percent>() == 100. {
             Box::new(Running::new(self.egt))
@@ -597,10 +613,6 @@ impl ApuState for Starting {
                 Starting::MAX_EGT_AT_OR_ABOVE_25000_FEET,
             )
         }
-    }
-
-    fn take_fault(&mut self) -> Option<ApuFault> {
-        None
     }
 
     fn is_starting(&self) -> bool {
@@ -656,17 +668,8 @@ impl ApuState for Running {
         context: &UpdateContext,
         apu_bleed_is_used: bool,
         apu_gen_is_used: bool,
-        has_fuel_remaining: bool,
         controller: &dyn ApuStartStopController,
     ) -> Box<dyn ApuState> {
-        if !has_fuel_remaining {
-            return Box::new(Stopping::new(
-                self.egt,
-                Ratio::new::<percent>(100.),
-                Some(ApuFault::FuelLowPressure),
-            ));
-        }
-
         self.egt = self.calculate_slow_cooldown_to_running_temperature(
             context,
             apu_gen_is_used,
@@ -674,7 +677,7 @@ impl ApuState for Running {
         );
 
         if controller.should_stop() {
-            Box::new(Stopping::new(self.egt, Ratio::new::<percent>(100.), None))
+            Box::new(Stopping::new(self.egt, Ratio::new::<percent>(100.)))
         } else {
             self
         }
@@ -692,26 +695,20 @@ impl ApuState for Running {
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
     }
 
-    fn take_fault(&mut self) -> Option<ApuFault> {
-        None
-    }
-
     fn is_starting(&self) -> bool {
         false
     }
 }
 
 struct Stopping {
-    fault: Option<ApuFault>,
     since: Duration,
     n: Ratio,
     egt: ThermodynamicTemperature,
 }
 impl Stopping {
-    fn new(egt: ThermodynamicTemperature, n: Ratio, fault: Option<ApuFault>) -> Stopping {
+    fn new(egt: ThermodynamicTemperature, n: Ratio) -> Stopping {
         Stopping {
             since: Duration::from_secs(0),
-            fault,
             n,
             egt,
         }
@@ -731,7 +728,6 @@ impl ApuState for Stopping {
         context: &UpdateContext,
         _: bool,
         _: bool,
-        _: bool,
         _: &dyn ApuStartStopController,
     ) -> Box<dyn ApuState> {
         self.since = self.since + context.delta;
@@ -739,7 +735,7 @@ impl ApuState for Stopping {
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
         if self.n.get::<percent>() == 0. {
-            Box::new(Shutdown::new(self.fault, self.egt))
+            Box::new(Shutdown::new(self.egt))
         } else {
             self
         }
@@ -756,10 +752,6 @@ impl ApuState for Stopping {
     fn get_egt_warning_temperature(&self, _: &UpdateContext) -> ThermodynamicTemperature {
         // Not a programming error, MAX EGT displayed when stopping is the running max EGT.
         ThermodynamicTemperature::new::<degree_celsius>(Running::MAX_EGT)
-    }
-
-    fn take_fault(&mut self) -> Option<ApuFault> {
-        self.fault.take()
     }
 
     fn is_starting(&self) -> bool {
