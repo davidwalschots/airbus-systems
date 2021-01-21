@@ -218,6 +218,11 @@ impl ElectronicControlBox {
         self.fault.is_some()
     }
 
+    fn is_auto_shutdown(&self) -> bool {
+        // Currently all supported faults lead to an auto (non-emergency) shutdown.
+        self.has_fault()
+    }
+
     fn has_fuel_low_pressure_fault(&self) -> bool {
         if let Some(fault) = self.fault {
             fault == ApuFault::FuelLowPressure
@@ -396,6 +401,10 @@ impl AuxiliaryPowerUnit {
     fn has_fuel_low_pressure_fault(&self) -> bool {
         self.ecb.has_fuel_low_pressure_fault()
     }
+
+    fn is_auto_shutdown(&self) -> bool {
+        self.ecb.is_auto_shutdown()
+    }
 }
 impl SimulatorVisitable for AuxiliaryPowerUnit {
     fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
@@ -408,6 +417,7 @@ impl SimulatorReadWritable for AuxiliaryPowerUnit {
         state.apu_air_intake_flap_opened_for = self.get_air_intake_flap_open_amount();
         state.apu_caution_egt = self.get_egt_caution_temperature();
         state.apu_egt = self.get_egt();
+        state.apu_is_auto_shutdown = self.is_auto_shutdown();
         state.apu_low_fuel_pressure_fault = self.has_fuel_low_pressure_fault();
         state.apu_n = self.get_n();
         state.apu_start_contactor_energized = self.start_contactor_energized();
@@ -1289,6 +1299,10 @@ pub mod tests {
         fn has_fuel_low_pressure_fault(&self) -> bool {
             self.apu.has_fuel_low_pressure_fault()
         }
+
+        fn is_auto_shutdown(&self) -> bool {
+            self.apu.is_auto_shutdown()
+        }
     }
 
     #[cfg(test)]
@@ -1871,6 +1885,20 @@ pub mod tests {
             assert_eq!(tester.has_fuel_low_pressure_fault(), true);
             assert!(tester.master_has_fault());
             assert!(!tester.start_is_on());
+        }
+
+        #[test]
+        fn when_no_fuel_is_available_and_apu_is_running_auto_shutdown_is_true() {
+            let tester = tester_with().running_apu().and().no_fuel_available().run(Duration::from_secs(10));
+
+            assert!(tester.is_auto_shutdown());
+        }
+
+        #[test]
+        fn when_no_fuel_available_and_apu_not_running_auto_shutdown_is_false() {
+            let tester = tester_with().no_fuel_available().run(Duration::from_secs(10));
+
+            assert!(!tester.is_auto_shutdown());
         }
     }
 

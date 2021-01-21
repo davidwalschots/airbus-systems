@@ -104,6 +104,7 @@ pub struct SimulatorWriteState {
     pub apu_gen_frequency_within_normal_range: bool,
     pub apu_gen_potential: ElectricPotential,
     pub apu_gen_potential_within_normal_range: bool,
+    pub apu_is_auto_shutdown: bool,
     pub apu_low_fuel_pressure_fault: bool,
     pub apu_master_sw_fault: bool,
     pub apu_n: Ratio,
