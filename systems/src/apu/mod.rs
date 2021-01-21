@@ -223,6 +223,10 @@ impl ElectronicControlBox {
         self.has_fault()
     }
 
+    fn is_inoperable(&self) -> bool {
+        self.has_fault()
+    }
+
     fn has_fuel_low_pressure_fault(&self) -> bool {
         if let Some(fault) = self.fault {
             fault == ApuFault::FuelLowPressure
@@ -405,6 +409,10 @@ impl AuxiliaryPowerUnit {
     fn is_auto_shutdown(&self) -> bool {
         self.ecb.is_auto_shutdown()
     }
+
+    fn is_inoperable(&self) -> bool {
+        self.ecb.is_inoperable()
+    }
 }
 impl SimulatorVisitable for AuxiliaryPowerUnit {
     fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
@@ -417,6 +425,7 @@ impl SimulatorReadWritable for AuxiliaryPowerUnit {
         state.apu_air_intake_flap_opened_for = self.get_air_intake_flap_open_amount();
         state.apu_caution_egt = self.get_egt_caution_temperature();
         state.apu_egt = self.get_egt();
+        state.apu_inoperable = self.is_inoperable();
         state.apu_is_auto_shutdown = self.is_auto_shutdown();
         state.apu_low_fuel_pressure_fault = self.has_fuel_low_pressure_fault();
         state.apu_n = self.get_n();
@@ -1303,6 +1312,10 @@ pub mod tests {
         fn is_auto_shutdown(&self) -> bool {
             self.apu.is_auto_shutdown()
         }
+
+        fn is_inoperable(&self) -> bool {
+            self.apu.is_inoperable()
+        }
     }
 
     #[cfg(test)]
@@ -1891,14 +1904,35 @@ pub mod tests {
         fn when_no_fuel_is_available_and_apu_is_running_auto_shutdown_is_true() {
             let tester = tester_with().running_apu().and().no_fuel_available().run(Duration::from_secs(10));
 
-            assert!(tester.is_auto_shutdown());
+            assert_eq!(tester.is_auto_shutdown(), true);
         }
 
         #[test]
         fn when_no_fuel_available_and_apu_not_running_auto_shutdown_is_false() {
             let tester = tester_with().no_fuel_available().run(Duration::from_secs(10));
 
-            assert!(!tester.is_auto_shutdown());
+            assert_eq!(tester.is_auto_shutdown(), false);
+        }
+
+        #[test]
+        fn when_no_fuel_is_available_and_apu_is_running_apu_inoperable_is_true() {
+            let tester = tester_with().running_apu().and().no_fuel_available().run(Duration::from_secs(10));
+
+            assert_eq!(tester.is_inoperable(), true);
+        }
+
+        #[test]
+        fn when_no_fuel_available_and_apu_not_running_is_inoperable_is_false() {
+            let tester = tester_with().no_fuel_available().run(Duration::from_secs(10));
+
+            assert_eq!(tester.is_inoperable(), false);
+        }
+
+        #[test]
+        fn running_apu_is_inoperable_is_false() {
+            let tester = tester_with().running_apu().run(Duration::from_secs(10));
+
+            assert_eq!(tester.is_inoperable(), false)
         }
     }
 

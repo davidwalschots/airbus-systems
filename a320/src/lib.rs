@@ -57,6 +57,7 @@ pub struct SimulatorReadWriter {
     apu_gen_sw_on: AircraftVariable,
     apu_gen_voltage: NamedVariable,
     apu_gen_voltage_within_normal_range: NamedVariable,
+    apu_inoperable: NamedVariable,
     apu_is_auto_shutdown: NamedVariable,
     apu_low_fuel_pressure_fault: NamedVariable,
     apu_master_sw: AircraftVariable,
@@ -90,6 +91,7 @@ impl SimulatorReadWriter {
             apu_gen_voltage_within_normal_range: NamedVariable::from(
                 "A32NX_APU_GEN_VOLTAGE_NORMAL",
             ),
+            apu_inoperable: NamedVariable::from("A32NX_ECAM_INOP_SYS_APU"),
             apu_is_auto_shutdown: NamedVariable::from("A32NX_APU_IS_AUTO_SHUTDOWN"),
             apu_low_fuel_pressure_fault: NamedVariable::from("A32NX_APU_LOW_FUEL_PRESSURE_FAULT"),
             apu_master_sw: AircraftVariable::from("FUELSYSTEM VALVE SWITCH", "Bool", 8)?,
@@ -158,6 +160,8 @@ impl SimulatorReadWriter {
             .set_value(state.apu_gen_potential.get::<volt>());
         self.apu_gen_voltage_within_normal_range
             .set_value(from_bool(state.apu_gen_potential_within_normal_range));
+        self.apu_inoperable
+            .set_value(from_bool(state.apu_inoperable));
         self.apu_is_auto_shutdown
             .set_value(from_bool(state.apu_is_auto_shutdown));
         self.apu_low_fuel_pressure_fault
