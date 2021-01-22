@@ -76,12 +76,12 @@ impl PowerConductor for ApuStartContactor {
 /// And there is a small hysteresis, means it switches back to 0 when <=16 PSI
 /// This type will be here until we have a full FUEL implementation.
 struct FuelPressureSwitch {
-    has_fuel_remaining: bool
+    has_fuel_remaining: bool,
 }
 impl FuelPressureSwitch {
     fn new() -> Self {
         FuelPressureSwitch {
-            has_fuel_remaining: false
+            has_fuel_remaining: false,
         }
     }
 
@@ -126,6 +126,7 @@ struct ElectronicControlBox {
     air_intake_flap_fully_open: bool,
     egt: ThermodynamicTemperature,
     egt_warning_temperature: ThermodynamicTemperature,
+    n_above_95_duration: Duration,
 }
 impl ElectronicControlBox {
     const RUNNING_WARNING_EGT: f64 = 682.;
@@ -144,12 +145,17 @@ impl ElectronicControlBox {
             air_intake_flap_fully_open: false,
             egt: ThermodynamicTemperature::new::<degree_celsius>(0.),
             egt_warning_temperature: ThermodynamicTemperature::new::<degree_celsius>(
-                ElectronicControlBox::RUNNING_WARNING_EGT
+                ElectronicControlBox::RUNNING_WARNING_EGT,
             ),
+            n_above_95_duration: Duration::from_secs(0),
         }
     }
 
-    fn update_overhead_panel_state(&mut self, overhead: &AuxiliaryPowerUnitOverheadPanel, apu_bleed_is_on: bool) {
+    fn update_overhead_panel_state(
+        &mut self,
+        overhead: &AuxiliaryPowerUnitOverheadPanel,
+        apu_bleed_is_on: bool,
+    ) {
         self.master_is_on = overhead.master_is_on();
         self.start_is_on = overhead.start_is_on();
         self.bleed_is_on = apu_bleed_is_on;
@@ -167,7 +173,14 @@ impl ElectronicControlBox {
         self.apu_n = turbine.get_n();
         self.egt = turbine.get_egt();
         self.turbine_state = turbine.get_state();
-        self.egt_warning_temperature = ElectronicControlBox::calculate_egt_warning_temperature(context, &self.turbine_state);
+        self.egt_warning_temperature =
+            ElectronicControlBox::calculate_egt_warning_temperature(context, &self.turbine_state);
+
+        if self.apu_n.get::<percent>() > 95. {
+            self.n_above_95_duration += context.delta;
+        } else {
+            self.n_above_95_duration = Duration::from_secs(0);
+        }
 
         if !self.master_is_on && self.apu_n.get::<percent>() == 0. {
             // We reset the fault when master is not on and the APU is not running.
@@ -194,21 +207,30 @@ impl ElectronicControlBox {
         }
     }
 
-    fn calculate_egt_warning_temperature(context: &UpdateContext, turbine_state: &TurbineState) -> ThermodynamicTemperature {
-        let running_warning_temperature = ThermodynamicTemperature::new::<degree_celsius>(ElectronicControlBox::RUNNING_WARNING_EGT);
+    fn calculate_egt_warning_temperature(
+        context: &UpdateContext,
+        turbine_state: &TurbineState,
+    ) -> ThermodynamicTemperature {
+        let running_warning_temperature = ThermodynamicTemperature::new::<degree_celsius>(
+            ElectronicControlBox::RUNNING_WARNING_EGT,
+        );
         match turbine_state {
             TurbineState::Shutdown => running_warning_temperature,
             TurbineState::Starting => {
                 const STARTING_WARNING_EGT_BELOW_25000_FEET: f64 = 900.;
                 const STARTING_WARNING_EGT_AT_OR_ABOVE_25000_FEET: f64 = 982.;
                 if context.indicated_altitude.get::<foot>() < 25_000. {
-                    ThermodynamicTemperature::new::<degree_celsius>(STARTING_WARNING_EGT_BELOW_25000_FEET)
+                    ThermodynamicTemperature::new::<degree_celsius>(
+                        STARTING_WARNING_EGT_BELOW_25000_FEET,
+                    )
                 } else {
-                    ThermodynamicTemperature::new::<degree_celsius>(STARTING_WARNING_EGT_AT_OR_ABOVE_25000_FEET)
+                    ThermodynamicTemperature::new::<degree_celsius>(
+                        STARTING_WARNING_EGT_AT_OR_ABOVE_25000_FEET,
+                    )
                 }
-            },
+            }
             TurbineState::Running => running_warning_temperature,
-            TurbineState::Stopping => running_warning_temperature
+            TurbineState::Stopping => running_warning_temperature,
         }
     }
 
@@ -240,7 +262,12 @@ impl ElectronicControlBox {
     }
 
     fn is_available(&self) -> bool {
-        !self.has_fault() && self.apu_n.get::<percent>() > 99.5
+        !self.has_fault()
+            && ((self.turbine_state == TurbineState::Starting
+                && (Duration::from_secs(2) <= self.n_above_95_duration
+                    || self.apu_n.get::<percent>() > 99.5))
+                || (self.turbine_state != TurbineState::Starting
+                    && self.apu_n.get::<percent>() > 95.))
     }
 
     fn get_egt_warning_temperature(&self) -> ThermodynamicTemperature {
@@ -277,10 +304,10 @@ impl ApuStartContactorController for ElectronicControlBox {
 impl AirIntakeFlapController for ElectronicControlBox {
     /// Indicates if the air intake flap should be opened.
     fn should_open_air_intake_flap(&self) -> bool {
-        self.master_is_on || 
+        self.master_is_on ||
             // While running, the air intake flap remains open.
             // Manual shutdown sequence: the air intake flap closes at N = 7%.
-            7. <= self.apu_n.get::<percent>() 
+            7. <= self.apu_n.get::<percent>()
                 // While starting, the air intake flap remains open; even when the
                 // starting sequence has only just begun and the MASTER SW is turned off.
                 || self.turbine_state == TurbineState::Starting
@@ -294,7 +321,8 @@ impl TurbineController for ElectronicControlBox {
 
     fn should_stop(&self) -> bool {
         self.has_fault()
-            || (!self.master_is_on && self.turbine_state != TurbineState::Starting
+            || (!self.master_is_on
+                && self.turbine_state != TurbineState::Starting
                 && !self.bleed_air_valve_was_open_in_last(Duration::from_millis(
                     ElectronicControlBox::BLEED_AIR_COOLDOWN_DURATION_MILLIS,
                 )))
@@ -317,7 +345,7 @@ pub struct AuxiliaryPowerUnit {
     start_contactor: ApuStartContactor,
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: ApuBleedAirValve,
-    fuel_pressure_switch: FuelPressureSwitch
+    fuel_pressure_switch: FuelPressureSwitch,
 }
 impl AuxiliaryPowerUnit {
     pub fn new() -> AuxiliaryPowerUnit {
@@ -341,11 +369,13 @@ impl AuxiliaryPowerUnit {
         apu_gen_is_used: bool,
         has_fuel_remaining: bool,
     ) {
-        self.ecb.update_overhead_panel_state(overhead, apu_bleed_is_on);
+        self.ecb
+            .update_overhead_panel_state(overhead, apu_bleed_is_on);
         self.start_contactor.update(&self.ecb);
         self.ecb.update_start_contactor_state(&self.start_contactor);
         self.fuel_pressure_switch.update(has_fuel_remaining);
-        self.ecb.update_fuel_pressure_switch_state(&self.fuel_pressure_switch);
+        self.ecb
+            .update_fuel_pressure_switch_state(&self.fuel_pressure_switch);
 
         if let Some(turbine) = self.turbine.take() {
             let mut updated_turbine = turbine.update(
@@ -363,7 +393,8 @@ impl AuxiliaryPowerUnit {
         self.air_intake_flap.update(context, &self.ecb);
         self.ecb.update_air_intake_flap_state(&self.air_intake_flap);
         self.bleed_air_valve.update(&self.ecb);
-        self.ecb.update_bleed_air_valve_state(context, &self.bleed_air_valve);
+        self.ecb
+            .update_bleed_air_valve_state(context, &self.bleed_air_valve);
     }
 
     pub fn get_n(&self) -> Ratio {
@@ -452,7 +483,7 @@ enum TurbineState {
     Shutdown,
     Starting,
     Running,
-    Stopping
+    Stopping,
 }
 
 struct ShutdownTurbine {
@@ -625,10 +656,7 @@ impl Turbine for Starting {
         self.egt = self.calculate_egt(context);
 
         if controller.should_stop() {
-            Box::new(Stopping::new(
-                self.egt,
-                self.n
-            ))
+            Box::new(Stopping::new(self.egt, self.n))
         } else if self.n.get::<percent>() == 100. {
             Box::new(Running::new(self.egt))
         } else {
@@ -1024,11 +1052,7 @@ impl AirIntakeFlap {
         }
     }
 
-    fn update<T: AirIntakeFlapController>(
-        &mut self,
-        context: &UpdateContext,
-        controller: &T,
-    ) {
+    fn update<T: AirIntakeFlapController>(&mut self, context: &UpdateContext, controller: &T) {
         if controller.should_open_air_intake_flap() && self.state < Ratio::new::<percent>(100.) {
             self.state += Ratio::new::<percent>(
                 self.get_flap_change_for_delta(context)
@@ -1082,6 +1106,38 @@ pub mod tests {
 
     fn tester() -> AuxiliaryPowerUnitTester {
         AuxiliaryPowerUnitTester::new()
+    }
+
+    struct InfinitelyAtNTestTurbine {
+        n: Ratio,
+    }
+    impl InfinitelyAtNTestTurbine {
+        fn new(n: Ratio) -> Self {
+            InfinitelyAtNTestTurbine { n }
+        }
+    }
+    impl Turbine for InfinitelyAtNTestTurbine {
+        fn update(
+            self: Box<Self>,
+            _: &UpdateContext,
+            _: bool,
+            _: bool,
+            _: &dyn TurbineController,
+        ) -> Box<dyn Turbine> {
+            self
+        }
+
+        fn get_n(&self) -> Ratio {
+            self.n
+        }
+
+        fn get_egt(&self) -> ThermodynamicTemperature {
+            ThermodynamicTemperature::new::<degree_celsius>(100.)
+        }
+
+        fn get_state(&self) -> TurbineState {
+            TurbineState::Starting
+        }
     }
 
     struct AuxiliaryPowerUnitTester {
@@ -1165,6 +1221,11 @@ pub mod tests {
                 }
             }
 
+            self
+        }
+
+        fn turbine_infinitely_running_at(mut self, n: Ratio) -> Self {
+            self.apu.turbine = Some(Box::new(InfinitelyAtNTestTurbine::new(n)));
             self
         }
 
@@ -1497,10 +1558,26 @@ pub mod tests {
 
             // Move from Running to Shutdown turbine state.
             tester = tester.run(Duration::from_millis(1));
-            // APU N reduces below 99,5%.
-            tester = tester.run(Duration::from_secs(1));
+            // APU N reduces below 95%.
+            tester = tester.run(Duration::from_secs(5));
 
             assert!(!tester.apu_is_available());
+        }
+
+        #[test]
+        fn when_shutting_down_apu_remains_available_until_n_less_than_95() {
+            let mut tester = tester_with()
+                .running_apu_without_bleed_air()
+                .and()
+                .master_off();
+
+            let mut n = 100.;
+
+            while 0. < n {
+                tester = tester.run(Duration::from_millis(50));
+                n = tester.get_n().get::<percent>();
+                assert_eq!(tester.apu_is_available(), 95. <= n);
+            }
         }
 
         #[test]
@@ -1527,8 +1604,8 @@ pub mod tests {
 
             // Move from Running to Shutdown turbine state.
             tester = tester.run(Duration::from_millis(1));
-            // APU N reduces below 99,5%.
-            tester = tester.run(Duration::from_secs(1));
+            // APU N reduces below 95%.
+            tester = tester.run(Duration::from_secs(5));
 
             assert!(!tester.apu_is_available());
         }
@@ -1541,8 +1618,8 @@ pub mod tests {
 
             // Move from Running to Shutdown turbine state.
             tester = tester.master_off().run(Duration::from_millis(1));
-            // APU N reduces below 99,5%.
-            tester = tester.run(Duration::from_secs(1));
+            // APU N reduces below 95%.
+            tester = tester.run(Duration::from_secs(5));
 
             assert!(!tester.apu_is_available());
         }
@@ -1846,8 +1923,23 @@ pub mod tests {
         }
 
         #[test]
+        fn available_when_n_above_95_percent_for_2_seconds() {
+            let mut tester = tester_with()
+                .starting_apu()
+                .and()
+                .turbine_infinitely_running_at(Ratio::new::<percent>(96.))
+                .run(Duration::from_millis(1999));
+
+            assert!(!tester.apu_is_available());
+
+            tester = tester.run(Duration::from_millis(1));
+            assert!(tester.apu_is_available());
+        }
+
+        #[test]
         #[timeout(500)]
-        fn without_fuel_apu_starts_until_approximately_n_3_percent_and_then_shuts_down_with_fault() {
+        fn without_fuel_apu_starts_until_approximately_n_3_percent_and_then_shuts_down_with_fault()
+        {
             let mut tester = tester_with()
                 .no_fuel_available()
                 .run(Duration::from_secs(1_000))
@@ -1856,7 +1948,7 @@ pub mod tests {
 
             loop {
                 tester = tester.run(Duration::from_millis(50));
-                if tester.get_n().get::<percent>() >= 3.  {
+                if tester.get_n().get::<percent>() >= 3. {
                     break;
                 }
             }
@@ -1902,28 +1994,40 @@ pub mod tests {
 
         #[test]
         fn when_no_fuel_is_available_and_apu_is_running_auto_shutdown_is_true() {
-            let tester = tester_with().running_apu().and().no_fuel_available().run(Duration::from_secs(10));
+            let tester = tester_with()
+                .running_apu()
+                .and()
+                .no_fuel_available()
+                .run(Duration::from_secs(10));
 
             assert_eq!(tester.is_auto_shutdown(), true);
         }
 
         #[test]
         fn when_no_fuel_available_and_apu_not_running_auto_shutdown_is_false() {
-            let tester = tester_with().no_fuel_available().run(Duration::from_secs(10));
+            let tester = tester_with()
+                .no_fuel_available()
+                .run(Duration::from_secs(10));
 
             assert_eq!(tester.is_auto_shutdown(), false);
         }
 
         #[test]
         fn when_no_fuel_is_available_and_apu_is_running_apu_inoperable_is_true() {
-            let tester = tester_with().running_apu().and().no_fuel_available().run(Duration::from_secs(10));
+            let tester = tester_with()
+                .running_apu()
+                .and()
+                .no_fuel_available()
+                .run(Duration::from_secs(10));
 
             assert_eq!(tester.is_inoperable(), true);
         }
 
         #[test]
         fn when_no_fuel_available_and_apu_not_running_is_inoperable_is_false() {
-            let tester = tester_with().no_fuel_available().run(Duration::from_secs(10));
+            let tester = tester_with()
+                .no_fuel_available()
+                .run(Duration::from_secs(10));
 
             assert_eq!(tester.is_inoperable(), false);
         }
