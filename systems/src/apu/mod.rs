@@ -295,22 +295,27 @@ impl ApuStartContactorController for ElectronicControlBox {
         if self.has_fault() {
             false
         } else {
-            self.apu_n.get::<percent>() < 55.
-                && ((self.master_is_on && self.start_is_on && self.air_intake_flap_fully_open)
-                    || self.turbine_state == TurbineState::Starting)
+            match self.turbine_state {
+                TurbineState::Shutdown => {
+                    self.master_is_on && self.start_is_on && self.air_intake_flap_fully_open
+                }
+                TurbineState::Starting => self.apu_n.get::<percent>() < 55.,
+                _ => false,
+            }
         }
     }
 }
 impl AirIntakeFlapController for ElectronicControlBox {
     /// Indicates if the air intake flap should be opened.
     fn should_open_air_intake_flap(&self) -> bool {
-        self.master_is_on ||
+        match self.turbine_state {
+            TurbineState::Shutdown => self.master_is_on,
+            TurbineState::Starting => true,
             // While running, the air intake flap remains open.
+            TurbineState::Running => true,
             // Manual shutdown sequence: the air intake flap closes at N = 7%.
-            7. <= self.apu_n.get::<percent>()
-                // While starting, the air intake flap remains open; even when the
-                // starting sequence has only just begun and the MASTER SW is turned off.
-                || self.turbine_state == TurbineState::Starting
+            TurbineState::Stopping => self.master_is_on || 7. <= self.apu_n.get::<percent>(),
+        }
     }
 }
 impl TurbineController for ElectronicControlBox {
@@ -1905,6 +1910,32 @@ pub mod tests {
         fn start_contactor_is_not_energised_when_running() {
             let tester = tester_with().running_apu().run(Duration::from_secs(1_000));
             assert_eq!(tester.start_contactor_energized(), false);
+        }
+
+        #[test]
+        fn start_contactor_is_not_energised_when_shutting_down_with_master_on_and_start_on() {
+            let mut tester = tester_with()
+                .running_apu_without_bleed_air()
+                .and()
+                .master_off()
+                .run(Duration::from_secs(1));
+
+            while tester.apu_is_available() {
+                tester = tester.run(Duration::from_secs(1));
+            }
+
+            tester = tester.master_on().and().start_on();
+
+            let mut n = 100.;
+
+            while n > 0. {
+                // Assert before running, because otherwise we capture the Starting state which begins when at n = 0
+                // with the master and start switches on.
+                assert_eq!(tester.start_contactor_energized(), false);
+
+                tester = tester.run(Duration::from_secs(1));
+                n = tester.get_n().get::<percent>();
+            }
         }
 
         #[test]
