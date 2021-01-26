@@ -50,6 +50,7 @@ pub struct SimulatorReadWriter {
     apu_egt: NamedVariable,
     apu_egt_caution: NamedVariable,
     apu_egt_warning: NamedVariable,
+    apu_fire_button_released: NamedVariable,
     apu_flap_open: NamedVariable,
     apu_gen_amperage: NamedVariable,
     apu_gen_frequency: NamedVariable,
@@ -59,6 +60,7 @@ pub struct SimulatorReadWriter {
     apu_gen_voltage_within_normal_range: NamedVariable,
     apu_inoperable: NamedVariable,
     apu_is_auto_shutdown: NamedVariable,
+    apu_is_emergency_shutdown: NamedVariable,
     apu_low_fuel_pressure_fault: NamedVariable,
     apu_master_sw: NamedVariable,
     apu_master_sw_fault: NamedVariable,
@@ -82,6 +84,7 @@ impl SimulatorReadWriter {
             apu_egt: NamedVariable::from("A32NX_APU_EGT"),
             apu_egt_caution: NamedVariable::from("A32NX_APU_EGT_CAUTION"),
             apu_egt_warning: NamedVariable::from("A32NX_APU_EGT_WARNING"),
+            apu_fire_button_released: NamedVariable::from("A32NX_FIRE_BUTTON_APU"),
             apu_flap_open: NamedVariable::from("APU_FLAP_OPEN"),
             apu_gen_amperage: NamedVariable::from("A32NX_APU_GEN_AMPERAGE"),
             apu_gen_frequency: NamedVariable::from("A32NX_APU_GEN_FREQ"),
@@ -93,6 +96,7 @@ impl SimulatorReadWriter {
             ),
             apu_inoperable: NamedVariable::from("A32NX_ECAM_INOP_SYS_APU"),
             apu_is_auto_shutdown: NamedVariable::from("A32NX_APU_IS_AUTO_SHUTDOWN"),
+            apu_is_emergency_shutdown: NamedVariable::from("A32NX_APU_IS_EMERGENCY_SHUTDOWN"),
             apu_low_fuel_pressure_fault: NamedVariable::from("A32NX_APU_LOW_FUEL_PRESSURE_FAULT"),
             apu_master_sw: NamedVariable::from("A32NX_APU_MASTER_SW_ACTIVATED"),
             apu_master_sw_fault: NamedVariable::from("A32NX_APU_MASTER_FAULT"),
@@ -125,6 +129,7 @@ impl SimulatorReadWriter {
                 self.ambient_temperature.get(),
             ),
             apu_bleed_sw_on: to_bool(self.apu_bleed_sw_on.get()),
+            apu_fire_button_released: to_bool(self.apu_fire_button_released.get_value()),
             apu_gen_sw_on: to_bool(self.apu_gen_sw_on.get()),
             apu_master_sw_on: to_bool(self.apu_master_sw.get_value()),
             apu_start_sw_on: to_bool(self.apu_start_sw_on.get_value()),
@@ -164,6 +169,8 @@ impl SimulatorReadWriter {
             .set_value(from_bool(state.apu_inoperable));
         self.apu_is_auto_shutdown
             .set_value(from_bool(state.apu_is_auto_shutdown));
+        self.apu_is_emergency_shutdown
+            .set_value(from_bool(state.apu_is_emergency_shutdown));
         self.apu_low_fuel_pressure_fault
             .set_value(from_bool(state.apu_low_fuel_pressure_fault));
         self.apu_master_sw_fault

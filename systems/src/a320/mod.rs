@@ -1,6 +1,9 @@
 use self::{fuel::A320Fuel, pneumatic::A320PneumaticOverheadPanel};
 use crate::{
-    apu::{ApuGenerator, AuxiliaryPowerUnit, AuxiliaryPowerUnitOverheadPanel},
+    apu::{
+        ApuGenerator, AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel,
+        AuxiliaryPowerUnitOverheadPanel,
+    },
     electrical::ExternalPowerSource,
     shared::Engine,
     simulator::{SimulatorVisitable, SimulatorVisitor, UpdateContext},
@@ -20,6 +23,7 @@ pub struct A320 {
     engine_1: Engine,
     engine_2: Engine,
     apu: AuxiliaryPowerUnit,
+    apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel,
     apu_generator: ApuGenerator,
     apu_overhead: AuxiliaryPowerUnitOverheadPanel,
     pneumatic_overhead: A320PneumaticOverheadPanel,
@@ -36,6 +40,7 @@ impl A320 {
             engine_1: Engine::new(),
             engine_2: Engine::new(),
             apu: AuxiliaryPowerUnit::new(),
+            apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
             apu_generator: ApuGenerator::new(),
             apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
             pneumatic_overhead: A320PneumaticOverheadPanel::new(),
@@ -57,6 +62,7 @@ impl A320 {
         self.apu.update(
             context,
             &self.apu_overhead,
+            &self.apu_fire_overhead,
             self.pneumatic_overhead.apu_bleed_is_on(),
             // This will be replaced when integrating the whole electrical system.
             // For now we use the same logic as found in the JavaScript code; ignoring whether or not
@@ -89,6 +95,7 @@ impl A320 {
 impl SimulatorVisitable for A320 {
     fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
         self.apu.accept(visitor);
+        self.apu_fire_overhead.accept(visitor);
         self.apu_generator.accept(visitor);
         self.apu_overhead.accept(visitor);
         self.electrical_overhead.accept(visitor);

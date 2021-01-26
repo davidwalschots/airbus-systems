@@ -9,7 +9,6 @@ pub struct OnOffPushButton {
     fault: bool,
     available: bool,
 }
-
 impl OnOffPushButton {
     pub fn new_on() -> OnOffPushButton {
         OnOffPushButton {
@@ -78,7 +77,6 @@ pub struct NormalAltnPushButton {
     state: NormalAltnPushButtonState,
     fault: bool,
 }
-
 impl NormalAltnPushButton {
     pub fn new_normal() -> NormalAltnPushButton {
         NormalAltnPushButton {
@@ -117,7 +115,6 @@ pub struct AutoOffPushButton {
     state: AutoOffPushButtonState,
     fault: bool,
 }
-
 impl AutoOffPushButton {
     pub fn new_auto() -> AutoOffPushButton {
         AutoOffPushButton {
@@ -143,6 +140,23 @@ impl AutoOffPushButton {
 
     pub fn is_off(&self) -> bool {
         self.state == AutoOffPushButtonState::Off
+    }
+}
+
+pub struct FirePushButton {
+    released: bool,
+}
+impl FirePushButton {
+    pub fn new() -> Self {
+        FirePushButton { released: false }
+    }
+
+    pub fn set(&mut self, released: bool) {
+        self.released = self.released || released;
+    }
+
+    pub fn is_released(&self) -> bool {
+        self.released
     }
 }
 
@@ -188,5 +202,34 @@ mod auto_off_push_button_tests {
     #[test]
     fn new_off_push_button_is_off() {
         assert!(AutoOffPushButton::new_off().is_off());
+    }
+}
+
+#[cfg(test)]
+mod fire_push_button_tests {
+    use super::FirePushButton;
+
+    #[test]
+    fn new_fire_push_button_is_not_released() {
+        let pb = FirePushButton::new();
+
+        assert_eq!(pb.is_released(), false);
+    }
+
+    #[test]
+    fn when_set_as_released_is_released() {
+        let mut pb = FirePushButton::new();
+        pb.set(true);
+
+        assert_eq!(pb.is_released(), true);
+    }
+
+    #[test]
+    fn once_released_stays_released() {
+        let mut pb = FirePushButton::new();
+        pb.set(true);
+        pb.set(false);
+
+        assert_eq!(pb.is_released(), true);
     }
 }

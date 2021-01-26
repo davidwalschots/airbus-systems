@@ -35,7 +35,7 @@ use uom::si::{
 
 use crate::{
     electrical::{Current, PowerConductor, PowerSource},
-    overhead::OnOffPushButton,
+    overhead::{FirePushButton, OnOffPushButton},
     pneumatic::{BleedAirValve, Valve},
     shared::random_number,
     simulator::{
@@ -127,6 +127,7 @@ struct ElectronicControlBox {
     egt: ThermodynamicTemperature,
     egt_warning_temperature: ThermodynamicTemperature,
     n_above_95_duration: Duration,
+    fire_button_is_released: bool,
 }
 impl ElectronicControlBox {
     const RUNNING_WARNING_EGT: f64 = 682.;
@@ -148,17 +149,23 @@ impl ElectronicControlBox {
                 ElectronicControlBox::RUNNING_WARNING_EGT,
             ),
             n_above_95_duration: Duration::from_secs(0),
+            fire_button_is_released: false,
         }
     }
 
     fn update_overhead_panel_state(
         &mut self,
         overhead: &AuxiliaryPowerUnitOverheadPanel,
+        fire_overhead: &AuxiliaryPowerUnitFireOverheadPanel,
         apu_bleed_is_on: bool,
     ) {
         self.master_is_on = overhead.master_is_on();
         self.start_is_on = overhead.start_is_on();
         self.bleed_is_on = apu_bleed_is_on;
+        self.fire_button_is_released = fire_overhead.fire_button_is_released();
+        if fire_overhead.fire_button_is_released() {
+            self.fault = Some(ApuFault::ApuFire);
+        }
     }
 
     fn update_air_intake_flap_state(&mut self, air_intake_flap: &AirIntakeFlap) {
@@ -202,7 +209,10 @@ impl ElectronicControlBox {
     }
 
     fn update_fuel_pressure_switch_state(&mut self, fuel_pressure_switch: &FuelPressureSwitch) {
-        if 3. <= self.apu_n.get::<percent>() && !fuel_pressure_switch.has_pressure() {
+        if self.fault == None
+            && 3. <= self.apu_n.get::<percent>()
+            && !fuel_pressure_switch.has_pressure()
+        {
             self.fault = Some(ApuFault::FuelLowPressure);
         }
     }
@@ -241,12 +251,15 @@ impl ElectronicControlBox {
     }
 
     fn is_auto_shutdown(&self) -> bool {
-        // Currently all supported faults lead to an auto (non-emergency) shutdown.
-        self.has_fault()
+        !self.is_emergency_shutdown() && self.has_fault()
+    }
+
+    fn is_emergency_shutdown(&self) -> bool {
+        self.fault == Some(ApuFault::ApuFire)
     }
 
     fn is_inoperable(&self) -> bool {
-        self.has_fault()
+        self.has_fault() || self.fire_button_is_released
     }
 
     fn has_fuel_low_pressure_fault(&self) -> bool {
@@ -292,7 +305,7 @@ impl ElectronicControlBox {
 impl ApuStartContactorController for ElectronicControlBox {
     /// Indicates if the APU start contactor should be closed.
     fn should_close_start_contactor(&self) -> bool {
-        if self.has_fault() {
+        if self.is_inoperable() {
             false
         } else {
             match self.turbine_state {
@@ -325,7 +338,8 @@ impl TurbineController for ElectronicControlBox {
     }
 
     fn should_stop(&self) -> bool {
-        self.has_fault()
+        self.is_auto_shutdown()
+            || self.is_emergency_shutdown()
             || (!self.master_is_on
                 && self.turbine_state != TurbineState::Starting
                 && !self.bleed_air_valve_was_open_in_last(Duration::from_millis(
@@ -335,12 +349,16 @@ impl TurbineController for ElectronicControlBox {
 }
 impl BleedAirValveController for ElectronicControlBox {
     fn should_open_bleed_air_valve(&self) -> bool {
-        self.master_is_on && self.apu_n.get::<percent>() > 95. && self.bleed_is_on
+        self.fault != Some(ApuFault::ApuFire)
+            && self.master_is_on
+            && self.apu_n.get::<percent>() > 95.
+            && self.bleed_is_on
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ApuFault {
+    ApuFire,
     FuelLowPressure,
 }
 
@@ -370,12 +388,13 @@ impl AuxiliaryPowerUnit {
         &mut self,
         context: &UpdateContext,
         overhead: &AuxiliaryPowerUnitOverheadPanel,
+        fire_overhead: &AuxiliaryPowerUnitFireOverheadPanel,
         apu_bleed_is_on: bool,
         apu_gen_is_used: bool,
         has_fuel_remaining: bool,
     ) {
         self.ecb
-            .update_overhead_panel_state(overhead, apu_bleed_is_on);
+            .update_overhead_panel_state(overhead, fire_overhead, apu_bleed_is_on);
         self.start_contactor.update(&self.ecb);
         self.ecb.update_start_contactor_state(&self.start_contactor);
         self.fuel_pressure_switch.update(has_fuel_remaining);
@@ -442,6 +461,10 @@ impl AuxiliaryPowerUnit {
         self.ecb.has_fuel_low_pressure_fault()
     }
 
+    fn is_emergency_shutdown(&self) -> bool {
+        self.ecb.is_emergency_shutdown()
+    }
+
     fn is_auto_shutdown(&self) -> bool {
         self.ecb.is_auto_shutdown()
     }
@@ -463,6 +486,7 @@ impl SimulatorReadWritable for AuxiliaryPowerUnit {
         state.apu_egt = self.get_egt();
         state.apu_inoperable = self.is_inoperable();
         state.apu_is_auto_shutdown = self.is_auto_shutdown();
+        state.apu_is_emergency_shutdown = self.is_emergency_shutdown();
         state.apu_low_fuel_pressure_fault = self.has_fuel_low_pressure_fault();
         state.apu_n = self.get_n();
         state.apu_start_contactor_energized = self.start_contactor_energized();
@@ -880,17 +904,18 @@ impl ApuGenerator {
 
     pub fn update(&mut self, apu: &AuxiliaryPowerUnit) {
         let n = apu.get_n();
-        self.output = if n.get::<percent>() < ApuGenerator::APU_GEN_POWERED_N {
-            Current::None
-        } else {
-            Current::Alternating(
-                PowerSource::ApuGenerator,
-                self.calculate_frequency(n),
-                self.calculate_potential(n),
-                // TODO: Once we actually know what to do with the amperes, we'll have to adapt this.
-                ElectricCurrent::new::<ampere>(782.60),
-            )
-        }
+        self.output =
+            if apu.is_emergency_shutdown() || n.get::<percent>() < ApuGenerator::APU_GEN_POWERED_N {
+                Current::None
+            } else {
+                Current::Alternating(
+                    PowerSource::ApuGenerator,
+                    self.calculate_frequency(n),
+                    self.calculate_potential(n),
+                    // TODO: Once we actually know what to do with the amperes, we'll have to adapt this.
+                    ElectricCurrent::new::<ampere>(782.60),
+                )
+            }
     }
 
     fn calculate_potential(&self, n: Ratio) -> ElectricPotential {
@@ -980,6 +1005,31 @@ impl SimulatorReadWritable for ApuGenerator {
         state.apu_gen_frequency_within_normal_range = self.frequency_within_normal_range();
         state.apu_gen_potential = self.output().get_potential();
         state.apu_gen_potential_within_normal_range = self.potential_within_normal_range();
+    }
+}
+
+pub struct AuxiliaryPowerUnitFireOverheadPanel {
+    apu_fire_button: FirePushButton,
+}
+impl AuxiliaryPowerUnitFireOverheadPanel {
+    pub fn new() -> Self {
+        AuxiliaryPowerUnitFireOverheadPanel {
+            apu_fire_button: FirePushButton::new(),
+        }
+    }
+
+    fn fire_button_is_released(&self) -> bool {
+        self.apu_fire_button.is_released()
+    }
+}
+impl SimulatorVisitable for AuxiliaryPowerUnitFireOverheadPanel {
+    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
+        visitor.visit(self);
+    }
+}
+impl SimulatorReadWritable for AuxiliaryPowerUnitFireOverheadPanel {
+    fn read(&mut self, state: &SimulatorReadState) {
+        self.apu_fire_button.set(state.apu_fire_button_released);
     }
 }
 
@@ -1147,6 +1197,7 @@ pub mod tests {
 
     struct AuxiliaryPowerUnitTester {
         apu: AuxiliaryPowerUnit,
+        apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel,
         apu_overhead: AuxiliaryPowerUnitOverheadPanel,
         apu_bleed: OnOffPushButton,
         apu_generator: ApuGenerator,
@@ -1159,6 +1210,7 @@ pub mod tests {
         fn new() -> Self {
             AuxiliaryPowerUnitTester {
                 apu: AuxiliaryPowerUnit::new(),
+                apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
                 apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
                 apu_bleed: OnOffPushButton::new_on(),
                 apu_generator: ApuGenerator::new(),
@@ -1216,6 +1268,11 @@ pub mod tests {
             self
         }
 
+        fn released_apu_fire_pb(mut self) -> Self {
+            self.apu_fire_overhead.apu_fire_button.set(true);
+            self
+        }
+
         fn running_apu(mut self) -> Self {
             self = self.starting_apu();
             loop {
@@ -1227,6 +1284,11 @@ pub mod tests {
             }
 
             self
+        }
+
+        fn running_apu_going_in_emergency_shutdown(mut self) -> Self {
+            self = self.running_apu_with_bleed_air();
+            self.released_apu_fire_pb()
         }
 
         fn turbine_infinitely_running_at(mut self, n: Ratio) -> Self {
@@ -1303,6 +1365,7 @@ pub mod tests {
                     .indicated_altitude(self.indicated_altitude)
                     .build(),
                 &self.apu_overhead,
+                &self.apu_fire_overhead,
                 self.apu_bleed.is_on(),
                 self.apu_gen_is_used,
                 self.has_fuel_remaining,
@@ -1379,8 +1442,16 @@ pub mod tests {
             self.apu.is_auto_shutdown()
         }
 
+        fn is_emergency_shutdown(&self) -> bool {
+            self.apu.is_emergency_shutdown()
+        }
+
         fn is_inoperable(&self) -> bool {
             self.apu.is_inoperable()
+        }
+
+        fn bleed_air_valve_is_open(&self) -> bool {
+            self.apu.bleed_air_valve_is_open()
         }
     }
 
@@ -2069,6 +2140,45 @@ pub mod tests {
 
             assert_eq!(tester.is_inoperable(), false)
         }
+
+        #[test]
+        fn when_fire_pb_released_apu_is_inoperable() {
+            let tester = tester_with()
+                .released_apu_fire_pb()
+                .run(Duration::from_secs(1));
+
+            assert!(tester.is_inoperable(), true);
+        }
+
+        #[test]
+        fn when_fire_pb_released_bleed_valve_closes() {
+            let tester = tester_with()
+                .running_apu_going_in_emergency_shutdown()
+                .run(Duration::from_secs(1));
+
+            assert!(!tester.bleed_air_valve_is_open());
+        }
+
+        #[test]
+        fn when_fire_pb_released_apu_is_emergency_shutdown() {
+            let tester = tester_with()
+                .running_apu_going_in_emergency_shutdown()
+                .run(Duration::from_secs(1));
+
+            assert!(tester.is_emergency_shutdown());
+        }
+
+        #[test]
+        fn when_in_emergency_shutdown_apu_shuts_down() {
+            let tester = tester_with()
+                .running_apu_going_in_emergency_shutdown()
+                // Transition to Stopping state.
+                .run(Duration::from_millis(1))
+                .then_continue_with()
+                .run(Duration::from_secs(60));
+
+            assert_eq!(tester.get_n().get::<percent>(), 0.);
+        }
     }
 
     #[cfg(test)]
@@ -2171,7 +2281,7 @@ pub mod tests {
 
         #[test]
         fn when_running_frequency_normal() {
-            let tester = tester().running_apu().run(Duration::from_secs(1_000));
+            let tester = tester_with().running_apu().run(Duration::from_secs(1_000));
 
             assert!(tester.generator_frequency_within_normal_range());
         }
@@ -2185,9 +2295,20 @@ pub mod tests {
 
         #[test]
         fn when_running_potential_normal() {
-            let tester = tester().running_apu().run(Duration::from_secs(1_000));
+            let tester = tester_with().running_apu().run(Duration::from_secs(1_000));
 
             assert!(tester.generator_potential_within_normal_range());
+        }
+
+        #[test]
+        fn when_apu_emergency_shutdown_provides_no_output() {
+            let tester = tester_with()
+                .running_apu()
+                .and()
+                .released_apu_fire_pb()
+                .run(Duration::from_secs(1));
+
+            assert!(tester.get_generator_output().is_unpowered());
         }
 
         fn apu_generator() -> ApuGenerator {

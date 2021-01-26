@@ -73,6 +73,7 @@ pub trait SimulatorVisitor {
 pub struct SimulatorReadState {
     pub ambient_temperature: ThermodynamicTemperature,
     pub apu_bleed_sw_on: bool,
+    pub apu_fire_button_released: bool,
     pub apu_gen_sw_on: bool,
     pub apu_master_sw_on: bool,
     pub apu_start_sw_on: bool,
@@ -106,6 +107,7 @@ pub struct SimulatorWriteState {
     pub apu_gen_potential_within_normal_range: bool,
     pub apu_inoperable: bool,
     pub apu_is_auto_shutdown: bool,
+    pub apu_is_emergency_shutdown: bool,
     pub apu_low_fuel_pressure_fault: bool,
     pub apu_master_sw_fault: bool,
     pub apu_n: Ratio,
