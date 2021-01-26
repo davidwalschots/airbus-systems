@@ -22,7 +22,6 @@ pub struct A320Electrical {
     engine_2_gen_contactor: Contactor,
     bus_tie_1_contactor: Contactor,
     bus_tie_2_contactor: Contactor,
-    apu_gen: Box<dyn ApuGenerator>,
     apu_gen_contactor: Contactor,
     ext_pwr_contactor: Contactor,
     ac_bus_1: ElectricalBus,
@@ -75,7 +74,6 @@ impl A320Electrical {
             engine_2_gen_contactor: Contactor::new(String::from("9XU2")),
             bus_tie_1_contactor: Contactor::new(String::from("11XU1")),
             bus_tie_2_contactor: Contactor::new(String::from("11XU2")),
-            apu_gen: Aps3200ApuGenerator::new(),
             apu_gen_contactor: Contactor::new(String::from("3XS")),
             ext_pwr_contactor: Contactor::new(String::from("3XG")),
             ac_bus_1: ElectricalBus::new(),
@@ -132,7 +130,6 @@ impl A320Electrical {
     ) {
         self.engine_1_gen.update(context, engine1, &overhead.idg_1);
         self.engine_2_gen.update(context, engine2, &overhead.idg_2);
-        self.apu_gen.update(apu);
         self.emergency_gen.update(
             // ON GROUND BAT ONLY SPEED <= 100 kts scenario. We'll probably need to move this logic into
             // the ram air turbine, emergency generator and hydraulic implementation.
@@ -150,7 +147,7 @@ impl A320Electrical {
             && ext_pwr.is_powered()
             && !both_engine_gens_provide_power;
         let apu_gen_provides_power = overhead.apu_generator_is_on()
-            && self.apu_gen.is_powered()
+            && apu.is_powered()
             && !ext_pwr_provides_power
             && !both_engine_gens_provide_power;
 
@@ -171,7 +168,7 @@ impl A320Electrical {
                     || (apu_or_ext_pwr_provides_power && !gen_2_provides_power)),
         );
 
-        self.apu_gen_contactor.powered_by(vec![&*self.apu_gen]);
+        self.apu_gen_contactor.powered_by(vec![apu]);
         self.ext_pwr_contactor.powered_by(vec![ext_pwr]);
 
         self.engine_1_gen_contactor

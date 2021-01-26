@@ -1,8 +1,8 @@
 use self::{fuel::A320Fuel, pneumatic::A320PneumaticOverheadPanel};
 use crate::{
     apu::{
-        Aps3200ApuGenerator, ApuGenerator, AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel,
-        AuxiliaryPowerUnitOverheadPanel,
+        Aps3200ApuGenerator, Aps3200Turbine, AuxiliaryPowerUnit,
+        AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
     electrical::ExternalPowerSource,
     shared::Engine,
@@ -24,7 +24,6 @@ pub struct A320 {
     engine_2: Engine,
     apu: AuxiliaryPowerUnit,
     apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel,
-    apu_generator: Box<dyn ApuGenerator>,
     apu_overhead: AuxiliaryPowerUnitOverheadPanel,
     pneumatic_overhead: A320PneumaticOverheadPanel,
     ext_pwr: ExternalPowerSource,
@@ -39,9 +38,8 @@ impl A320 {
         A320 {
             engine_1: Engine::new(),
             engine_2: Engine::new(),
-            apu: AuxiliaryPowerUnit::new(),
+            apu: AuxiliaryPowerUnit::new(Aps3200Turbine::new(), Aps3200ApuGenerator::new()),
             apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
-            apu_generator: Aps3200ApuGenerator::new(),
             apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
             pneumatic_overhead: A320PneumaticOverheadPanel::new(),
             ext_pwr: ExternalPowerSource::new(),
@@ -72,7 +70,6 @@ impl A320 {
                     && self.electrical_overhead.external_power_is_available()),
             self.fuel.left_inner_tank_has_fuel_remaining(),
         );
-        self.apu_generator.update(&self.apu);
         self.apu_overhead.update_after_apu(&self.apu);
 
         self.ext_pwr.update(context);
@@ -96,7 +93,6 @@ impl SimulatorVisitable for A320 {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
         self.apu.accept(visitor);
         self.apu_fire_overhead.accept(visitor);
-        self.apu_generator.accept(visitor);
         self.apu_overhead.accept(visitor);
         self.electrical_overhead.accept(visitor);
         self.fuel.accept(visitor);

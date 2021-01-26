@@ -449,9 +449,8 @@ impl Aps3200ApuGenerator {
     }
 }
 impl ApuGenerator for Aps3200ApuGenerator {
-    fn update(&mut self, apu: &AuxiliaryPowerUnit) {
-        let n = apu.get_n();
-        self.output = if apu.is_emergency_shutdown()
+    fn update(&mut self, n: Ratio, is_emergency_shutdown: bool) {
+        self.output = if is_emergency_shutdown
             || n.get::<percent>() < Aps3200ApuGenerator::APU_GEN_POWERED_N
         {
             Current::None
@@ -632,10 +631,10 @@ mod apu_generator_tests {
     }
 
     fn update_above_threshold(generator: &mut dyn ApuGenerator) {
-        generator.update(&running_apu());
+        generator.update(Ratio::new::<percent>(100.), false);
     }
 
     fn update_below_threshold(generator: &mut dyn ApuGenerator) {
-        generator.update(&stopped_apu());
+        generator.update(Ratio::new::<percent>(0.), false);
     }
 }

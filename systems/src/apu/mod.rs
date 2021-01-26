@@ -4,10 +4,7 @@
 //! > EGT increases, EGT warning level, etc. are there but might not reflect the
 //! > real APU fully. This involves further tweaking as we get more information.
 
-use self::{
-    air_intake_flap::AirIntakeFlap, aps3200::Aps3200Turbine,
-    electronic_control_box::ElectronicControlBox,
-};
+use self::{air_intake_flap::AirIntakeFlap, electronic_control_box::ElectronicControlBox};
 use crate::{
     electrical::{Current, PowerConductor, PowerSource},
     overhead::{FirePushButton, OnOffPushButton},
@@ -23,7 +20,7 @@ mod air_intake_flap;
 mod aps3200;
 mod electronic_control_box;
 
-pub use aps3200::Aps3200ApuGenerator;
+pub use aps3200::{Aps3200ApuGenerator, Aps3200Turbine};
 
 /// The APU start contactor is closed when the APU should start. This type exists because we
 /// don't have a full electrical implementation yet. Once we do, we will probably move this
@@ -96,6 +93,7 @@ pub trait TurbineController {
 
 pub struct AuxiliaryPowerUnit {
     turbine: Option<Box<dyn Turbine>>,
+    generator: Box<dyn ApuGenerator>,
     ecb: ElectronicControlBox,
     start_contactor: ApuStartContactor,
     air_intake_flap: AirIntakeFlap,
@@ -103,9 +101,10 @@ pub struct AuxiliaryPowerUnit {
     fuel_pressure_switch: FuelPressureSwitch,
 }
 impl AuxiliaryPowerUnit {
-    pub fn new() -> AuxiliaryPowerUnit {
+    pub fn new(turbine: Box<dyn Turbine>, generator: Box<dyn ApuGenerator>) -> AuxiliaryPowerUnit {
         AuxiliaryPowerUnit {
-            turbine: Some(Aps3200Turbine::new()),
+            turbine: Some(turbine),
+            generator,
             ecb: ElectronicControlBox::new(),
             start_contactor: ApuStartContactor::new(),
             air_intake_flap: AirIntakeFlap::new(),
@@ -149,6 +148,9 @@ impl AuxiliaryPowerUnit {
         self.bleed_air_valve.update(&self.ecb);
         self.ecb
             .update_bleed_air_valve_state(context, &self.bleed_air_valve);
+
+        self.generator
+            .update(self.get_n(), self.is_emergency_shutdown());
     }
 
     pub fn get_n(&self) -> Ratio {
@@ -202,9 +204,22 @@ impl AuxiliaryPowerUnit {
     fn is_inoperable(&self) -> bool {
         self.ecb.is_inoperable()
     }
+
+    fn frequency_within_normal_range(&self) -> bool {
+        self.generator.frequency_within_normal_range()
+    }
+    fn potential_within_normal_range(&self) -> bool {
+        self.generator.potential_within_normal_range()
+    }
+}
+impl PowerConductor for AuxiliaryPowerUnit {
+    fn output(&self) -> Current {
+        self.generator.output()
+    }
 }
 impl SimulatorVisitable for AuxiliaryPowerUnit {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
+        self.generator.accept(visitor);
         visitor.visit(&mut Box::new(self));
     }
 }
@@ -246,7 +261,7 @@ pub enum TurbineState {
 }
 
 pub trait ApuGenerator: PowerConductor + SimulatorVisitable + SimulatorReadWritable {
-    fn update(&mut self, apu: &AuxiliaryPowerUnit);
+    fn update(&mut self, n: Ratio, is_emergency_shutdown: bool);
     fn frequency_within_normal_range(&self) -> bool;
     fn potential_within_normal_range(&self) -> bool;
 }
@@ -391,7 +406,6 @@ pub mod tests {
         apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel,
         apu_overhead: AuxiliaryPowerUnitOverheadPanel,
         apu_bleed: OnOffPushButton,
-        apu_generator: Box<dyn ApuGenerator>,
         ambient_temperature: ThermodynamicTemperature,
         indicated_altitude: Length,
         apu_gen_is_used: bool,
@@ -400,11 +414,10 @@ pub mod tests {
     impl AuxiliaryPowerUnitTester {
         fn new() -> Self {
             AuxiliaryPowerUnitTester {
-                apu: AuxiliaryPowerUnit::new(),
+                apu: AuxiliaryPowerUnit::new(Aps3200Turbine::new(), Aps3200ApuGenerator::new()),
                 apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
                 apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
                 apu_bleed: OnOffPushButton::new_on(),
-                apu_generator: Aps3200ApuGenerator::new(),
                 ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
                 indicated_altitude: Length::new::<foot>(5000.),
                 apu_gen_is_used: true,
@@ -562,8 +575,6 @@ pub mod tests {
                 self.has_fuel_remaining,
             );
 
-            self.apu_generator.update(&self.apu);
-
             self.apu_overhead.update_after_apu(&self.apu);
 
             self
@@ -610,7 +621,7 @@ pub mod tests {
         }
 
         pub fn get_generator_output(&self) -> Current {
-            self.apu_generator.output()
+            self.apu.output()
         }
 
         fn start_contactor_energized(&self) -> bool {
@@ -618,11 +629,11 @@ pub mod tests {
         }
 
         pub fn generator_frequency_within_normal_range(&self) -> bool {
-            self.apu_generator.frequency_within_normal_range()
+            self.apu.frequency_within_normal_range()
         }
 
         pub fn generator_potential_within_normal_range(&self) -> bool {
-            self.apu_generator.potential_within_normal_range()
+            self.apu.potential_within_normal_range()
         }
 
         fn has_fuel_low_pressure_fault(&self) -> bool {
