@@ -98,6 +98,7 @@ impl SimulatorReadState {
 #[derive(Default)]
 pub struct SimulatorWriteState {
     pub apu_bleed_air_valve_open: bool,
+    pub apu_bleed_fault: bool,
     pub apu_caution_egt: ThermodynamicTemperature,
     pub apu_egt: ThermodynamicTemperature,
     pub apu_gen_current: ElectricCurrent,

@@ -8,7 +8,7 @@ use self::{air_intake_flap::AirIntakeFlap, electronic_control_box::ElectronicCon
 use crate::{
     electrical::{Current, PowerConductor, PowerSource},
     overhead::{FirePushButton, OnOffPushButton},
-    pneumatic::{BleedAirValve, Valve},
+    pneumatic::{BleedAirValve, BleedAirValveState, Valve},
     simulator::{
         SimulatorReadState, SimulatorReadWritable, SimulatorVisitable, SimulatorVisitor,
         SimulatorWriteState, UpdateContext,
@@ -173,10 +173,6 @@ impl AuxiliaryPowerUnit {
         self.start_contactor.is_powered()
     }
 
-    fn bleed_air_valve_is_open(&self) -> bool {
-        self.bleed_air_valve.is_open()
-    }
-
     fn has_fault(&self) -> bool {
         self.ecb.has_fault()
     }
@@ -205,9 +201,12 @@ impl AuxiliaryPowerUnit {
         self.ecb.is_inoperable()
     }
 
+    #[cfg(test)]
     fn frequency_within_normal_range(&self) -> bool {
         self.generator.frequency_within_normal_range()
     }
+
+    #[cfg(test)]
     fn potential_within_normal_range(&self) -> bool {
         self.generator.potential_within_normal_range()
     }
@@ -236,6 +235,11 @@ impl SimulatorReadWritable for AuxiliaryPowerUnit {
         state.apu_n = self.get_n();
         state.apu_start_contactor_energized = self.start_contactor_energized();
         state.apu_warning_egt = self.get_egt_warning_temperature();
+    }
+}
+impl BleedAirValveState for AuxiliaryPowerUnit {
+    fn bleed_air_valve_is_open(&self) -> bool {
+        self.bleed_air_valve.is_open()
     }
 }
 

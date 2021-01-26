@@ -71,6 +71,7 @@ impl A320 {
             self.fuel.left_inner_tank_has_fuel_remaining(),
         );
         self.apu_overhead.update_after_apu(&self.apu);
+        self.pneumatic_overhead.update_after_apu(&self.apu);
 
         self.ext_pwr.update(context);
         self.electrical_overhead.update(context);

@@ -1,5 +1,9 @@
 //! As we've not yet modelled pneumatic systems and some pneumatic things are needed for the APU, for now this implementation will be very simple.
 
+pub trait BleedAirValveState {
+    fn bleed_air_valve_is_open(&self) -> bool;
+}
+
 pub trait Valve {
     fn is_open(&self) -> bool;
 }
