@@ -16,7 +16,7 @@ impl<'a> SimulatorToModelVisitor<'a> {
     }
 }
 impl SimulatorVisitor for SimulatorToModelVisitor<'_> {
-    fn visit<T: SimulatorReadWritable>(&mut self, visited: &mut T) {
+    fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorReadWritable>) {
         visited.read(&self.state);
     }
 }
@@ -36,7 +36,7 @@ impl ModelToSimulatorVisitor {
     }
 }
 impl SimulatorVisitor for ModelToSimulatorVisitor {
-    fn visit<T: SimulatorReadWritable>(&mut self, visited: &mut T) {
+    fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorReadWritable>) {
         visited.write(&mut self.state);
     }
 }
@@ -62,11 +62,11 @@ pub trait SimulatorReadWritable {
 }
 
 pub trait SimulatorVisitable {
-    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T);
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>);
 }
 
 pub trait SimulatorVisitor {
-    fn visit<T: SimulatorReadWritable>(&mut self, visited: &mut T);
+    fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorReadWritable>);
 }
 
 #[derive(Default)]

@@ -27,12 +27,12 @@ async fn demo(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> 
 
                 let state = sim_read_writer.read();
                 let mut visitor = SimulatorToModelVisitor::new(&state);
-                a320.accept(&mut visitor);
+                a320.accept(&mut Box::new(&mut visitor));
 
                 a320.update(&state.to_context(d.delta_time()));
 
                 let mut visitor = ModelToSimulatorVisitor::new();
-                a320.accept(&mut visitor);
+                a320.accept(&mut Box::new(&mut visitor));
 
                 sim_read_writer.write(&visitor.get_state());
             }

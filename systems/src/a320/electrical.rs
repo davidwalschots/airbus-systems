@@ -1,6 +1,6 @@
 use super::A320Hydraulic;
 use crate::{
-    apu::{ApuGenerator, AuxiliaryPowerUnit},
+    apu::{Aps3200ApuGenerator, ApuGenerator, AuxiliaryPowerUnit},
     electrical::{
         Battery, Contactor, ElectricalBus, EmergencyGenerator, EngineGenerator,
         ExternalPowerSource, PowerConductor, Powerable, StaticInverter, TransformerRectifier,
@@ -22,7 +22,7 @@ pub struct A320Electrical {
     engine_2_gen_contactor: Contactor,
     bus_tie_1_contactor: Contactor,
     bus_tie_2_contactor: Contactor,
-    apu_gen: ApuGenerator,
+    apu_gen: Box<dyn ApuGenerator>,
     apu_gen_contactor: Contactor,
     ext_pwr_contactor: Contactor,
     ac_bus_1: ElectricalBus,
@@ -75,7 +75,7 @@ impl A320Electrical {
             engine_2_gen_contactor: Contactor::new(String::from("9XU2")),
             bus_tie_1_contactor: Contactor::new(String::from("11XU1")),
             bus_tie_2_contactor: Contactor::new(String::from("11XU2")),
-            apu_gen: ApuGenerator::new(),
+            apu_gen: Aps3200ApuGenerator::new(),
             apu_gen_contactor: Contactor::new(String::from("3XS")),
             ext_pwr_contactor: Contactor::new(String::from("3XG")),
             ac_bus_1: ElectricalBus::new(),
@@ -171,7 +171,7 @@ impl A320Electrical {
                     || (apu_or_ext_pwr_provides_power && !gen_2_provides_power)),
         );
 
-        self.apu_gen_contactor.powered_by(vec![&self.apu_gen]);
+        self.apu_gen_contactor.powered_by(vec![&*self.apu_gen]);
         self.ext_pwr_contactor.powered_by(vec![ext_pwr]);
 
         self.engine_1_gen_contactor
@@ -503,8 +503,8 @@ impl A320ElectricalOverheadPanel {
     }
 }
 impl SimulatorVisitable for A320ElectricalOverheadPanel {
-    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
-        visitor.visit(self);
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
+        visitor.visit(&mut Box::new(self));
     }
 }
 impl SimulatorReadWritable for A320ElectricalOverheadPanel {

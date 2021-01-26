@@ -1,6 +1,4 @@
-use crate::{
-    apu::AuxiliaryPowerUnit, overhead::OnOffPushButton, shared::Engine, simulator::UpdateContext,
-};
+use crate::{overhead::OnOffPushButton, shared::Engine, simulator::UpdateContext};
 use std::cmp::min;
 use uom::si::{
     electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f64::*,

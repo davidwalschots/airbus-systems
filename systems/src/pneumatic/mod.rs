@@ -4,6 +4,11 @@ pub trait Valve {
     fn is_open(&self) -> bool;
 }
 
+/// Signals to the bleed air valve what position it should move towards.
+pub trait BleedAirValveController {
+    fn should_open_bleed_air_valve(&self) -> bool;
+}
+
 pub struct BleedAirValve {
     open: bool,
 }
@@ -12,8 +17,8 @@ impl BleedAirValve {
         BleedAirValve { open: false }
     }
 
-    pub fn open_when(&mut self, condition: bool) {
-        self.open = condition;
+    pub fn update<T: BleedAirValveController>(&mut self, controller: &T) {
+        self.open = controller.should_open_bleed_air_valve();
     }
 }
 impl Valve for BleedAirValve {

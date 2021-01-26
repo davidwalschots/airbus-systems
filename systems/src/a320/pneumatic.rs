@@ -28,8 +28,8 @@ impl A320PneumaticOverheadPanel {
     }
 }
 impl SimulatorVisitable for A320PneumaticOverheadPanel {
-    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
-        visitor.visit(self);
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
+        visitor.visit(&mut Box::new(self));
     }
 }
 impl SimulatorReadWritable for A320PneumaticOverheadPanel {

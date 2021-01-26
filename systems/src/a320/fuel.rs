@@ -22,8 +22,8 @@ impl A320Fuel {
     }
 }
 impl SimulatorVisitable for A320Fuel {
-    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
-        visitor.visit(self);
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
+        visitor.visit(&mut Box::new(self));
     }
 }
 impl SimulatorReadWritable for A320Fuel {

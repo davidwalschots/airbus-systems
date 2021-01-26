@@ -1,7 +1,7 @@
 use self::{fuel::A320Fuel, pneumatic::A320PneumaticOverheadPanel};
 use crate::{
     apu::{
-        ApuGenerator, AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel,
+        Aps3200ApuGenerator, ApuGenerator, AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel,
         AuxiliaryPowerUnitOverheadPanel,
     },
     electrical::ExternalPowerSource,
@@ -24,7 +24,7 @@ pub struct A320 {
     engine_2: Engine,
     apu: AuxiliaryPowerUnit,
     apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel,
-    apu_generator: ApuGenerator,
+    apu_generator: Box<dyn ApuGenerator>,
     apu_overhead: AuxiliaryPowerUnitOverheadPanel,
     pneumatic_overhead: A320PneumaticOverheadPanel,
     ext_pwr: ExternalPowerSource,
@@ -41,7 +41,7 @@ impl A320 {
             engine_2: Engine::new(),
             apu: AuxiliaryPowerUnit::new(),
             apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
-            apu_generator: ApuGenerator::new(),
+            apu_generator: Aps3200ApuGenerator::new(),
             apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
             pneumatic_overhead: A320PneumaticOverheadPanel::new(),
             ext_pwr: ExternalPowerSource::new(),
@@ -93,7 +93,7 @@ impl A320 {
     }
 }
 impl SimulatorVisitable for A320 {
-    fn accept<T: SimulatorVisitor>(&mut self, visitor: &mut T) {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
         self.apu.accept(visitor);
         self.apu_fire_overhead.accept(visitor);
         self.apu_generator.accept(visitor);
