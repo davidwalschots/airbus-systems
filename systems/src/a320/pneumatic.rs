@@ -47,12 +47,8 @@ impl SimulatorReadWritable for A320PneumaticOverheadPanel {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::{
-        apu::{tests::tester_with, AuxiliaryPowerUnit},
-        pneumatic::BleedAirValveState,
-    };
-
     use super::A320PneumaticOverheadPanel;
+    use crate::pneumatic::BleedAirValveState;
 
     fn overhead() -> A320PneumaticOverheadPanel {
         A320PneumaticOverheadPanel::new()

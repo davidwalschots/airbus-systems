@@ -1,4 +1,4 @@
-use super::{ApuGenerator, AuxiliaryPowerUnit, Turbine, TurbineController, TurbineState};
+use super::{ApuGenerator, Turbine, TurbineController, TurbineState};
 use crate::{
     electrical::{Current, PowerConductor, PowerSource},
     shared::random_number,
@@ -15,10 +15,8 @@ use uom::si::{
 
 pub struct Aps3200Turbine {}
 impl Aps3200Turbine {
-    pub fn new() -> Box<dyn Turbine> {
-        Box::new(ShutdownTurbine::new(ThermodynamicTemperature::new::<
-            degree_celsius,
-        >(0.)))
+    pub fn new() -> impl Turbine {
+        ShutdownTurbine::new(ThermodynamicTemperature::new::<degree_celsius>(0.))
     }
 }
 
@@ -382,10 +380,10 @@ pub struct Aps3200ApuGenerator {
 impl Aps3200ApuGenerator {
     const APU_GEN_POWERED_N: f64 = 84.;
 
-    pub fn new() -> Box<dyn ApuGenerator> {
-        Box::new(Aps3200ApuGenerator {
+    pub fn new() -> Aps3200ApuGenerator {
+        Aps3200ApuGenerator {
             output: Current::None,
-        })
+        }
     }
 
     fn calculate_potential(&self, n: Ratio) -> ElectricPotential {
@@ -627,7 +625,7 @@ mod apu_generator_tests {
     }
 
     fn apu_generator() -> Box<dyn ApuGenerator> {
-        Aps3200ApuGenerator::new()
+        Box::new(Aps3200ApuGenerator::new())
     }
 
     fn update_above_threshold(generator: &mut dyn ApuGenerator) {

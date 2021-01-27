@@ -1,6 +1,6 @@
 use super::A320Hydraulic;
 use crate::{
-    apu::{Aps3200ApuGenerator, ApuGenerator, AuxiliaryPowerUnit},
+    apu::AuxiliaryPowerUnit,
     electrical::{
         Battery, Contactor, ElectricalBus, EmergencyGenerator, EngineGenerator,
         ExternalPowerSource, PowerConductor, Powerable, StaticInverter, TransformerRectifier,

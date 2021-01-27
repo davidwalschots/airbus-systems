@@ -12,7 +12,6 @@ pub struct DelayedTrueLogicGate {
     expression_result: bool,
     true_duration: Duration,
 }
-
 impl DelayedTrueLogicGate {
     pub fn new(delay: Duration) -> DelayedTrueLogicGate {
         DelayedTrueLogicGate {
@@ -45,7 +44,6 @@ impl DelayedTrueLogicGate {
 pub struct Engine {
     pub n2: Ratio,
 }
-
 impl Engine {
     pub fn new() -> Engine {
         Engine {

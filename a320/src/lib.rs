@@ -23,8 +23,6 @@ async fn demo(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> 
     while let Some(event) = gauge.next_event().await {
         match event {
             MSFSEvent::PreDraw(d) => {
-                println!("TICK");
-
                 let state = sim_read_writer.read();
                 let mut visitor = SimulatorToModelVisitor::new(&state);
                 a320.accept(&mut Box::new(&mut visitor));

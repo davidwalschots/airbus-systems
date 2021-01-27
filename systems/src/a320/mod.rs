@@ -1,8 +1,7 @@
 use self::{fuel::A320Fuel, pneumatic::A320PneumaticOverheadPanel};
 use crate::{
     apu::{
-        Aps3200ApuGenerator, Aps3200Turbine, AuxiliaryPowerUnit,
-        AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
+        AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
     electrical::ExternalPowerSource,
     shared::Engine,
@@ -32,13 +31,12 @@ pub struct A320 {
     fuel: A320Fuel,
     hydraulic: A320Hydraulic,
 }
-
 impl A320 {
     pub fn new() -> A320 {
         A320 {
             engine_1: Engine::new(),
             engine_2: Engine::new(),
-            apu: AuxiliaryPowerUnit::new(Aps3200Turbine::new(), Aps3200ApuGenerator::new()),
+            apu: AuxiliaryPowerUnit::new_aps3200(),
             apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
             apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
             pneumatic_overhead: A320PneumaticOverheadPanel::new(),

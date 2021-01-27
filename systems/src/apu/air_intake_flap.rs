@@ -1,10 +1,7 @@
-use std::time::Duration;
-
-use uom::si::{f64::*, ratio::percent};
-
-use crate::{shared::random_number, simulator::UpdateContext};
-
 use super::AirIntakeFlapController;
+use crate::{shared::random_number, simulator::UpdateContext};
+use std::time::Duration;
+use uom::si::{f64::*, ratio::percent};
 
 #[derive(Debug)]
 pub struct AirIntakeFlap {

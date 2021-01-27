@@ -101,7 +101,14 @@ pub struct AuxiliaryPowerUnit {
     fuel_pressure_switch: FuelPressureSwitch,
 }
 impl AuxiliaryPowerUnit {
-    pub fn new(turbine: Box<dyn Turbine>, generator: Box<dyn ApuGenerator>) -> AuxiliaryPowerUnit {
+    pub fn new_aps3200() -> Self {
+        AuxiliaryPowerUnit::new(
+            Box::new(Aps3200Turbine::new()),
+            Box::new(Aps3200ApuGenerator::new()),
+        )
+    }
+
+    fn new(turbine: Box<dyn Turbine>, generator: Box<dyn ApuGenerator>) -> Self {
         AuxiliaryPowerUnit {
             turbine: Some(turbine),
             generator,
@@ -418,7 +425,7 @@ pub mod tests {
     impl AuxiliaryPowerUnitTester {
         fn new() -> Self {
             AuxiliaryPowerUnitTester {
-                apu: AuxiliaryPowerUnit::new(Aps3200Turbine::new(), Aps3200ApuGenerator::new()),
+                apu: AuxiliaryPowerUnit::new_aps3200(),
                 apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
                 apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
                 apu_bleed: OnOffPushButton::new_on(),
