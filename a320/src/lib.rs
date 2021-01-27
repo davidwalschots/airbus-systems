@@ -15,7 +15,7 @@ use uom::si::{
     mass::pound, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
 };
 
-#[msfs::gauge(name=airbus)]
+#[msfs::gauge(name=systems)]
 async fn demo(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> {
     let mut a320 = A320::new();
     let sim_read_writer = SimulatorReadWriter::new()?;
