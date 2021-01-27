@@ -1,7 +1,7 @@
 use super::{ApuGenerator, Turbine, TurbineController, TurbineState};
 use crate::{
     electrical::{Current, PowerConductor, PowerSource},
-    shared::random_number,
+    shared::{random_number, TimedRandom},
     simulator::{
         SimulatorReadWritable, SimulatorVisitable, SimulatorVisitor, SimulatorWriteState,
         UpdateContext,
@@ -376,6 +376,7 @@ fn calculate_towards_target_egt(
 /// APS3200 APU Generator
 pub struct Aps3200ApuGenerator {
     output: Current,
+    random_voltage: TimedRandom<f64>,
 }
 impl Aps3200ApuGenerator {
     const APU_GEN_POWERED_N: f64 = 84.;
@@ -383,6 +384,10 @@ impl Aps3200ApuGenerator {
     pub fn new() -> Aps3200ApuGenerator {
         Aps3200ApuGenerator {
             output: Current::None,
+            random_voltage: TimedRandom::new(
+                Duration::from_secs(1),
+                vec![114., 115., 115., 115., 115.],
+            ),
         }
     }
 
@@ -393,13 +398,8 @@ impl Aps3200ApuGenerator {
             panic!("Should not be invoked for APU N below {}", n);
         } else if n < 85. {
             ElectricPotential::new::<volt>(105.)
-        } else if n < 100. {
-            ElectricPotential::new::<volt>(114. + (random_number() % 2) as f64)
         } else {
-            // TODO: This should sometimes go from 115 to 114 and back.
-            // However, if we simply recalculate with a random number every tick, it will jump around too much.
-            // We need to create some type that can manage recalculations which are somewhat time limited.
-            ElectricPotential::new::<volt>(115.)
+            ElectricPotential::new::<volt>(self.random_voltage.current_value())
         }
     }
 
@@ -447,7 +447,8 @@ impl Aps3200ApuGenerator {
     }
 }
 impl ApuGenerator for Aps3200ApuGenerator {
-    fn update(&mut self, n: Ratio, is_emergency_shutdown: bool) {
+    fn update(&mut self, context: &UpdateContext, n: Ratio, is_emergency_shutdown: bool) {
+        self.random_voltage.update(context);
         self.output = if is_emergency_shutdown
             || n.get::<percent>() < Aps3200ApuGenerator::APU_GEN_POWERED_N
         {
@@ -498,7 +499,10 @@ mod apu_generator_tests {
     use ntest::assert_about_eq;
     use uom::si::frequency::hertz;
 
-    use crate::apu::tests::{running_apu, stopped_apu, tester, tester_with};
+    use crate::{
+        apu::tests::{tester, tester_with},
+        simulator::test_helpers::context,
+    };
 
     use super::*;
 
@@ -629,10 +633,10 @@ mod apu_generator_tests {
     }
 
     fn update_above_threshold(generator: &mut dyn ApuGenerator) {
-        generator.update(Ratio::new::<percent>(100.), false);
+        generator.update(&context(), Ratio::new::<percent>(100.), false);
     }
 
     fn update_below_threshold(generator: &mut dyn ApuGenerator) {
-        generator.update(Ratio::new::<percent>(0.), false);
+        generator.update(&context(), Ratio::new::<percent>(0.), false);
     }
 }

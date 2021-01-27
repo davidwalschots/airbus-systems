@@ -35,6 +35,10 @@ pub mod test_helpers {
         UpdateContextBuilder::new()
     }
 
+    pub fn context() -> UpdateContext {
+        context_with().build()
+    }
+
     pub struct UpdateContextBuilder {
         delta: Duration,
         indicated_airspeed: Velocity,

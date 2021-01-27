@@ -157,7 +157,7 @@ impl AuxiliaryPowerUnit {
             .update_bleed_air_valve_state(context, &self.bleed_air_valve);
 
         self.generator
-            .update(self.get_n(), self.is_emergency_shutdown());
+            .update(context, self.get_n(), self.is_emergency_shutdown());
     }
 
     pub fn get_n(&self) -> Ratio {
@@ -272,7 +272,7 @@ pub enum TurbineState {
 }
 
 pub trait ApuGenerator: PowerConductor + SimulatorVisitable + SimulatorReadWritable {
-    fn update(&mut self, n: Ratio, is_emergency_shutdown: bool);
+    fn update(&mut self, context: &UpdateContext, n: Ratio, is_emergency_shutdown: bool);
     fn frequency_within_normal_range(&self) -> bool;
     fn potential_within_normal_range(&self) -> bool;
 }
