@@ -1160,20 +1160,21 @@ pub mod tests {
 
         #[test]
         fn start_contactor_is_energised_when_starting_until_n_55() {
-            let mut tester = tester_with().starting_apu();
+            let mut tester = tester_with().starting_apu().run(Duration::from_millis(50));
 
+            assert!(tester.start_contactor_energized());
             loop {
                 tester = tester.run(Duration::from_millis(50));
                 let n = tester.get_n().get::<percent>();
 
                 if n < 55. {
-                    assert_eq!(tester.start_contactor_energized(), true);
+                    assert!(tester.start_contactor_energized());
                 } else {
                     // The start contactor state is set before the turbine is updated,
                     // thus this needs another run to update the start contactor after the
                     // turbine reaches n >= 55.
                     tester = tester.run(Duration::from_millis(0));
-                    assert_eq!(tester.start_contactor_energized(), false);
+                    assert!(!tester.start_contactor_energized());
                 }
 
                 if n == 100. {
