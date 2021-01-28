@@ -586,6 +586,22 @@ pub mod tests {
             self
         }
 
+        fn run_until_n_decreases(mut self, delta_per_run: Duration) -> Self {
+            let mut previous_n = 0.;
+            loop {
+                self = self.run(delta_per_run);
+
+                let n = self.get_n().get::<percent>();
+                if n < previous_n {
+                    break;
+                }
+
+                previous_n = n;
+            }
+
+            self
+        }
+
         fn is_air_intake_flap_fully_open(&self) -> bool {
             self.apu.get_air_intake_flap_open_amount().get::<percent>() == 100.
         }
@@ -1281,20 +1297,11 @@ pub mod tests {
         #[timeout(500)]
         fn without_fuel_apu_starts_until_approximately_n_3_percent_and_then_shuts_down_with_fault()
         {
-            let mut tester = tester_with()
+            let tester = tester_with()
                 .no_fuel_available()
-                .run(Duration::from_secs(1_000))
-                .then_continue_with()
-                .starting_apu();
-
-            loop {
-                tester = tester.run(Duration::from_millis(50));
-                if tester.get_n().get::<percent>() >= 3. {
-                    break;
-                }
-            }
-
-            tester = tester.run(Duration::from_secs(10));
+                .and()
+                .starting_apu()
+                .run_until_n_decreases(Duration::from_millis(50));
 
             assert_eq!(tester.apu_is_available(), false);
             assert_eq!(tester.has_fuel_low_pressure_fault(), true);
@@ -1303,13 +1310,13 @@ pub mod tests {
         }
 
         #[test]
+        #[timeout(500)]
         fn starting_apu_shuts_down_when_no_more_fuel_available() {
             let tester = tester_with()
                 .starting_apu()
-                .run(Duration::from_secs(10))
-                .then_continue_with()
+                .and()
                 .no_fuel_available()
-                .run(Duration::from_secs(1_000));
+                .run_until_n_decreases(Duration::from_millis(50));
 
             assert_eq!(tester.apu_is_available(), false);
             assert_eq!(tester.has_fuel_low_pressure_fault(), true);
@@ -1318,14 +1325,13 @@ pub mod tests {
         }
 
         #[test]
+        #[timeout(500)]
         fn running_apu_shuts_down_when_no_more_fuel_available() {
             let tester = tester_with()
                 .running_apu()
-                .then_continue_with()
+                .and()
                 .no_fuel_available()
-                // Two runs, because of turbine state change from Running to Stopping.
-                .run(Duration::from_millis(1))
-                .run(Duration::from_secs(1_000));
+                .run_until_n_decreases(Duration::from_millis(50));
 
             assert_eq!(tester.apu_is_available(), false);
             assert_eq!(tester.has_fuel_low_pressure_fault(), true);
@@ -1339,7 +1345,7 @@ pub mod tests {
                 .running_apu()
                 .and()
                 .no_fuel_available()
-                .run(Duration::from_secs(10));
+                .run_until_n_decreases(Duration::from_millis(50));
 
             assert_eq!(tester.is_auto_shutdown(), true);
         }
