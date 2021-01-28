@@ -756,22 +756,6 @@ pub mod tests {
         }
 
         #[test]
-        fn when_apu_not_started_egt_is_ambient() {
-            const AMBIENT_TEMPERATURE: f64 = 0.;
-
-            let tester = tester_with()
-                .ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(
-                    AMBIENT_TEMPERATURE,
-                ))
-                .run(Duration::from_secs(1_000));
-
-            assert_eq!(
-                tester.get_egt().get::<degree_celsius>(),
-                AMBIENT_TEMPERATURE
-            );
-        }
-
-        #[test]
         fn when_ambient_temperature_high_startup_egt_never_below_ambient() {
             const AMBIENT_TEMPERATURE: f64 = 50.;
 
