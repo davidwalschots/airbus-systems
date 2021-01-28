@@ -3,7 +3,7 @@ use crate::{
     apu::{
         AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
-    simulator::{SimulatorVisitable, SimulatorVisitor, UpdateContext},
+    simulator::{Aircraft, SimulatorVisitable, SimulatorVisitor, UpdateContext},
 };
 
 mod electrical;
@@ -35,8 +35,9 @@ impl A320 {
             fuel: A320Fuel::new(),
         }
     }
-
-    pub fn update(&mut self, context: &UpdateContext) {
+}
+impl Aircraft for A320 {
+    fn update(&mut self, context: &UpdateContext) {
         self.electrical_overhead.update(context);
         self.fuel.update();
 

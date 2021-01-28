@@ -8,9 +8,51 @@ mod update_context;
 pub use update_context::test_helpers;
 pub use update_context::UpdateContext;
 
+/// Trait for reading data from and writing data to the simulator.
+pub trait SimulatorReadWriter {
+    /// Reads data from the simulator into a model representing that state.
+    fn read(&self) -> SimulatorReadState;
+    /// Writes data from a model into the simulator.
+    fn write(&self, state: &SimulatorWriteState);
+}
+
+pub trait Aircraft: SimulatorVisitable {
+    fn update(&mut self, context: &UpdateContext);
+}
+
+/// Orchestrates the:
+/// 1. Reading of data from the simulator into the aircraft state.
+/// 2. Updating of the aircraft state for each tick.
+/// 3. Writing of aircraft state data to the simulator.
+pub struct Simulation<T: Aircraft, U: SimulatorReadWriter> {
+    aircraft: T,
+    simulator_read_writer: U,
+}
+impl<T: Aircraft, U: SimulatorReadWriter> Simulation<T, U> {
+    pub fn new(aircraft: T, simulator_read_writer: U) -> Self {
+        Simulation {
+            aircraft,
+            simulator_read_writer,
+        }
+    }
+
+    pub fn tick(&mut self, delta: Duration) {
+        let state = self.simulator_read_writer.read();
+        let mut visitor = SimulatorToModelVisitor::new(&state);
+        self.aircraft.accept(&mut Box::new(&mut visitor));
+
+        self.aircraft.update(&state.to_context(delta));
+
+        let mut visitor = ModelToSimulatorVisitor::new();
+        self.aircraft.accept(&mut Box::new(&mut visitor));
+
+        self.simulator_read_writer.write(&visitor.get_state());
+    }
+}
+
 /// Visits aircraft components in order to pass data coming
 /// from the simulator into the aircraft system simulation.
-pub struct SimulatorToModelVisitor<'a> {
+struct SimulatorToModelVisitor<'a> {
     state: &'a SimulatorReadState,
 }
 impl<'a> SimulatorToModelVisitor<'a> {
@@ -26,7 +68,7 @@ impl SimulatorVisitor for SimulatorToModelVisitor<'_> {
 
 /// Visits aircraft components in order to pass data from
 /// the aircraft system simulation to the simulator.
-pub struct ModelToSimulatorVisitor {
+struct ModelToSimulatorVisitor {
     state: SimulatorWriteState,
 }
 impl ModelToSimulatorVisitor {
