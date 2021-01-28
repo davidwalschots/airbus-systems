@@ -893,6 +893,10 @@ pub mod tests {
             tester = tester.run(Duration::from_millis(1));
             // APU N reduces below 95%.
             tester = tester.run(Duration::from_secs(5));
+            assert!(
+                tester.get_n().get::<percent>() < 95.,
+                "Didn't expect the N to still be at or above 95. The test assumes N < 95."
+            );
 
             assert!(!tester.apu_is_available());
         }
@@ -907,6 +911,10 @@ pub mod tests {
             tester = tester.master_off().run(Duration::from_millis(1));
             // APU N reduces below 95%.
             tester = tester.run(Duration::from_secs(5));
+            assert!(
+                tester.get_n().get::<percent>() < 95.,
+                "Didn't expect the N to still be at or above 95. The test assumes N < 95."
+            );
 
             assert!(!tester.apu_is_available());
         }
