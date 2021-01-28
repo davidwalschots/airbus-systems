@@ -1294,6 +1294,31 @@ pub mod tests {
         }
 
         #[test]
+        fn does_not_have_fault_during_normal_start_stop_cycle() {
+            let mut tester = tester_with().starting_apu();
+
+            loop {
+                tester = tester.run(Duration::from_millis(50));
+                assert!(!tester.master_has_fault());
+
+                if tester.get_n().get::<percent>() == 100. {
+                    break;
+                }
+            }
+
+            tester = tester.master_off();
+
+            loop {
+                tester = tester.run(Duration::from_millis(50));
+                assert!(!tester.master_has_fault());
+
+                if tester.get_n().get::<percent>() == 0. {
+                    break;
+                }
+            }
+        }
+
+        #[test]
         #[timeout(500)]
         fn without_fuel_apu_starts_until_approximately_n_3_percent_and_then_shuts_down_with_fault()
         {
