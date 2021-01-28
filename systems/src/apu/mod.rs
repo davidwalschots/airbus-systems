@@ -136,6 +136,11 @@ impl AuxiliaryPowerUnit {
         self.fuel_pressure_switch.update(has_fuel_remaining);
         self.ecb
             .update_fuel_pressure_switch_state(&self.fuel_pressure_switch);
+        self.bleed_air_valve.update(&self.ecb);
+        self.ecb
+            .update_bleed_air_valve_state(context, &self.bleed_air_valve);
+        self.air_intake_flap.update(context, &self.ecb);
+        self.ecb.update_air_intake_flap_state(&self.air_intake_flap);
 
         if let Some(turbine) = self.turbine.take() {
             let mut updated_turbine = turbine.update(
@@ -149,12 +154,6 @@ impl AuxiliaryPowerUnit {
 
             self.turbine = Some(updated_turbine);
         }
-
-        self.air_intake_flap.update(context, &self.ecb);
-        self.ecb.update_air_intake_flap_state(&self.air_intake_flap);
-        self.bleed_air_valve.update(&self.ecb);
-        self.ecb
-            .update_bleed_air_valve_state(context, &self.bleed_air_valve);
 
         self.generator
             .update(context, self.get_n(), self.is_emergency_shutdown());
@@ -567,11 +566,7 @@ pub mod tests {
             self
         }
 
-        pub fn run(self, delta: Duration) -> Self {
-            self.run_inner(delta).run_inner(Duration::from_secs(0))
-        }
-
-        fn run_inner(mut self, delta: Duration) -> Self {
+        pub fn run(mut self, delta: Duration) -> Self {
             self.apu.update(
                 &context_with()
                     .delta(delta)
@@ -691,7 +686,6 @@ pub mod tests {
                 .run(Duration::from_millis(1))
                 .then_continue_with()
                 .start_on()
-                .run(Duration::from_secs(0))
                 .run(Duration::from_secs(15));
 
             assert_eq!(tester.get_n().get::<percent>(), 0.);
@@ -849,6 +843,10 @@ pub mod tests {
             tester = tester.run(Duration::from_millis(1));
             // APU N reduces below 95%.
             tester = tester.run(Duration::from_secs(5));
+            assert!(
+                tester.get_n().get::<percent>() < 95.,
+                "Didn't expect the N to still be at or above 95. The test assumes N < 95."
+            );
 
             assert!(!tester.apu_is_available());
         }
@@ -966,11 +964,15 @@ pub mod tests {
             loop {
                 tester = tester.run(Duration::from_millis(50));
 
-                if tester.get_n().get::<percent>() <= 7. {
+                if tester.get_n().get::<percent>() < 7. {
                     break;
                 }
             }
 
+            // The air inlet flap state is set before the turbine is updated,
+            // thus this needs another run to update the air inlet flap after the
+            // turbine reaches n < 7.
+            tester = tester.run(Duration::from_millis(1));
             assert!(!tester.is_air_intake_flap_fully_open());
         }
 
@@ -1139,7 +1141,15 @@ pub mod tests {
                 tester = tester.run(Duration::from_millis(50));
                 let n = tester.get_n().get::<percent>();
 
-                assert_eq!(tester.start_contactor_energized(), n < 55.);
+                if n < 55. {
+                    assert_eq!(tester.start_contactor_energized(), true);
+                } else {
+                    // The start contactor state is set before the turbine is updated,
+                    // thus this needs another run to update the start contactor after the
+                    // turbine reaches n >= 55.
+                    tester = tester.run(Duration::from_millis(0));
+                    assert_eq!(tester.start_contactor_energized(), false);
+                }
 
                 if n == 100. {
                     break;
@@ -1155,11 +1165,19 @@ pub mod tests {
                 tester = tester.run(Duration::from_millis(50));
                 let n = tester.get_n().get::<percent>();
 
-                if n > 30. {
+                if n > 0. {
                     tester = tester.master_off();
                 }
 
-                assert_eq!(tester.start_contactor_energized(), n < 55.);
+                if n < 55. {
+                    assert_eq!(tester.start_contactor_energized(), true);
+                } else {
+                    // The start contactor state is set before the turbine is updated,
+                    // thus this needs another run to update the start contactor after the
+                    // turbine reaches n >= 55.
+                    tester = tester.run(Duration::from_millis(0));
+                    assert_eq!(tester.start_contactor_energized(), false);
+                }
 
                 if n == 100. {
                     break;
