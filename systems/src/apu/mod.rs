@@ -876,6 +876,7 @@ pub mod tests {
 
             let mut n = 100.;
 
+            assert!(tester.apu_is_available());
             while 0. < n {
                 tester = tester.run(Duration::from_millis(50));
                 n = tester.get_n().get::<percent>();
