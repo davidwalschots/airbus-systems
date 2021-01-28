@@ -1,7 +1,7 @@
 #![cfg(any(target_arch = "wasm32", doc))]
 use airbus_systems::{
     simulator::{
-        from_bool, to_bool, ModelToSimulatorVisitor, SimulatorReadState, SimulatorToModelVisitor,
+        from_bool, to_bool, Simulation, SimulatorReadState, SimulatorReadWriter,
         SimulatorVisitable, SimulatorWriteState,
     },
     A320,
@@ -17,22 +17,12 @@ use uom::si::{
 
 #[msfs::gauge(name=systems)]
 async fn demo(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> {
-    let mut a320 = A320::new();
-    let sim_read_writer = SimulatorReadWriter::new()?;
+    let mut simulation = Simulation::new(A320::new(), A320SimulatorReadWriter::new()?);
 
     while let Some(event) = gauge.next_event().await {
         match event {
             MSFSEvent::PreDraw(d) => {
-                let state = sim_read_writer.read();
-                let mut visitor = SimulatorToModelVisitor::new(&state);
-                a320.accept(&mut Box::new(&mut visitor));
-
-                a320.update(&state.to_context(d.delta_time()));
-
-                let mut visitor = ModelToSimulatorVisitor::new();
-                a320.accept(&mut Box::new(&mut visitor));
-
-                sim_read_writer.write(&visitor.get_state());
+                simulation.tick(d.delta_time());
             }
             _ => {}
         }
@@ -41,7 +31,7 @@ async fn demo(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
-pub struct SimulatorReadWriter {
+pub struct A320SimulatorReadWriter {
     ambient_temperature: AircraftVariable,
     apu_bleed_air_valve_open: NamedVariable,
     apu_bleed_fault: NamedVariable,
@@ -74,9 +64,9 @@ pub struct SimulatorReadWriter {
     left_inner_tank_fuel_quantity: AircraftVariable,
     unlimited_fuel: AircraftVariable,
 }
-impl SimulatorReadWriter {
+impl A320SimulatorReadWriter {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(SimulatorReadWriter {
+        Ok(A320SimulatorReadWriter {
             ambient_temperature: AircraftVariable::from("AMBIENT TEMPERATURE", "celsius", 0)?,
             apu_bleed_air_valve_open: NamedVariable::from("A32NX_APU_BLEED_AIR_VALVE_OPEN"),
             apu_bleed_fault: NamedVariable::from("A32NX_APU_BLEED_FAULT"),
@@ -122,8 +112,9 @@ impl SimulatorReadWriter {
             unlimited_fuel: AircraftVariable::from("UNLIMITED FUEL", "Bool", 0)?,
         })
     }
-
-    pub fn read(&self) -> SimulatorReadState {
+}
+impl SimulatorReadWriter for A320SimulatorReadWriter {
+    fn read(&self) -> SimulatorReadState {
         SimulatorReadState {
             ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(
                 self.ambient_temperature.get(),
@@ -144,7 +135,7 @@ impl SimulatorReadWriter {
         }
     }
 
-    pub fn write(&self, state: &SimulatorWriteState) {
+    fn write(&self, state: &SimulatorWriteState) {
         self.apu_bleed_air_valve_open
             .set_value(from_bool(state.apu_bleed_air_valve_open));
         self.apu_bleed_fault

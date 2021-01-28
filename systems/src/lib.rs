@@ -6,5 +6,5 @@ mod electrical;
 mod hydraulic;
 mod overhead;
 mod pneumatic;
-pub mod shared;
+mod shared;
 pub mod simulator;
