@@ -982,7 +982,7 @@ pub mod tests {
         }
 
         #[test]
-        fn when_apu_shutting_down_at_7_percent_n_air_inlet_flap_closes() {
+        fn when_apu_shutting_down_at_7_percent_n_air_intake_flap_closes() {
             let mut tester = tester_with().running_apu().and().master_off();
 
             loop {
@@ -993,8 +993,8 @@ pub mod tests {
                 }
             }
 
-            // The air inlet flap state is set before the turbine is updated,
-            // thus this needs another run to update the air inlet flap after the
+            // The air intake flap state is set before the turbine is updated,
+            // thus this needs another run to update the air intake flap after the
             // turbine reaches n < 7.
             tester = tester.run(Duration::from_millis(1));
             assert!(!tester.is_air_intake_flap_fully_open());

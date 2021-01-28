@@ -9,11 +9,15 @@ pub struct AirIntakeFlap {
     delay: Duration,
 }
 impl AirIntakeFlap {
-    const MINIMUM_TRAVEL_TIME_SECS: u8 = 3;
+    const MINIMUM_TRAVEL_TIME_SECS: u8 = 6;
+    const MAXIMUM_TRAVEL_TIME_SECS: u8 = 12;
 
     pub fn new() -> AirIntakeFlap {
+        let random_above_minimum_mod =
+            AirIntakeFlap::MAXIMUM_TRAVEL_TIME_SECS - AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS + 1;
         let delay = Duration::from_secs(
-            (AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS + (random_number() % 13)) as u64,
+            (AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS + (random_number() % random_above_minimum_mod))
+                as u64,
         );
 
         AirIntakeFlap {
@@ -143,7 +147,11 @@ mod air_intake_flap_tests {
         controller.open();
 
         flap.update(
-            &context_with().delta(Duration::from_secs(5)).build(),
+            &context_with()
+                .delta(Duration::from_secs(
+                    AirIntakeFlap::MAXIMUM_TRAVEL_TIME_SECS as u64,
+                ))
+                .build(),
             &controller,
         );
 
