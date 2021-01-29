@@ -713,7 +713,7 @@ pub mod tests {
         #[test]
         fn while_starting_below_n_7_when_apu_master_sw_turned_off_air_intake_flap_does_not_close() {
             let mut tester = tester_with().starting_apu();
-            let mut n = 0.;
+            let mut n;
 
             loop {
                 tester = tester.run(Duration::from_millis(50));

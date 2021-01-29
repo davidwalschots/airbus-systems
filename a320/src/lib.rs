@@ -2,7 +2,7 @@
 use airbus_systems::{
     simulator::{
         from_bool, to_bool, Simulation, SimulatorReadState, SimulatorReadWriter,
-        SimulatorVisitable, SimulatorWriteState,
+        SimulatorWriteState,
     },
     A320,
 };
@@ -16,7 +16,7 @@ use uom::si::{
 };
 
 #[msfs::gauge(name=systems)]
-async fn demo(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> {
+async fn systems(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> {
     let mut simulation = Simulation::new(A320::new(), A320SimulatorReadWriter::new()?);
 
     while let Some(event) = gauge.next_event().await {
