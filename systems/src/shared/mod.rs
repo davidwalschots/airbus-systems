@@ -1,6 +1,6 @@
 use crate::simulator::UpdateContext;
 use std::time::Duration;
-use uom::si::{f64::*, ratio::percent};
+use uom::si::f64::*;
 
 mod random;
 pub use random::*;
@@ -74,19 +74,6 @@ impl<T: Copy + Default> TimedRandom<T> {
             .cloned()
             .unwrap_or_default()
     }
-}
-
-pub struct Engine {
-    pub n2: Ratio,
-}
-impl Engine {
-    pub fn new() -> Engine {
-        Engine {
-            n2: Ratio::new::<percent>(0.),
-        }
-    }
-
-    pub fn update(&mut self, _: &UpdateContext) {}
 }
 
 #[cfg(test)]

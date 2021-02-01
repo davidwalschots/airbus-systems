@@ -139,6 +139,7 @@ pub struct SimulatorReadState {
     pub indicated_altitude: Length,
     pub left_inner_tank_fuel_quantity: Mass,
     pub unlimited_fuel: bool,
+    pub engine_n2: [Ratio; 2],
 }
 impl SimulatorReadState {
     /// Creates a context based on the data that was read from the simulator.

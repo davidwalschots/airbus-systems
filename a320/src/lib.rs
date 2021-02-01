@@ -57,6 +57,8 @@ pub struct A320SimulatorReadWriter {
     apu_start_contactor_energized: NamedVariable,
     apu_start_sw_available: NamedVariable,
     apu_start_sw_on: NamedVariable,
+    engine_1_n2: AircraftVariable,
+    engine_2_n2: AircraftVariable,
     external_power_available: AircraftVariable,
     external_power_sw_on: AircraftVariable,
     indicated_airspeed: AircraftVariable,
@@ -96,6 +98,8 @@ impl A320SimulatorReadWriter {
             ),
             apu_start_sw_available: NamedVariable::from("A32NX_APU_AVAILABLE"),
             apu_start_sw_on: NamedVariable::from("A32NX_APU_START_ACTIVATED"),
+            engine_1_n2: AircraftVariable::from("ENG N2 RPM", "Percent", 1)?,
+            engine_2_n2: AircraftVariable::from("ENG N2 RPM", "Percent", 2)?,
             external_power_available: AircraftVariable::from(
                 "EXTERNAL POWER AVAILABLE",
                 "Bool",
@@ -124,6 +128,10 @@ impl SimulatorReadWriter for A320SimulatorReadWriter {
             apu_gen_sw_on: to_bool(self.apu_gen_sw_on.get()),
             apu_master_sw_on: to_bool(self.apu_master_sw.get_value()),
             apu_start_sw_on: to_bool(self.apu_start_sw_on.get_value()),
+            engine_n2: [
+                Ratio::new::<percent>(self.engine_1_n2.get()),
+                Ratio::new::<percent>(self.engine_2_n2.get()),
+            ],
             external_power_available: to_bool(self.external_power_available.get()),
             external_power_sw_on: to_bool(self.external_power_sw_on.get()),
             indicated_airspeed: Velocity::new::<knot>(self.indicated_airspeed.get()),

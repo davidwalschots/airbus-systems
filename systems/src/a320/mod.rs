@@ -3,6 +3,7 @@ use crate::{
     apu::{
         AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
+    engine::Engine,
     simulator::{Aircraft, SimulatorVisitable, SimulatorVisitor, UpdateContext},
 };
 
@@ -23,6 +24,8 @@ pub struct A320 {
     pneumatic_overhead: A320PneumaticOverheadPanel,
     electrical_overhead: A320ElectricalOverheadPanel,
     fuel: A320Fuel,
+    engine_1: Engine,
+    engine_2: Engine,
 }
 impl A320 {
     pub fn new() -> A320 {
@@ -33,6 +36,8 @@ impl A320 {
             pneumatic_overhead: A320PneumaticOverheadPanel::new(),
             electrical_overhead: A320ElectricalOverheadPanel::new(),
             fuel: A320Fuel::new(),
+            engine_1: Engine::new(0),
+            engine_2: Engine::new(1),
         }
     }
 }
@@ -71,5 +76,7 @@ impl SimulatorVisitable for A320 {
         self.electrical_overhead.accept(visitor);
         self.fuel.accept(visitor);
         self.pneumatic_overhead.accept(visitor);
+        self.engine_1.accept(visitor);
+        self.engine_2.accept(visitor);
     }
 }

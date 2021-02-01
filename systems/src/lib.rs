@@ -3,6 +3,7 @@ pub use a320::A320;
 
 mod apu;
 mod electrical;
+mod engine;
 mod hydraulic;
 mod overhead;
 mod pneumatic;
