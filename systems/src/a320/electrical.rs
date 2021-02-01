@@ -5,8 +5,9 @@ use crate::{
         Battery, Contactor, ElectricalBus, EmergencyGenerator, EngineGenerator,
         ExternalPowerSource, PowerConductor, Powerable, StaticInverter, TransformerRectifier,
     },
+    engine::Engine,
     overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
-    shared::{DelayedTrueLogicGate, Engine},
+    shared::DelayedTrueLogicGate,
     simulator::{
         SimulatorReadState, SimulatorReadWritable, SimulatorVisitable, SimulatorVisitor,
         UpdateContext,
@@ -1945,7 +1946,7 @@ mod a320_electrical_circuit_tests {
         }
 
         fn new_running_engine() -> Engine {
-            let mut engine = Engine::new();
+            let mut engine = Engine::new(1);
             engine.n2 = Ratio::new::<percent>(
                 IntegratedDriveGenerator::ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD + 1.,
             );
@@ -1954,7 +1955,7 @@ mod a320_electrical_circuit_tests {
         }
 
         fn new_stopped_engine() -> Engine {
-            let mut engine = Engine::new();
+            let mut engine = Engine::new(1);
             engine.n2 = Ratio::new::<percent>(0.);
 
             engine

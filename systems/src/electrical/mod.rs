@@ -1,4 +1,4 @@
-use crate::{overhead::OnOffPushButton, shared::Engine, simulator::UpdateContext};
+use crate::{engine::Engine, overhead::OnOffPushButton, simulator::UpdateContext};
 use std::cmp::min;
 use uom::si::{
     electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f64::*,
@@ -707,7 +707,7 @@ mod tests {
     }
 
     fn engine(n2: Ratio) -> Engine {
-        let mut engine = Engine::new();
+        let mut engine = Engine::new(1);
         engine.n2 = n2;
 
         engine
@@ -1200,7 +1200,7 @@ mod tests {
 
             idg.update(
                 &context_with().delta(Duration::from_secs(10)).build(),
-                &Engine::new(),
+                &Engine::new(1),
                 &OnOffPushButton::new_on(),
             );
 
