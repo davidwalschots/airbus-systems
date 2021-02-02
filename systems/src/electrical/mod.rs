@@ -82,8 +82,8 @@ pub trait Powerable {
         battery_2_contactor: &Contactor,
     ) {
         if self.get_input().is_unpowered() {
-            let is_battery_1_powered = battery_1_contactor.output().is_powered();
-            let is_battery_2_powered = battery_2_contactor.output().is_powered();
+            let is_battery_1_powered = battery_1_contactor.is_powered();
+            let is_battery_2_powered = battery_2_contactor.is_powered();
 
             if is_battery_1_powered && is_battery_2_powered {
                 self.set_input(Current::some(ElectricPowerSource::Batteries));
@@ -773,7 +773,7 @@ mod tests {
             let nothing: Vec<&dyn ElectricSource> = vec![];
             contactor.powered_by(nothing);
 
-            assert!(contactor.output().is_unpowered());
+            assert!(contactor.is_unpowered());
         }
 
         #[test]
@@ -791,7 +791,7 @@ mod tests {
         ) {
             contactor.powered_by(vec![&Powerless {}]);
 
-            assert!(contactor.output().is_unpowered());
+            assert!(contactor.is_unpowered());
         }
 
         #[test]
@@ -800,7 +800,7 @@ mod tests {
             let conductors: Vec<&dyn ElectricSource> = vec![&Powerless {}, &StubApuGenerator {}];
             contactor.powered_by(conductors);
 
-            assert!(contactor.output().is_unpowered());
+            assert!(contactor.is_unpowered());
         }
 
         #[test]
@@ -809,7 +809,7 @@ mod tests {
             let conductors: Vec<&dyn ElectricSource> = vec![&Powerless {}, &StubApuGenerator {}];
             contactor.powered_by(conductors);
 
-            assert!(contactor.output().is_powered());
+            assert!(contactor.is_powered());
         }
 
         fn contactor() -> Contactor {
@@ -841,7 +841,7 @@ mod tests {
 
         #[test]
         fn starts_without_output() {
-            assert!(engine_generator().output().is_unpowered());
+            assert!(engine_generator().is_unpowered());
         }
 
         #[test]
@@ -850,7 +850,7 @@ mod tests {
             update_below_threshold(&mut generator);
             update_above_threshold(&mut generator);
 
-            assert!(generator.output().is_powered());
+            assert!(generator.is_powered());
         }
 
         #[test]
@@ -859,7 +859,7 @@ mod tests {
             update_above_threshold(&mut generator);
             update_below_threshold(&mut generator);
 
-            assert!(generator.output().is_unpowered());
+            assert!(generator.is_unpowered());
         }
 
         #[test]
@@ -871,7 +871,7 @@ mod tests {
                 &OnOffPushButton::new_off(),
             );
 
-            assert!(generator.output().is_unpowered());
+            assert!(generator.is_unpowered());
         }
 
         fn engine_generator() -> EngineGenerator {
@@ -1006,7 +1006,7 @@ mod tests {
 
         #[test]
         fn starts_without_output() {
-            assert!(external_power_source().output().is_unpowered());
+            assert!(external_power_source().is_unpowered());
         }
 
         #[test]
@@ -1014,7 +1014,7 @@ mod tests {
             let mut ext_pwr = external_power_source();
             ext_pwr.is_connected = true;
 
-            assert!(ext_pwr.output().is_powered());
+            assert!(ext_pwr.is_powered());
         }
 
         #[test]
@@ -1022,7 +1022,7 @@ mod tests {
             let mut ext_pwr = external_power_source();
             ext_pwr.is_connected = false;
 
-            assert!(ext_pwr.output().is_unpowered());
+            assert!(ext_pwr.is_unpowered());
         }
 
         fn external_power_source() -> ExternalPowerSource {
@@ -1036,7 +1036,7 @@ mod tests {
 
         #[test]
         fn starts_without_output() {
-            assert!(transformer_rectifier().output().is_unpowered());
+            assert!(transformer_rectifier().is_unpowered());
         }
 
         #[test]
@@ -1044,7 +1044,7 @@ mod tests {
             let mut tr = transformer_rectifier();
             tr.powered_by(vec![&apu_generator()]);
 
-            assert!(tr.output().is_powered());
+            assert!(tr.is_powered());
         }
 
         #[test]
@@ -1053,7 +1053,7 @@ mod tests {
             tr.powered_by(vec![&apu_generator()]);
             tr.fail();
 
-            assert!(tr.output().is_unpowered());
+            assert!(tr.is_unpowered());
         }
 
         #[test]
@@ -1061,7 +1061,7 @@ mod tests {
             let mut tr = transformer_rectifier();
             tr.powered_by(vec![&Powerless {}]);
 
-            assert!(tr.output().is_unpowered());
+            assert!(tr.is_unpowered());
         }
 
         fn transformer_rectifier() -> TransformerRectifier {
@@ -1075,7 +1075,7 @@ mod tests {
 
         #[test]
         fn starts_without_output() {
-            assert!(emergency_generator().output().is_unpowered());
+            assert!(emergency_generator().is_unpowered());
         }
 
         #[test]
@@ -1084,7 +1084,7 @@ mod tests {
             emer_gen.attempt_start();
             emer_gen.update(true);
 
-            assert!(emer_gen.output().is_powered());
+            assert!(emer_gen.is_powered());
         }
 
         #[test]
@@ -1093,7 +1093,7 @@ mod tests {
             emer_gen.attempt_start();
             emer_gen.update(false);
 
-            assert!(emer_gen.output().is_unpowered());
+            assert!(emer_gen.is_unpowered());
         }
 
         fn emergency_generator() -> EmergencyGenerator {
@@ -1108,13 +1108,13 @@ mod tests {
         #[test]
         fn full_battery_has_output() {
             assert!(full_battery().is_full());
-            assert!(full_battery().output().is_powered());
+            assert!(full_battery().is_powered());
         }
 
         #[test]
         fn empty_battery_has_no_output() {
             assert!(!empty_battery().is_full());
-            assert!(empty_battery().output().is_unpowered());
+            assert!(empty_battery().is_unpowered());
         }
 
         #[test]
@@ -1122,7 +1122,7 @@ mod tests {
             let mut battery = empty_battery();
             battery.powered_by(vec![&apu_generator()]);
 
-            assert!(battery.output().is_unpowered());
+            assert!(battery.is_unpowered());
         }
 
         #[test]
@@ -1131,7 +1131,7 @@ mod tests {
             let mut battery = full_battery();
             battery.powered_by(vec![&apu_generator()]);
 
-            assert!(battery.output().is_unpowered());
+            assert!(battery.is_unpowered());
         }
 
         #[test]
@@ -1139,7 +1139,7 @@ mod tests {
             let mut battery = full_battery();
             battery.powered_by(vec![&Powerless {}]);
 
-            assert!(battery.output().is_powered());
+            assert!(battery.is_powered());
         }
 
         #[test]
@@ -1147,7 +1147,7 @@ mod tests {
             let mut battery = empty_battery();
             battery.powered_by(vec![&Powerless {}]);
 
-            assert!(battery.output().is_unpowered());
+            assert!(battery.is_unpowered());
         }
 
         fn full_battery() -> Battery {
@@ -1165,7 +1165,7 @@ mod tests {
 
         #[test]
         fn starts_without_output() {
-            assert!(static_inverter().output().is_unpowered());
+            assert!(static_inverter().is_unpowered());
         }
 
         #[test]
@@ -1173,7 +1173,7 @@ mod tests {
             let mut static_inv = static_inverter();
             static_inv.powered_by(vec![&battery()]);
 
-            assert!(static_inv.output().is_powered());
+            assert!(static_inv.is_powered());
         }
 
         #[test]
@@ -1181,7 +1181,7 @@ mod tests {
             let mut static_inv = static_inverter();
             static_inv.powered_by(vec![&Powerless {}]);
 
-            assert!(static_inv.output().is_unpowered());
+            assert!(static_inv.is_unpowered());
         }
 
         fn static_inverter() -> StaticInverter {

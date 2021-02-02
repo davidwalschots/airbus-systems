@@ -462,20 +462,20 @@ impl ApuGenerator for Aps3200ApuGenerator {
             Current::some(ElectricPowerSource::ApuGenerator)
         };
 
-        self.current = if self.output.is_powered() {
+        self.current = if self.is_powered() {
             // TODO: Once we actually know what to do with the amperes, we'll have to adapt this.
             ElectricCurrent::new::<ampere>(782.60)
         } else {
             ElectricCurrent::new::<ampere>(0.)
         };
 
-        self.potential = if self.output.is_powered() {
+        self.potential = if self.is_powered() {
             self.calculate_potential(n)
         } else {
             ElectricPotential::new::<volt>(0.)
         };
 
-        self.frequency = if self.output.is_powered() {
+        self.frequency = if self.is_powered() {
             self.calculate_frequency(n)
         } else {
             Frequency::new::<hertz>(0.)
@@ -526,7 +526,7 @@ mod apu_generator_tests {
 
     #[test]
     fn starts_without_output() {
-        assert!(apu_generator().output().is_unpowered());
+        assert!(apu_generator().is_unpowered());
     }
 
     #[test]
@@ -535,7 +535,7 @@ mod apu_generator_tests {
         update_below_threshold(generator.as_mut());
         update_above_threshold(generator.as_mut());
 
-        assert!(generator.output().is_powered());
+        assert!(generator.is_powered());
     }
 
     #[test]
@@ -544,7 +544,7 @@ mod apu_generator_tests {
         update_above_threshold(generator.as_mut());
         update_below_threshold(generator.as_mut());
 
-        assert!(generator.output().is_unpowered());
+        assert!(generator.is_unpowered());
     }
 
     #[test]
