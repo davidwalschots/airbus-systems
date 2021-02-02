@@ -39,11 +39,6 @@ impl Current {
     pub fn is_unpowered(&self) -> bool {
         self.source.is_none()
     }
-
-    #[cfg(test)]
-    pub fn source(&self) -> Option<ElectricPowerSource> {
-        self.source
-    }
 }
 
 /// A source of electric energy. A source is not necessarily something
