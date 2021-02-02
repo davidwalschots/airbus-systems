@@ -134,6 +134,10 @@ impl AutoOffPushButton {
         self.state = AutoOffPushButtonState::Off;
     }
 
+    pub fn push_auto(&mut self) {
+        self.state = AutoOffPushButtonState::Auto;
+    }
+
     pub fn is_auto(&self) -> bool {
         self.state == AutoOffPushButtonState::Auto
     }

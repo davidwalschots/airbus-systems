@@ -1275,60 +1275,6 @@ mod a320_electrical_circuit_tests {
     }
 
     #[test]
-    fn when_available_engine_1_gen_supplies_ac_bus_1() {
-        let tester = tester_with().running_engine_1().run();
-
-        assert_eq!(
-            tester.ac_bus_1_output(),
-            Current::some(ElectricPowerSource::EngineGenerator(1))
-        );
-    }
-
-    #[test]
-    fn when_available_engine_2_gen_supplies_ac_bus_2() {
-        let tester = tester_with().running_engine_2().run();
-
-        assert_eq!(
-            tester.ac_bus_2_output(),
-            Current::some(ElectricPowerSource::EngineGenerator(2))
-        );
-    }
-
-    #[test]
-    fn when_only_engine_1_is_running_supplies_ac_bus_2() {
-        let tester = tester_with().running_engine_1().run();
-
-        assert_eq!(
-            tester.ac_bus_2_output(),
-            Current::some(ElectricPowerSource::EngineGenerator(1))
-        );
-    }
-
-    #[test]
-    fn when_only_engine_2_is_running_supplies_ac_bus_1() {
-        let tester = tester_with().running_engine_2().run();
-
-        assert_eq!(
-            tester.ac_bus_1_output(),
-            Current::some(ElectricPowerSource::EngineGenerator(2))
-        );
-    }
-
-    #[test]
-    fn when_no_power_source_ac_bus_1_is_unpowered() {
-        let tester = tester().run();
-
-        assert!(tester.ac_bus_1_output().is_unpowered());
-    }
-
-    #[test]
-    fn when_no_power_source_ac_bus_2_is_unpowered() {
-        let tester = tester().run();
-
-        assert!(tester.ac_bus_2_output().is_unpowered());
-    }
-
-    #[test]
     fn when_engine_1_and_apu_running_apu_powers_ac_bus_2() {
         let tester = tester_with().running_engine_1().and().running_apu().run();
 
@@ -1465,11 +1411,11 @@ mod a320_electrical_circuit_tests {
     }
 
     #[test]
-    fn when_ac_bus_1_becomes_unpowered_bat_1_powers_ac_ess_bus_for_a_while() {
+    fn when_ac_bus_1_becomes_unpowered_bat_1_and_static_inverter_power_ac_ess_bus_for_a_while() {
         let tester = tester_with()
-            .running_engines()
+            .running_engine_2()
             .and()
-            .failed_ac_bus_1()
+            .bus_tie_off()
             .run_waiting_until_just_before_ac_ess_feed_transition();
 
         assert_eq!(
@@ -1485,9 +1431,9 @@ mod a320_electrical_circuit_tests {
     #[test]
     fn when_ac_bus_1_becomes_unpowered_bat_2_powers_dc_ess_bus_for_a_while() {
         let tester = tester_with()
-            .running_engines()
+            .running_engine_2()
             .and()
-            .failed_ac_bus_1()
+            .bus_tie_off()
             .run_waiting_until_just_before_ac_ess_feed_transition();
 
         assert_eq!(
@@ -1502,9 +1448,9 @@ mod a320_electrical_circuit_tests {
     #[test]
     fn with_ac_bus_1_being_unpowered_after_a_delay_ac_bus_2_powers_ac_ess_bus() {
         let tester = tester_with()
-            .running_engines()
+            .running_engine_2()
             .and()
-            .failed_ac_bus_1()
+            .bus_tie_off()
             .run_waiting_for_ac_ess_feed_transition();
 
         assert_eq!(
@@ -1520,47 +1466,19 @@ mod a320_electrical_circuit_tests {
     fn ac_bus_1_powers_ac_ess_bus_immediately_when_ac_bus_1_becomes_powered_after_ac_bus_2_was_powering_ac_ess_bus(
     ) {
         let tester = tester_with()
-            .running_engines()
+            .running_engine_2()
             .and()
-            .failed_ac_bus_1()
+            .bus_tie_off()
             .run_waiting_for_ac_ess_feed_transition()
             .then_continue_with()
-            .normal_ac_bus_1()
+            .running_engine_1()
+            .and()
+            .bus_tie_auto()
             .run();
 
         assert_eq!(
             tester.ac_ess_bus_output(),
             Current::some(ElectricPowerSource::EngineGenerator(1))
-        );
-    }
-
-    #[test]
-    fn static_inverter_powers_ac_ess_bus_when_ac_bus_1_and_2_failed() {
-        let tester = tester_with()
-            .running_engines()
-            .failed_ac_bus_1()
-            .and()
-            .failed_ac_bus_2()
-            .run();
-
-        assert_eq!(
-            tester.ac_ess_bus_output(),
-            Current::some(ElectricPowerSource::StaticInverter)
-        );
-    }
-
-    #[test]
-    fn battery_1_powers_static_inverter_when_ac_bus_1_and_2_failed() {
-        let tester = tester_with()
-            .running_engines()
-            .failed_ac_bus_1()
-            .and()
-            .failed_ac_bus_2()
-            .run();
-
-        assert_eq!(
-            tester.static_inverter_input(),
-            Current::some(ElectricPowerSource::Battery(1))
         );
     }
 
@@ -1609,7 +1527,7 @@ mod a320_electrical_circuit_tests {
     }
 
     #[test]
-    fn when_ac_ess_feed_push_button_altn_ac_bus_2_powers_ac_ess_bus() {
+    fn when_ac_ess_feed_push_button_altn_engine_gen_2_powers_ac_ess_bus() {
         let tester = tester_with()
             .running_engines()
             .and()
@@ -1644,119 +1562,8 @@ mod a320_electrical_circuit_tests {
     }
 
     #[test]
-    fn when_ac_bus_1_powered_tr_1_is_powered() {
-        let tester = tester_with().running_engines().run();
-
-        assert!(tester.tr_1_output().is_powered());
-    }
-
-    #[test]
-    fn when_ac_bus_1_unpowered_tr_1_is_unpowered() {
-        let tester = tester().run();
-
-        assert!(tester.tr_1_output().is_unpowered());
-    }
-
-    #[test]
-    fn when_ac_bus_2_powered_tr_2_is_powered() {
-        let tester = tester_with().running_engines().run();
-
-        assert!(tester.tr_2_output().is_powered());
-    }
-
-    #[test]
-    fn when_ac_bus_2_unpowered_tr_2_is_unpowered() {
-        let tester = tester().run();
-
-        assert!(tester.tr_2_output().is_unpowered());
-    }
-
-    #[test]
-    fn when_tr_1_failed_ess_tr_powered() {
-        let tester = tester_with().running_engines().and().failed_tr_1().run();
-
-        assert!(tester.tr_ess_output().is_powered());
-    }
-
-    #[test]
-    fn when_tr_1_unpowered_ess_tr_powered() {
-        let tester = tester_with()
-            .running_engines()
-            .and()
-            .failed_ac_bus_1()
-            // AC ESS BUS which powers TR ESS is only supplied with power after the delay.
-            .run_waiting_for_ac_ess_feed_transition();
-
-        assert!(tester.tr_ess_output().is_powered());
-    }
-
-    #[test]
-    fn when_tr_2_failed_ess_tr_powered() {
-        let tester = tester_with().running_engines().and().failed_tr_2().run();
-
-        assert!(tester.tr_ess_output().is_powered());
-    }
-
-    #[test]
-    fn when_tr_2_unpowered_ess_tr_powered() {
-        let tester = tester_with()
-            .running_engines()
-            .and()
-            .failed_ac_bus_2()
-            .run();
-
-        assert!(tester.tr_ess_output().is_powered());
-    }
-
-    #[test]
-    fn when_tr_1_and_2_normal_ess_tr_unpowered() {
-        let tester = tester_with().running_engines().run();
-
-        assert!(tester.tr_ess_output().is_unpowered());
-    }
-
-    #[test]
-    fn when_ac_bus_1_and_ac_bus_2_are_lost_a_running_emergency_gen_powers_tr_ess() {
-        let tester = tester_with()
-            .running_engines()
-            .failed_ac_bus_1()
-            .failed_ac_bus_2()
-            .and()
-            .running_emergency_generator()
-            .run();
-
-        assert!(tester.tr_ess_input().is_powered());
-        assert_eq!(
-            tester.tr_ess_input(),
-            Current::some(ElectricPowerSource::EmergencyGenerator)
-        );
-    }
-
-    #[test]
-    fn when_ac_bus_1_and_ac_bus_2_are_lost_a_running_emergency_gen_powers_ac_ess_bus() {
-        let tester = tester_with()
-            .running_engines()
-            .failed_ac_bus_1()
-            .failed_ac_bus_2()
-            .and()
-            .running_emergency_generator()
-            .run();
-
-        assert!(tester.ac_ess_bus_output().is_powered());
-        assert_eq!(
-            tester.ac_ess_bus_output(),
-            Current::some(ElectricPowerSource::EmergencyGenerator)
-        );
-    }
-
-    #[test]
     fn when_ac_bus_1_and_ac_bus_2_are_lost_neither_ac_ess_feed_contactor_is_closed() {
-        let tester = tester_with()
-            .running_engines()
-            .failed_ac_bus_1()
-            .and()
-            .failed_ac_bus_2()
-            .run();
+        let tester = tester_with().run();
 
         assert!(tester.both_ac_ess_feed_contactors_open());
     }
@@ -1970,16 +1777,6 @@ mod a320_electrical_circuit_tests {
             self
         }
 
-        fn failed_ac_bus_1(mut self) -> ElectricalCircuitTester {
-            self.elec.ac_bus_1.fail();
-            self
-        }
-
-        fn failed_ac_bus_2(mut self) -> ElectricalCircuitTester {
-            self.elec.ac_bus_2.fail();
-            self
-        }
-
         fn failed_tr_1(mut self) -> ElectricalCircuitTester {
             self.elec.tr_1.fail();
             self
@@ -1987,11 +1784,6 @@ mod a320_electrical_circuit_tests {
 
         fn failed_tr_2(mut self) -> ElectricalCircuitTester {
             self.elec.tr_2.fail();
-            self
-        }
-
-        fn normal_ac_bus_1(mut self) -> ElectricalCircuitTester {
-            self.elec.ac_bus_1.normal();
             self
         }
 
@@ -2035,6 +1827,11 @@ mod a320_electrical_circuit_tests {
             self
         }
 
+        fn bus_tie_auto(mut self) -> ElectricalCircuitTester {
+            self.overhead.bus_tie.push_auto();
+            self
+        }
+
         fn bus_tie_off(mut self) -> ElectricalCircuitTester {
             self.overhead.bus_tie.push_off();
             self
@@ -2068,24 +1865,12 @@ mod a320_electrical_circuit_tests {
             self.elec.tr_1.get_input()
         }
 
-        fn tr_1_output(&self) -> Current {
-            self.elec.tr_1.output()
-        }
-
         fn tr_2_input(&self) -> Current {
             self.elec.tr_2.get_input()
         }
 
-        fn tr_2_output(&self) -> Current {
-            self.elec.tr_2.output()
-        }
-
         fn tr_ess_input(&self) -> Current {
             self.elec.tr_ess.get_input()
-        }
-
-        fn tr_ess_output(&self) -> Current {
-            self.elec.tr_ess.output()
         }
 
         fn dc_bus_1_output(&self) -> Current {
