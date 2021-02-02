@@ -1,6 +1,6 @@
 use super::{ApuGenerator, Turbine, TurbineController, TurbineState};
 use crate::{
-    electrical::{Current, PowerConductor, PowerSource},
+    electrical::{Current, ElectricPowerSource, ElectricSource},
     shared::{random_number, TimedRandom},
     simulator::{
         SimulatorReadWritable, SimulatorVisitable, SimulatorVisitor, SimulatorWriteState,
@@ -376,17 +376,23 @@ fn calculate_towards_target_egt(
 pub struct Aps3200ApuGenerator {
     output: Current,
     random_voltage: TimedRandom<f64>,
+    current: ElectricCurrent,
+    potential: ElectricPotential,
+    frequency: Frequency,
 }
 impl Aps3200ApuGenerator {
     const APU_GEN_POWERED_N: f64 = 84.;
 
     pub fn new() -> Aps3200ApuGenerator {
         Aps3200ApuGenerator {
-            output: Current::None,
+            output: Current::none(),
             random_voltage: TimedRandom::new(
                 Duration::from_secs(1),
                 vec![114., 115., 115., 115., 115.],
             ),
+            current: ElectricCurrent::new::<ampere>(0.),
+            potential: ElectricPotential::new::<volt>(0.),
+            frequency: Frequency::new::<hertz>(0.),
         }
     }
 
@@ -451,29 +457,42 @@ impl ApuGenerator for Aps3200ApuGenerator {
         self.output = if is_emergency_shutdown
             || n.get::<percent>() < Aps3200ApuGenerator::APU_GEN_POWERED_N
         {
-            Current::None
+            Current::none()
         } else {
-            Current::Alternating(
-                PowerSource::ApuGenerator,
-                self.calculate_frequency(n),
-                self.calculate_potential(n),
-                // TODO: Once we actually know what to do with the amperes, we'll have to adapt this.
-                ElectricCurrent::new::<ampere>(782.60),
-            )
-        }
+            Current::some(ElectricPowerSource::ApuGenerator)
+        };
+
+        self.current = if self.output.is_powered() {
+            // TODO: Once we actually know what to do with the amperes, we'll have to adapt this.
+            ElectricCurrent::new::<ampere>(782.60)
+        } else {
+            ElectricCurrent::new::<ampere>(0.)
+        };
+
+        self.potential = if self.output.is_powered() {
+            self.calculate_potential(n)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        };
+
+        self.frequency = if self.output.is_powered() {
+            self.calculate_frequency(n)
+        } else {
+            Frequency::new::<hertz>(0.)
+        };
     }
 
     fn frequency_within_normal_range(&self) -> bool {
-        let hz = self.output().get_frequency().get::<hertz>();
+        let hz = self.frequency.get::<hertz>();
         (390.0..=410.0).contains(&hz)
     }
 
     fn potential_within_normal_range(&self) -> bool {
-        let volts = self.output().get_potential().get::<volt>();
+        let volts = self.potential.get::<volt>();
         (110.0..=120.0).contains(&volts)
     }
 }
-impl PowerConductor for Aps3200ApuGenerator {
+impl ElectricSource for Aps3200ApuGenerator {
     fn output(&self) -> Current {
         self.output
     }
@@ -485,10 +504,10 @@ impl SimulatorVisitable for Aps3200ApuGenerator {
 }
 impl SimulatorReadWritable for Aps3200ApuGenerator {
     fn write(&self, state: &mut SimulatorWriteState) {
-        state.apu_gen_current = self.output().get_current();
-        state.apu_gen_frequency = self.output().get_frequency();
+        state.apu_gen_current = self.current;
+        state.apu_gen_frequency = self.frequency;
         state.apu_gen_frequency_within_normal_range = self.frequency_within_normal_range();
-        state.apu_gen_potential = self.output().get_potential();
+        state.apu_gen_potential = self.potential;
         state.apu_gen_potential_within_normal_range = self.potential_within_normal_range();
     }
 }
@@ -537,7 +556,7 @@ mod apu_generator_tests {
 
             let n = tester.get_n().get::<percent>();
             if n > 84. {
-                assert!(tester.get_generator_output().get_potential().get::<volt>() > 0.);
+                assert!(tester.get_potential().get::<volt>() > 0.);
             }
 
             if (n - 100.).abs() < f64::EPSILON {
@@ -555,7 +574,7 @@ mod apu_generator_tests {
 
             let n = tester.get_n().get::<percent>();
             if n > 84. {
-                assert!(tester.get_generator_output().get_frequency().get::<hertz>() > 0.);
+                assert!(tester.get_frequency().get::<hertz>() > 0.);
             }
 
             if (n - 100.).abs() < f64::EPSILON {
@@ -571,7 +590,7 @@ mod apu_generator_tests {
         for _ in 0..100 {
             tester = tester.run(Duration::from_millis(50));
 
-            let voltage = tester.get_generator_output().get_potential().get::<volt>();
+            let voltage = tester.get_potential().get::<volt>();
             assert!((114.0..=115.0).contains(&voltage))
         }
     }
@@ -583,7 +602,7 @@ mod apu_generator_tests {
         for _ in 0..100 {
             tester = tester.run(Duration::from_millis(50));
 
-            let frequency = tester.get_generator_output().get_frequency().get::<hertz>();
+            let frequency = tester.get_frequency().get::<hertz>();
             assert_about_eq!(frequency, 400.);
         }
     }

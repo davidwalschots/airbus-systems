@@ -1,94 +1,55 @@
 use crate::{engine::Engine, overhead::OnOffPushButton, simulator::UpdateContext};
 use std::cmp::min;
 use uom::si::{
-    electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f64::*,
-    frequency::hertz, power::watt, ratio::percent, thermodynamic_temperature::degree_celsius,
+    electric_charge::ampere_hour, f64::*, ratio::percent, thermodynamic_temperature::degree_celsius,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum PowerSource {
-    None,
+pub enum ElectricPowerSource {
     EngineGenerator(u8),
     ApuGenerator,
     External,
     EmergencyGenerator,
     Battery(u8),
     Batteries,
+    TransformerRectifier(u8),
+    StaticInverter,
 }
 
 /// Represents a type of electric current.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Current {
-    Alternating(PowerSource, Frequency, ElectricPotential, ElectricCurrent),
-    Direct(PowerSource, ElectricPotential, ElectricCurrent),
-    None,
+pub struct Current {
+    source: Option<ElectricPowerSource>,
 }
 impl Current {
+    pub fn some(source: ElectricPowerSource) -> Self {
+        Current {
+            source: Some(source),
+        }
+    }
+
+    pub fn none() -> Self {
+        Current { source: None }
+    }
+
     pub fn is_powered(&self) -> bool {
-        matches!(self, Current::Alternating(..) | Current::Direct(..))
+        self.source.is_some()
     }
 
     pub fn is_unpowered(&self) -> bool {
-        matches!(self, Current::None)
-    }
-
-    pub fn get_potential(&self) -> ElectricPotential {
-        match self {
-            Current::Alternating(_, _, potential, _) => *potential,
-            Current::Direct(_, potential, _) => *potential,
-            Current::None => ElectricPotential::new::<volt>(0.),
-        }
-    }
-
-    pub fn get_frequency(&self) -> Frequency {
-        match self {
-            Current::Alternating(_, frequency, _, _) => *frequency,
-            _ => Frequency::new::<hertz>(0.),
-        }
-    }
-
-    pub fn get_current(&self) -> ElectricCurrent {
-        match self {
-            Current::Alternating(_, _, _, current) => *current,
-            Current::Direct(_, _, current) => *current,
-            Current::None => ElectricCurrent::new::<ampere>(0.),
-        }
+        self.source.is_none()
     }
 
     #[cfg(test)]
-    pub fn source(self) -> PowerSource {
-        match self {
-            Current::Alternating(source, ..) => source,
-            Current::Direct(source, ..) => source,
-            _ => PowerSource::None,
-        }
-    }
-
-    pub fn clone_with_power_source(&self, source: PowerSource) -> Current {
-        match self {
-            Current::Alternating(_, frequency, potential, current) => Current::Alternating(
-                source,
-                frequency.clone(),
-                potential.clone(),
-                current.clone(),
-            ),
-            Current::Direct(_, potential, current) => {
-                Current::Direct(source, potential.clone(), current.clone())
-            }
-            _ => Current::None,
-        }
-    }
-
-    fn total_power(&self) -> Power {
-        match self {
-            Current::Alternating(_, _, potential, current) => *potential * *current,
-            Current::Direct(_, potential, current) => *potential * *current,
-            Current::None => Power::new::<watt>(0.),
-        }
+    pub fn source(&self) -> Option<ElectricPowerSource> {
+        self.source
     }
 }
 
-pub trait PowerConductor {
+/// A source of electric energy. A source is not necessarily something
+/// that generates the electric energy. It can also be something that conducts
+/// it from another source.
+pub trait ElectricSource {
     fn output(&self) -> Current;
 
     fn is_powered(&self) -> bool {
@@ -103,33 +64,20 @@ pub trait PowerConductor {
 pub trait Powerable {
     /// Provides input power from any of the given sources. When none of the sources
     /// has any output, no input is provided.
-    fn powered_by<T: PowerConductor + ?Sized>(&mut self, sources: Vec<&T>) {
-        self.set_input(
-            sources
-                .iter()
-                .find_map(|x| {
-                    let output = x.output();
-                    match output {
-                        Current::None => None,
-                        _ => Some(output),
-                    }
-                })
-                .unwrap_or(Current::None),
-        );
+    fn powered_by<T: ElectricSource + ?Sized>(&mut self, sources: Vec<&T>) {
+        let x = sources.iter().map(|x| x.output()).find(|x| x.is_powered());
+        self.set_input(match x {
+            Some(current) => current,
+            None => Current::none(),
+        });
     }
 
-    /// Provides input power from any of the given sources. When none of the sources
-    /// has any output, the already provided input is maintained.
+    /// If this element is unpowered when calling this function, the sources can provide input power to it.
     /// This function is useful for situations where power can flow bidirectionally between
     /// conductors, such as from ENG1 to AC BUS 2 and ENG2 to AC BUS 1.
-    fn or_powered_by<T: PowerConductor + ?Sized>(&mut self, sources: Vec<&T>) {
-        if let Current::None = self.get_input() {
-            for source in sources {
-                let output = source.output();
-                if !output.is_unpowered() {
-                    self.set_input(output);
-                }
-            }
+    fn or_powered_by<T: ElectricSource + ?Sized>(&mut self, sources: Vec<&T>) {
+        if self.get_input().is_unpowered() {
+            self.powered_by(sources);
         }
     }
 
@@ -138,41 +86,24 @@ pub trait Powerable {
         battery_1_contactor: &Contactor,
         battery_2_contactor: &Contactor,
     ) {
-        if let Current::None = self.get_input() {
-            let is_battery_1_powered = is_battery_contactor_powered(battery_1_contactor);
-            let is_battery_2_powered = is_battery_contactor_powered(battery_2_contactor);
+        if self.get_input().is_unpowered() {
+            let is_battery_1_powered = battery_1_contactor.output().is_powered();
+            let is_battery_2_powered = battery_2_contactor.output().is_powered();
 
             if is_battery_1_powered && is_battery_2_powered {
-                let highest_power_battery_output = if battery_1_contactor.output().total_power()
-                    > battery_2_contactor.output().total_power()
-                {
-                    battery_1_contactor.output()
-                } else {
-                    battery_2_contactor.output()
-                };
-
-                self.set_input(
-                    highest_power_battery_output.clone_with_power_source(PowerSource::Batteries),
-                );
+                self.set_input(Current::some(ElectricPowerSource::Batteries));
             } else if is_battery_1_powered {
-                self.set_input(battery_1_contactor.output());
+                self.set_input(Current::some(ElectricPowerSource::Battery(1)));
             } else if is_battery_2_powered {
-                self.set_input(battery_2_contactor.output());
+                self.set_input(Current::some(ElectricPowerSource::Battery(2)));
             } else {
-                self.set_input(Current::None);
+                self.set_input(Current::none());
             }
         }
     }
 
     fn set_input(&mut self, current: Current);
     fn get_input(&self) -> Current;
-}
-
-fn is_battery_contactor_powered(battery_contactor: &Contactor) -> bool {
-    match battery_contactor.output() {
-        Current::Direct(..) => true,
-        _ => false,
-    }
 }
 
 /// Represents the state of a contactor.
@@ -189,13 +120,12 @@ pub struct Contactor {
     state: ContactorState,
     input: Current,
 }
-
 impl Contactor {
     pub fn new(id: String) -> Contactor {
         Contactor {
             id,
             state: ContactorState::Open,
-            input: Current::None,
+            input: Current::none(),
         }
     }
 
@@ -219,7 +149,6 @@ impl Contactor {
         !self.is_open()
     }
 }
-
 impl Powerable for Contactor {
     fn set_input(&mut self, current: Current) {
         self.input = current;
@@ -229,13 +158,12 @@ impl Powerable for Contactor {
         self.input
     }
 }
-
-impl PowerConductor for Contactor {
+impl ElectricSource for Contactor {
     fn output(&self) -> Current {
         if let ContactorState::Closed = self.state {
             self.input
         } else {
-            Current::None
+            Current::none()
         }
     }
 }
@@ -244,7 +172,6 @@ pub struct EngineGenerator {
     number: u8,
     idg: IntegratedDriveGenerator,
 }
-
 impl EngineGenerator {
     pub fn new(number: u8) -> EngineGenerator {
         EngineGenerator {
@@ -262,18 +189,12 @@ impl EngineGenerator {
         self.idg.update(context, engine, idg_push_button);
     }
 }
-
-impl PowerConductor for EngineGenerator {
+impl ElectricSource for EngineGenerator {
     fn output(&self) -> Current {
         if self.idg.provides_stable_power_output() {
-            Current::Alternating(
-                PowerSource::EngineGenerator(self.number),
-                Frequency::new::<hertz>(400.),
-                ElectricPotential::new::<volt>(115.),
-                ElectricCurrent::new::<ampere>(782.60),
-            )
+            Current::some(ElectricPowerSource::EngineGenerator(self.number))
         } else {
-            Current::None
+            Current::none()
         }
     }
 }
@@ -283,7 +204,6 @@ pub(crate) struct IntegratedDriveGenerator {
     time_above_threshold_in_milliseconds: u64,
     connected: bool,
 }
-
 impl IntegratedDriveGenerator {
     pub const ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD: f64 = 59.5;
     pub const ENGINE_N2_POWER_DOWN_OUTPUT_THRESHOLD: f64 = 56.;
@@ -405,7 +325,6 @@ fn clamp<T: PartialOrd>(value: T, min: T, max: T) -> T {
 pub struct ExternalPowerSource {
     pub is_connected: bool,
 }
-
 impl ExternalPowerSource {
     pub fn new() -> ExternalPowerSource {
         ExternalPowerSource {
@@ -415,18 +334,12 @@ impl ExternalPowerSource {
 
     pub fn update(&mut self, _: &UpdateContext) {}
 }
-
-impl PowerConductor for ExternalPowerSource {
+impl ElectricSource for ExternalPowerSource {
     fn output(&self) -> Current {
         if self.is_connected {
-            Current::Alternating(
-                PowerSource::External,
-                Frequency::new::<hertz>(400.),
-                ElectricPotential::new::<volt>(115.),
-                ElectricCurrent::new::<ampere>(782.60),
-            )
+            Current::some(ElectricPowerSource::External)
         } else {
-            Current::None
+            Current::none()
         }
     }
 }
@@ -435,11 +348,10 @@ pub struct ElectricalBus {
     input: Current,
     failed: bool,
 }
-
 impl ElectricalBus {
     pub fn new() -> ElectricalBus {
         ElectricalBus {
-            input: Current::None,
+            input: Current::none(),
             failed: false,
         }
     }
@@ -454,7 +366,6 @@ impl ElectricalBus {
         self.failed = false;
     }
 }
-
 impl Powerable for ElectricalBus {
     fn set_input(&mut self, current: Current) {
         self.input = current;
@@ -464,26 +375,26 @@ impl Powerable for ElectricalBus {
         self.input
     }
 }
-
-impl PowerConductor for ElectricalBus {
+impl ElectricSource for ElectricalBus {
     fn output(&self) -> Current {
         if !self.failed {
             self.input
         } else {
-            Current::None
+            Current::none()
         }
     }
 }
 
 pub struct TransformerRectifier {
+    number: u8,
     input: Current,
     failed: bool,
 }
-
 impl TransformerRectifier {
-    pub fn new() -> TransformerRectifier {
+    pub fn new(number: u8) -> TransformerRectifier {
         TransformerRectifier {
-            input: Current::None,
+            number,
+            input: Current::none(),
             failed: false,
         }
     }
@@ -497,7 +408,6 @@ impl TransformerRectifier {
         self.failed
     }
 }
-
 impl Powerable for TransformerRectifier {
     fn set_input(&mut self, current: Current) {
         self.input = current;
@@ -507,20 +417,14 @@ impl Powerable for TransformerRectifier {
         self.input
     }
 }
-
-impl PowerConductor for TransformerRectifier {
+impl ElectricSource for TransformerRectifier {
     fn output(&self) -> Current {
         if self.failed {
-            Current::None
+            Current::none()
+        } else if self.input.is_powered() {
+            Current::some(ElectricPowerSource::TransformerRectifier(self.number))
         } else {
-            match self.input {
-                Current::Alternating(source, ..) => Current::Direct(
-                    source,
-                    ElectricPotential::new::<volt>(28.5),
-                    ElectricCurrent::new::<ampere>(35.),
-                ),
-                _ => Current::None,
-            }
+            Current::none()
         }
     }
 }
@@ -529,7 +433,6 @@ pub struct EmergencyGenerator {
     running: bool,
     is_blue_pressurised: bool,
 }
-
 impl EmergencyGenerator {
     pub fn new() -> EmergencyGenerator {
         EmergencyGenerator {
@@ -552,18 +455,12 @@ impl EmergencyGenerator {
         self.is_blue_pressurised && self.running
     }
 }
-
-impl PowerConductor for EmergencyGenerator {
+impl ElectricSource for EmergencyGenerator {
     fn output(&self) -> Current {
         if self.is_running() {
-            Current::Alternating(
-                PowerSource::EmergencyGenerator,
-                Frequency::new::<hertz>(400.),
-                ElectricPotential::new::<volt>(115.),
-                ElectricCurrent::new::<ampere>(43.47),
-            ) // 5 kVA.
+            Current::some(ElectricPowerSource::EmergencyGenerator)
         } else {
-            Current::None
+            Current::none()
         }
     }
 }
@@ -573,7 +470,6 @@ pub struct Battery {
     input: Current,
     charge: ElectricCharge,
 }
-
 impl Battery {
     const MAX_ELECTRIC_CHARGE_AMPERE_HOURS: f64 = 23.0;
 
@@ -592,7 +488,7 @@ impl Battery {
     fn new(number: u8, charge: ElectricCharge) -> Battery {
         Battery {
             number,
-            input: Current::None,
+            input: Current::none(),
             charge,
         }
     }
@@ -603,7 +499,6 @@ impl Battery {
 
     // TODO: Charging and depleting battery when used.
 }
-
 impl Powerable for Battery {
     fn set_input(&mut self, current: Current) {
         self.input = current
@@ -613,35 +508,26 @@ impl Powerable for Battery {
         self.input
     }
 }
-
-impl PowerConductor for Battery {
+impl ElectricSource for Battery {
     fn output(&self) -> Current {
-        if let Current::None = self.input {
-            if self.charge > ElectricCharge::new::<ampere_hour>(0.) {
-                return Current::Direct(
-                    PowerSource::Battery(self.number),
-                    ElectricPotential::new::<volt>(28.5),
-                    ElectricCurrent::new::<ampere>(35.),
-                );
-            }
+        if self.input.is_unpowered() && self.charge > ElectricCharge::new::<ampere_hour>(0.) {
+            Current::some(ElectricPowerSource::Battery(self.number))
+        } else {
+            Current::none()
         }
-
-        Current::None
     }
 }
 
 pub struct StaticInverter {
     input: Current,
 }
-
 impl StaticInverter {
     pub fn new() -> StaticInverter {
         StaticInverter {
-            input: Current::None,
+            input: Current::none(),
         }
     }
 }
-
 impl Powerable for StaticInverter {
     fn set_input(&mut self, current: Current) {
         self.input = current;
@@ -651,17 +537,12 @@ impl Powerable for StaticInverter {
         self.input
     }
 }
-
-impl PowerConductor for StaticInverter {
+impl ElectricSource for StaticInverter {
     fn output(&self) -> Current {
-        match self.input {
-            Current::Direct(source, ..) => Current::Alternating(
-                source,
-                Frequency::new::<hertz>(400.),
-                ElectricPotential::new::<volt>(115.0),
-                ElectricCurrent::new::<ampere>(8.7),
-            ),
-            _ => Current::None,
+        if self.input.is_powered() {
+            Current::some(ElectricPowerSource::StaticInverter)
+        } else {
+            Current::none()
         }
     }
 }
@@ -670,23 +551,16 @@ impl PowerConductor for StaticInverter {
 mod tests {
     use super::*;
     struct Powerless {}
-
-    impl PowerConductor for Powerless {
+    impl ElectricSource for Powerless {
         fn output(&self) -> Current {
-            Current::None
+            Current::none()
         }
     }
 
     struct StubApuGenerator {}
-
-    impl PowerConductor for StubApuGenerator {
+    impl ElectricSource for StubApuGenerator {
         fn output(&self) -> Current {
-            Current::Alternating(
-                PowerSource::ApuGenerator,
-                Frequency::new::<hertz>(400.),
-                ElectricPotential::new::<volt>(115.),
-                ElectricCurrent::new::<ampere>(782.60),
-            )
+            Current::some(ElectricPowerSource::ApuGenerator)
         }
     }
 
@@ -727,7 +601,7 @@ mod tests {
             }
         }
 
-        impl PowerConductor for BatteryStub {
+        impl ElectricSource for BatteryStub {
             fn output(&self) -> Current {
                 self.current
             }
@@ -736,15 +610,13 @@ mod tests {
         struct PowerableUnderTest {
             input: Current,
         }
-
         impl PowerableUnderTest {
             fn new() -> PowerableUnderTest {
                 PowerableUnderTest {
-                    input: Current::None,
+                    input: Current::none(),
                 }
             }
         }
-
         impl Powerable for PowerableUnderTest {
             fn set_input(&mut self, current: Current) {
                 self.input = current;
@@ -756,54 +628,12 @@ mod tests {
         }
 
         #[test]
-        fn or_powered_by_both_batteries_results_in_strongest_output_bat_1() {
-            let high_potential = ElectricPotential::new::<volt>(28.);
-            let high_current = ElectricCurrent::new::<ampere>(10.);
+        fn or_powered_by_both_batteries_results_in_both_when_both_connected() {
+            let bat_1 = BatteryStub::new(Current::some(ElectricPowerSource::Battery(1)));
+            let bat_2 = BatteryStub::new(Current::some(ElectricPowerSource::Battery(2)));
 
-            let bat_1 = BatteryStub::new(Current::Direct(
-                PowerSource::Battery(1),
-                high_potential,
-                high_current,
-            ));
+            let expected = Current::some(ElectricPowerSource::Batteries);
 
-            let bat_2 = BatteryStub::new(Current::Direct(
-                PowerSource::Battery(2),
-                ElectricPotential::new::<volt>(5.),
-                ElectricCurrent::new::<ampere>(5.),
-            ));
-
-            let expected = Current::Direct(PowerSource::Batteries, high_potential, high_current);
-
-            or_powered_by_both_batteries_results_in_strongest_output_a(bat_1, bat_2, expected);
-        }
-
-        #[test]
-        fn or_powered_by_both_batteries_results_in_strongest_output_bat_2() {
-            let high_potential = ElectricPotential::new::<volt>(28.);
-            let high_current = ElectricCurrent::new::<ampere>(10.);
-
-            let bat_1 = BatteryStub::new(Current::Direct(
-                PowerSource::Battery(2),
-                ElectricPotential::new::<volt>(5.),
-                ElectricCurrent::new::<ampere>(5.),
-            ));
-
-            let bat_2 = BatteryStub::new(Current::Direct(
-                PowerSource::Battery(1),
-                high_potential,
-                high_current,
-            ));
-
-            let expected = Current::Direct(PowerSource::Batteries, high_potential, high_current);
-
-            or_powered_by_both_batteries_results_in_strongest_output_a(bat_1, bat_2, expected);
-        }
-
-        fn or_powered_by_both_batteries_results_in_strongest_output_a(
-            bat_1: BatteryStub,
-            bat_2: BatteryStub,
-            expected: Current,
-        ) {
             let mut powerable = PowerableUnderTest::new();
 
             let mut contactor_1 = Contactor::new(String::from("BAT1"));
@@ -821,27 +651,19 @@ mod tests {
 
         #[test]
         fn or_powered_by_battery_1_results_in_bat_1_output() {
-            let expected = Current::Direct(
-                PowerSource::Battery(1),
-                ElectricPotential::new::<volt>(28.),
-                ElectricCurrent::new::<ampere>(10.),
-            );
+            let expected = Current::some(ElectricPowerSource::Battery(1));
 
             let bat_1 = BatteryStub::new(expected);
-            let bat_2 = BatteryStub::new(Current::None);
+            let bat_2 = BatteryStub::new(Current::none());
 
             or_powered_by_battery_results_in_expected_output(bat_1, bat_2, expected);
         }
 
         #[test]
         fn or_powered_by_battery_2_results_in_bat_2_output() {
-            let expected = Current::Direct(
-                PowerSource::Battery(1),
-                ElectricPotential::new::<volt>(28.),
-                ElectricCurrent::new::<ampere>(10.),
-            );
+            let expected = Current::some(ElectricPowerSource::Battery(2));
 
-            let bat_1 = BatteryStub::new(Current::None);
+            let bat_1 = BatteryStub::new(Current::none());
             let bat_2 = BatteryStub::new(expected);
 
             or_powered_by_battery_results_in_expected_output(bat_1, bat_2, expected);
@@ -870,28 +692,16 @@ mod tests {
 
     #[cfg(test)]
     mod current_tests {
-        use uom::si::{electric_current::ampere, electric_potential::volt, frequency::hertz};
-
         use super::*;
 
         #[test]
-        fn alternating_current_is_powered() {
-            assert_eq!(alternating_current().is_powered(), true);
+        fn some_current_is_powered() {
+            assert_eq!(some_current().is_powered(), true);
         }
 
         #[test]
-        fn alternating_current_is_not_unpowered() {
-            assert_eq!(alternating_current().is_unpowered(), false);
-        }
-
-        #[test]
-        fn direct_current_is_powered() {
-            assert_eq!(direct_current().is_powered(), true);
-        }
-
-        #[test]
-        fn direct_current_is_not_unpowered() {
-            assert_eq!(direct_current().is_unpowered(), false);
+        fn some_current_is_not_unpowered() {
+            assert_eq!(some_current().is_unpowered(), false);
         }
 
         #[test]
@@ -904,25 +714,12 @@ mod tests {
             assert_eq!(none_current().is_unpowered(), true);
         }
 
-        fn alternating_current() -> Current {
-            Current::Alternating(
-                PowerSource::ApuGenerator,
-                Frequency::new::<hertz>(0.),
-                ElectricPotential::new::<volt>(0.),
-                ElectricCurrent::new::<ampere>(0.),
-            )
-        }
-
-        fn direct_current() -> Current {
-            Current::Direct(
-                PowerSource::ApuGenerator,
-                ElectricPotential::new::<volt>(0.),
-                ElectricCurrent::new::<ampere>(0.),
-            )
+        fn some_current() -> Current {
+            Current::some(ElectricPowerSource::ApuGenerator)
         }
 
         fn none_current() -> Current {
-            Current::None
+            Current::none()
         }
     }
 
@@ -978,7 +775,7 @@ mod tests {
         }
 
         fn contactor_has_no_output_when_powered_by_nothing(mut contactor: Contactor) {
-            let nothing: Vec<&dyn PowerConductor> = vec![];
+            let nothing: Vec<&dyn ElectricSource> = vec![];
             contactor.powered_by(nothing);
 
             assert!(contactor.output().is_unpowered());
@@ -1005,7 +802,7 @@ mod tests {
         #[test]
         fn open_contactor_has_no_output_when_powered_by_something() {
             let mut contactor = open_contactor();
-            let conductors: Vec<&dyn PowerConductor> = vec![&Powerless {}, &StubApuGenerator {}];
+            let conductors: Vec<&dyn ElectricSource> = vec![&Powerless {}, &StubApuGenerator {}];
             contactor.powered_by(conductors);
 
             assert!(contactor.output().is_unpowered());
@@ -1014,7 +811,7 @@ mod tests {
         #[test]
         fn closed_contactor_has_output_when_powered_by_something_which_is_powered() {
             let mut contactor = closed_contactor();
-            let conductors: Vec<&dyn PowerConductor> = vec![&Powerless {}, &StubApuGenerator {}];
+            let conductors: Vec<&dyn ElectricSource> = vec![&Powerless {}, &StubApuGenerator {}];
             contactor.powered_by(conductors);
 
             assert!(contactor.output().is_powered());
@@ -1248,22 +1045,15 @@ mod tests {
         }
 
         #[test]
-        fn when_powered_with_alternating_current_outputs_direct_current() {
+        fn when_powered_outputs_current() {
             let mut tr = transformer_rectifier();
             tr.powered_by(vec![&apu_generator()]);
 
             assert!(tr.output().is_powered());
-            assert!(
-                if let Current::Direct(PowerSource::ApuGenerator, ..) = tr.output() {
-                    true
-                } else {
-                    false
-                }
-            );
         }
 
         #[test]
-        fn when_powered_with_alternating_current_but_failed_has_no_output() {
+        fn when_powered_but_failed_has_no_output() {
             let mut tr = transformer_rectifier();
             tr.powered_by(vec![&apu_generator()]);
             tr.fail();
@@ -1280,7 +1070,7 @@ mod tests {
         }
 
         fn transformer_rectifier() -> TransformerRectifier {
-            TransformerRectifier::new()
+            TransformerRectifier::new(1)
         }
     }
 
@@ -1384,18 +1174,11 @@ mod tests {
         }
 
         #[test]
-        fn when_powered_with_direct_current_outputs_alternating_current() {
+        fn when_powered_has_output() {
             let mut static_inv = static_inverter();
             static_inv.powered_by(vec![&battery()]);
 
             assert!(static_inv.output().is_powered());
-            assert!(
-                if let Current::Alternating(PowerSource::Battery(1), ..) = static_inv.output() {
-                    true
-                } else {
-                    false
-                }
-            );
         }
 
         #[test]

@@ -4,7 +4,7 @@ use super::{
     Turbine, TurbineController, TurbineState,
 };
 use crate::{
-    electrical::PowerConductor,
+    electrical::ElectricSource,
     pneumatic::{BleedAirValveController, Valve},
     simulator::UpdateContext,
 };
@@ -72,7 +72,7 @@ impl ElectronicControlBox {
         self.air_intake_flap_fully_open = air_intake_flap.is_fully_open();
     }
 
-    pub fn update_start_contactor_state<T: PowerConductor>(&mut self, start_contactor: &T) {
+    pub fn update_start_contactor_state<T: ElectricSource>(&mut self, start_contactor: &T) {
         self.start_contactor_is_energized = start_contactor.is_powered()
     }
 

@@ -6,7 +6,7 @@
 
 use self::{air_intake_flap::AirIntakeFlap, electronic_control_box::ElectronicControlBox};
 use crate::{
-    electrical::{Current, PowerConductor, PowerSource},
+    electrical::{Current, ElectricPowerSource, ElectricSource},
     overhead::{FirePushButton, OnOffPushButton},
     pneumatic::{BleedAirValve, BleedAirValveState, Valve},
     simulator::{
@@ -14,7 +14,7 @@ use crate::{
         SimulatorWriteState, UpdateContext,
     },
 };
-use uom::si::{electric_current::ampere, electric_potential::volt, f64::*};
+use uom::si::f64::*;
 
 mod air_intake_flap;
 mod aps3200;
@@ -37,16 +37,12 @@ impl ApuStartContactor {
         self.closed = controller.should_close_start_contactor();
     }
 }
-impl PowerConductor for ApuStartContactor {
+impl ElectricSource for ApuStartContactor {
     fn output(&self) -> Current {
         if self.closed {
-            Current::Direct(
-                PowerSource::Battery(1),
-                ElectricPotential::new::<volt>(28.5),
-                ElectricCurrent::new::<ampere>(35.),
-            )
+            Current::some(ElectricPowerSource::Battery(1))
         } else {
-            Current::None
+            Current::none()
         }
     }
 }
@@ -225,7 +221,7 @@ impl AuxiliaryPowerUnit {
         self.generator.potential_within_normal_range()
     }
 }
-impl PowerConductor for AuxiliaryPowerUnit {
+impl ElectricSource for AuxiliaryPowerUnit {
     fn output(&self) -> Current {
         self.generator.output()
     }
@@ -279,7 +275,7 @@ pub enum TurbineState {
     Stopping,
 }
 
-pub trait ApuGenerator: PowerConductor + SimulatorVisitable + SimulatorReadWritable {
+pub trait ApuGenerator: ElectricSource + SimulatorVisitable + SimulatorReadWritable {
     fn update(&mut self, context: &UpdateContext, n: Ratio, is_emergency_shutdown: bool);
     fn frequency_within_normal_range(&self) -> bool;
     fn potential_within_normal_range(&self) -> bool;
@@ -372,7 +368,7 @@ impl SimulatorReadWritable for AuxiliaryPowerUnitOverheadPanel {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::simulator::test_helpers::context_with;
+    use crate::simulator::{test_helpers::context_with, ModelToSimulatorVisitor};
     use std::time::Duration;
     use uom::si::{length::foot, ratio::percent, thermodynamic_temperature::degree_celsius};
 
@@ -433,6 +429,7 @@ pub mod tests {
         indicated_altitude: Length,
         apu_gen_is_used: bool,
         has_fuel_remaining: bool,
+        write_state: SimulatorWriteState,
     }
     impl AuxiliaryPowerUnitTester {
         fn new() -> Self {
@@ -445,6 +442,7 @@ pub mod tests {
                 indicated_altitude: Length::new::<foot>(5000.),
                 apu_gen_is_used: true,
                 has_fuel_remaining: true,
+                write_state: SimulatorWriteState::default(),
             }
         }
 
@@ -598,6 +596,10 @@ pub mod tests {
 
             self.apu_overhead.update_after_apu(&self.apu);
 
+            let mut visitor = ModelToSimulatorVisitor::new();
+            self.apu.accept(&mut Box::new(&mut visitor));
+            self.write_state = visitor.get_state();
+
             self
         }
 
@@ -668,6 +670,18 @@ pub mod tests {
 
         pub fn get_generator_output(&self) -> Current {
             self.apu.output()
+        }
+
+        pub fn get_potential(&self) -> ElectricPotential {
+            self.write_state.apu_gen_potential
+        }
+
+        pub fn get_frequency(&self) -> Frequency {
+            self.write_state.apu_gen_frequency
+        }
+
+        pub fn get_current(&self) -> ElectricCurrent {
+            self.write_state.apu_gen_current
         }
 
         fn start_contactor_energized(&self) -> bool {

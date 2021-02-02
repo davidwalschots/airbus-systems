@@ -68,7 +68,7 @@ impl SimulatorVisitor for SimulatorToModelVisitor<'_> {
 
 /// Visits aircraft components in order to pass data from
 /// the aircraft system simulation to the simulator.
-struct ModelToSimulatorVisitor {
+pub struct ModelToSimulatorVisitor {
     state: SimulatorWriteState,
 }
 impl ModelToSimulatorVisitor {
