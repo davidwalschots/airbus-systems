@@ -569,6 +569,35 @@ mod a320_electrical_circuit_tests {
     use super::*;
 
     #[test]
+    fn everything_off_batteries_empty() {
+        let tester = tester_with()
+            .bat_1_off()
+            .empty_battery_1()
+            .bat_2_off()
+            .empty_battery_2()
+            .and()
+            .airspeed(Velocity::new::<knot>(0.))
+            .run();
+
+        assert_eq!(tester.ac_bus_1_output(), Current::none());
+        assert_eq!(tester.ac_bus_2_output(), Current::none());
+        assert_eq!(tester.ac_ess_bus_output(), Current::none());
+        assert_eq!(tester.ac_ess_shed_bus_output(), Current::none());
+        assert_eq!(tester.static_inverter_input(), Current::none());
+        assert_eq!(tester.ac_stat_inv_bus_output(), Current::none());
+        assert_eq!(tester.tr_1_input(), Current::none());
+        assert_eq!(tester.tr_2_input(), Current::none());
+        assert_eq!(tester.tr_ess_input(), Current::none());
+        assert_eq!(tester.dc_bus_1_output(), Current::none());
+        assert_eq!(tester.dc_bus_2_output(), Current::none());
+        assert_eq!(tester.dc_bat_bus_output(), Current::none());
+        assert_eq!(tester.dc_ess_bus_output(), Current::none());
+        assert_eq!(tester.dc_ess_shed_bus_output(), Current::none());
+        assert_eq!(tester.hot_bus_1_output(), Current::none());
+        assert_eq!(tester.hot_bus_2_output(), Current::none());
+    }
+
+    #[test]
     fn everything_off() {
         let tester = tester_with()
             .bat_1_off()
