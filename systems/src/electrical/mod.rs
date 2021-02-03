@@ -57,22 +57,20 @@ pub trait ElectricSource {
 }
 
 pub trait Powerable {
-    /// Provides input power from any of the given sources. When none of the sources
-    /// has any output, no input is provided.
-    fn powered_by<T: ElectricSource + ?Sized>(&mut self, sources: Vec<&T>) {
-        let x = sources.iter().map(|x| x.output()).find(|x| x.is_powered());
-        self.set_input(match x {
-            Some(current) => current,
-            None => Current::none(),
-        });
+    /// Provides input power from the given source. When the source has
+    /// output, this element is powered by the source. When the source has no
+    /// output, this element is unpowered.
+    fn powered_by<T: ElectricSource + ?Sized>(&mut self, source: &T) {
+        self.set_input(source.output());
     }
 
-    /// If this element is unpowered when calling this function, the sources can provide input power to it.
-    /// This function is useful for situations where power can flow bidirectionally between
-    /// conductors, such as from ENG1 to AC BUS 2 and ENG2 to AC BUS 1.
-    fn or_powered_by<T: ElectricSource + ?Sized>(&mut self, sources: Vec<&T>) {
+    /// Provides input power from the given source. When the element is already powered,
+    /// it will remain powered by the powered source passed to it at an earlier time.
+    /// When the element is not yet powered and the source has output, this element is powered by the source.
+    /// When the element is not yet powered and the source has no output, this element is unpowered.
+    fn or_powered_by<T: ElectricSource + ?Sized>(&mut self, source: &T) {
         if self.get_input().is_unpowered() {
-            self.powered_by(sources);
+            self.powered_by(source);
         }
     }
 
@@ -160,6 +158,30 @@ impl ElectricSource for Contactor {
         } else {
             Current::none()
         }
+    }
+}
+
+pub fn combine_electric_sources<T: ElectricSource>(sources: Vec<&T>) -> CombinedElectricSource {
+    CombinedElectricSource::new(sources)
+}
+
+pub struct CombinedElectricSource {
+    current: Current,
+}
+impl CombinedElectricSource {
+    fn new<T: ElectricSource>(sources: Vec<&T>) -> Self {
+        let x = sources.iter().map(|x| x.output()).find(|x| x.is_powered());
+        CombinedElectricSource {
+            current: match x {
+                Some(current) => current,
+                None => Current::none(),
+            },
+        }
+    }
+}
+impl ElectricSource for CombinedElectricSource {
+    fn output(&self) -> Current {
+        self.current
     }
 }
 
@@ -632,11 +654,11 @@ mod tests {
             let mut powerable = PowerableUnderTest::new();
 
             let mut contactor_1 = Contactor::new(String::from("BAT1"));
-            contactor_1.powered_by(vec![&bat_1]);
+            contactor_1.powered_by(&bat_1);
             contactor_1.close_when(true);
 
             let mut contactor_2 = Contactor::new(String::from("BAT2"));
-            contactor_2.powered_by(vec![&bat_2]);
+            contactor_2.powered_by(&bat_2);
             contactor_2.close_when(true);
 
             powerable.or_powered_by_both_batteries(&contactor_1, &contactor_2);
@@ -672,11 +694,11 @@ mod tests {
             let mut powerable = PowerableUnderTest::new();
 
             let mut contactor_1 = Contactor::new(String::from("BAT1"));
-            contactor_1.powered_by(vec![&bat_1]);
+            contactor_1.powered_by(&bat_1);
             contactor_1.close_when(true);
 
             let mut contactor_2 = Contactor::new(String::from("BAT2"));
-            contactor_2.powered_by(vec![&bat_2]);
+            contactor_2.powered_by(&bat_2);
             contactor_2.close_when(true);
 
             powerable.or_powered_by_both_batteries(&contactor_1, &contactor_2);
@@ -770,9 +792,6 @@ mod tests {
         }
 
         fn contactor_has_no_output_when_powered_by_nothing(mut contactor: Contactor) {
-            let nothing: Vec<&dyn ElectricSource> = vec![];
-            contactor.powered_by(nothing);
-
             assert!(contactor.is_unpowered());
         }
 
@@ -789,7 +808,7 @@ mod tests {
         fn contactor_has_no_output_when_powered_by_nothing_which_is_powered(
             mut contactor: Contactor,
         ) {
-            contactor.powered_by(vec![&Powerless {}]);
+            contactor.powered_by(&Powerless {});
 
             assert!(contactor.is_unpowered());
         }
@@ -797,8 +816,8 @@ mod tests {
         #[test]
         fn open_contactor_has_no_output_when_powered_by_something() {
             let mut contactor = open_contactor();
-            let conductors: Vec<&dyn ElectricSource> = vec![&Powerless {}, &StubApuGenerator {}];
-            contactor.powered_by(conductors);
+            contactor.powered_by(&Powerless {});
+            contactor.or_powered_by(&StubApuGenerator {});
 
             assert!(contactor.is_unpowered());
         }
@@ -806,8 +825,8 @@ mod tests {
         #[test]
         fn closed_contactor_has_output_when_powered_by_something_which_is_powered() {
             let mut contactor = closed_contactor();
-            let conductors: Vec<&dyn ElectricSource> = vec![&Powerless {}, &StubApuGenerator {}];
-            contactor.powered_by(conductors);
+            contactor.powered_by(&Powerless {});
+            contactor.or_powered_by(&StubApuGenerator {});
 
             assert!(contactor.is_powered());
         }
@@ -1042,7 +1061,7 @@ mod tests {
         #[test]
         fn when_powered_outputs_current() {
             let mut tr = transformer_rectifier();
-            tr.powered_by(vec![&apu_generator()]);
+            tr.powered_by(&apu_generator());
 
             assert!(tr.is_powered());
         }
@@ -1050,7 +1069,7 @@ mod tests {
         #[test]
         fn when_powered_but_failed_has_no_output() {
             let mut tr = transformer_rectifier();
-            tr.powered_by(vec![&apu_generator()]);
+            tr.powered_by(&apu_generator());
             tr.fail();
 
             assert!(tr.is_unpowered());
@@ -1059,7 +1078,7 @@ mod tests {
         #[test]
         fn when_unpowered_has_no_output() {
             let mut tr = transformer_rectifier();
-            tr.powered_by(vec![&Powerless {}]);
+            tr.powered_by(&Powerless {});
 
             assert!(tr.is_unpowered());
         }
@@ -1120,7 +1139,7 @@ mod tests {
         #[test]
         fn when_empty_battery_has_input_doesnt_have_output() {
             let mut battery = empty_battery();
-            battery.powered_by(vec![&apu_generator()]);
+            battery.powered_by(&apu_generator());
 
             assert!(battery.is_unpowered());
         }
@@ -1129,7 +1148,7 @@ mod tests {
         fn when_full_battery_has_doesnt_have_output() {
             // Of course battery input at this stage would result in overcharging. However, for the sake of the test we ignore it.
             let mut battery = full_battery();
-            battery.powered_by(vec![&apu_generator()]);
+            battery.powered_by(&apu_generator());
 
             assert!(battery.is_unpowered());
         }
@@ -1137,7 +1156,7 @@ mod tests {
         #[test]
         fn charged_battery_without_input_has_output() {
             let mut battery = full_battery();
-            battery.powered_by(vec![&Powerless {}]);
+            battery.powered_by(&Powerless {});
 
             assert!(battery.is_powered());
         }
@@ -1145,7 +1164,7 @@ mod tests {
         #[test]
         fn empty_battery_without_input_has_no_output() {
             let mut battery = empty_battery();
-            battery.powered_by(vec![&Powerless {}]);
+            battery.powered_by(&Powerless {});
 
             assert!(battery.is_unpowered());
         }
@@ -1171,7 +1190,7 @@ mod tests {
         #[test]
         fn when_powered_has_output() {
             let mut static_inv = static_inverter();
-            static_inv.powered_by(vec![&battery()]);
+            static_inv.powered_by(&battery());
 
             assert!(static_inv.is_powered());
         }
@@ -1179,7 +1198,7 @@ mod tests {
         #[test]
         fn when_unpowered_has_no_output() {
             let mut static_inv = static_inverter();
-            static_inv.powered_by(vec![&Powerless {}]);
+            static_inv.powered_by(&Powerless {});
 
             assert!(static_inv.is_unpowered());
         }
