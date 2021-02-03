@@ -59,6 +59,11 @@ impl A320Electrical {
         self.direct_current.debug_assert_invariants();
     }
 }
+impl SimulatorVisitable for A320Electrical {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
+        // TODO
+    }
+}
 
 trait AlternatingCurrentState {
     fn ac_bus_1_and_2_unpowered(&self) -> bool;
@@ -264,7 +269,7 @@ struct A320DirectCurrentElectrical {
     battery_2_contactor: Contactor,
     battery_2_to_dc_ess_bus_contactor: Contactor,
     battery_1_to_static_inv_contactor: Contactor,
-    static_inv: StaticInverter,
+    static_inverter: StaticInverter,
     hot_bus_1: ElectricalBus,
     hot_bus_2: ElectricalBus,
     tr_1_contactor: Contactor,
@@ -289,7 +294,7 @@ impl A320DirectCurrentElectrical {
             battery_2_contactor: Contactor::new(String::from("6PB2")),
             battery_2_to_dc_ess_bus_contactor: Contactor::new(String::from("2XB-2")),
             battery_1_to_static_inv_contactor: Contactor::new(String::from("2XB-1")),
-            static_inv: StaticInverter::new(),
+            static_inverter: StaticInverter::new(),
             hot_bus_1: ElectricalBus::new(),
             hot_bus_2: ElectricalBus::new(),
             tr_1_contactor: Contactor::new(String::from("5PU1")),
@@ -381,10 +386,9 @@ impl A320DirectCurrentElectrical {
         self.battery_1_to_static_inv_contactor
             .powered_by(&self.battery_1);
 
-        self.static_inv
+        self.static_inverter
             .powered_by(&self.battery_1_to_static_inv_contactor);
 
-        // After AC?
         self.dc_ess_bus
             .powered_by(&self.dc_bat_bus_to_dc_ess_bus_contactor);
         self.dc_ess_bus.or_powered_by(&self.tr_ess_contactor);
@@ -449,7 +453,7 @@ impl A320DirectCurrentElectrical {
 }
 impl DirectCurrentState for A320DirectCurrentElectrical {
     fn static_inverter(&self) -> &StaticInverter {
-        &self.static_inv
+        &self.static_inverter
     }
 }
 
@@ -646,8 +650,6 @@ impl A320ElectricalOverheadPanel {
             commercial: OnOffPushButton::new_on(),
         }
     }
-
-    pub fn update(&mut self, _: &UpdateContext) {}
 
     fn generator_1_is_on(&self) -> bool {
         self.gen_1.is_on()
@@ -2184,7 +2186,7 @@ mod a320_electrical_circuit_tests {
         }
 
         fn static_inverter_input(&self) -> Current {
-            self.elec.direct_current.static_inv.get_input()
+            self.elec.direct_current.static_inverter.get_input()
         }
 
         fn tr_1_input(&self) -> Current {

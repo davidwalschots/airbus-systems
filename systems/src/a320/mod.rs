@@ -3,6 +3,7 @@ use crate::{
     apu::{
         AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
+    electrical::ExternalPowerSource,
     engine::Engine,
     simulator::{Aircraft, SimulatorVisitable, SimulatorVisitor, UpdateContext},
 };
@@ -26,6 +27,9 @@ pub struct A320 {
     fuel: A320Fuel,
     engine_1: Engine,
     engine_2: Engine,
+    electrical: A320Electrical,
+    ext_pwr: ExternalPowerSource,
+    hydraulic: A320Hydraulic,
 }
 impl A320 {
     pub fn new() -> A320 {
@@ -38,6 +42,9 @@ impl A320 {
             fuel: A320Fuel::new(),
             engine_1: Engine::new(0),
             engine_2: Engine::new(1),
+            electrical: A320Electrical::new(),
+            ext_pwr: ExternalPowerSource::new(),
+            hydraulic: A320Hydraulic::new(),
         }
     }
 }
@@ -48,7 +55,6 @@ impl Default for A320 {
 }
 impl Aircraft for A320 {
     fn update(&mut self, context: &UpdateContext) {
-        self.electrical_overhead.update(context);
         self.fuel.update();
 
         self.apu.update(
@@ -66,6 +72,16 @@ impl Aircraft for A320 {
         );
         self.apu_overhead.update_after_apu(&self.apu);
         self.pneumatic_overhead.update_after_apu(&self.apu);
+
+        self.electrical.update(
+            context,
+            &self.engine_1,
+            &self.engine_2,
+            &self.apu,
+            &self.ext_pwr,
+            &self.hydraulic,
+            &self.electrical_overhead,
+        )
     }
 }
 impl SimulatorVisitable for A320 {
@@ -78,5 +94,6 @@ impl SimulatorVisitable for A320 {
         self.pneumatic_overhead.accept(visitor);
         self.engine_1.accept(visitor);
         self.engine_2.accept(visitor);
+        self.electrical.accept(visitor);
     }
 }
