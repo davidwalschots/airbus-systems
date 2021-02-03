@@ -1718,10 +1718,24 @@ mod a320_electrical_circuit_tests {
     }
 
     #[test]
-    fn when_battery_1_is_empty_hot_bus_1_unpowered() {
+    fn when_battery_1_is_empty_and_dc_bat_bus_unpowered_hot_bus_1_unpowered() {
         let tester = tester_with().empty_battery_1().run();
 
         assert!(tester.hot_bus_1_output().is_unpowered());
+    }
+
+    #[test]
+    fn when_battery_1_is_empty_and_dc_bat_bus_powered_hot_bus_1_powered() {
+        let tester = tester_with()
+            .running_engines()
+            .and()
+            .empty_battery_1()
+            .run();
+
+        assert_eq!(
+            tester.hot_bus_1_output(),
+            Current::some(ElectricPowerSource::TransformerRectifier(1))
+        );
     }
 
     #[test]
@@ -1762,10 +1776,24 @@ mod a320_electrical_circuit_tests {
     }
 
     #[test]
-    fn when_battery_2_is_empty_hot_bus_2_unpowered() {
+    fn when_battery_2_is_empty_and_dc_bat_bus_unpowered_hot_bus_2_unpowered() {
         let tester = tester_with().empty_battery_2().run();
 
         assert!(tester.hot_bus_2_output().is_unpowered());
+    }
+
+    #[test]
+    fn when_battery_2_is_empty_and_dc_bat_bus_powered_hot_bus_2_powered() {
+        let tester = tester_with()
+            .running_engines()
+            .and()
+            .empty_battery_2()
+            .run();
+
+        assert_eq!(
+            tester.hot_bus_2_output(),
+            Current::some(ElectricPowerSource::TransformerRectifier(1))
+        );
     }
 
     #[test]
