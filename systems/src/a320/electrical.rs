@@ -322,8 +322,10 @@ impl A320Electrical {
         self.dc_bat_bus
             .or_powered_by_both_batteries(&self.battery_1_contactor, &self.battery_2_contactor);
 
-        self.hot_bus_1.powered_by(vec![&self.battery_1]);
-        self.hot_bus_2.powered_by(vec![&self.battery_2]);
+        self.hot_bus_1.powered_by(vec![&self.battery_1_contactor]);
+        self.hot_bus_1.or_powered_by(vec![&self.battery_1]);
+        self.hot_bus_2.powered_by(vec![&self.battery_2_contactor]);
+        self.hot_bus_2.or_powered_by(vec![&self.battery_2]);
 
         self.dc_bat_bus_to_dc_ess_bus_contactor
             .powered_by(vec![&self.dc_bat_bus]);
@@ -331,13 +333,13 @@ impl A320Electrical {
             .close_when(!tr_1_or_2_unavailable);
         self.battery_2_to_dc_ess_bus_contactor
             .powered_by(vec![&self.battery_2]);
-        A320Electrical::close_multiple_contactors_when(
-            vec![
-                &mut self.battery_2_to_dc_ess_bus_contactor,
-                &mut self.battery_1_to_static_inv_contactor,
-            ],
-            self.tr_ess_contactor.is_open() && self.dc_bat_bus_to_dc_ess_bus_contactor.is_open(),
-        );
+
+        let should_close_2xb_contactor = self.should_close_2xb_contactors(context);
+        self.battery_2_to_dc_ess_bus_contactor
+            .close_when(should_close_2xb_contactor);
+
+        self.battery_1_to_static_inv_contactor
+            .close_when(should_close_2xb_contactor);
 
         self.battery_1_to_static_inv_contactor
             .powered_by(vec![&self.battery_1]);
@@ -346,10 +348,8 @@ impl A320Electrical {
             .powered_by(vec![&self.battery_1_to_static_inv_contactor]);
 
         self.ac_stat_inv_bus.powered_by(vec![&self.static_inv]);
-        self.static_inv_to_ac_ess_bus_contactor.close_when(
-            self.static_inv.is_powered()
-                && context.indicated_airspeed >= Velocity::new::<knot>(50.),
-        );
+        self.static_inv_to_ac_ess_bus_contactor
+            .close_when(self.should_close_15xe2_contactor(context));
         self.static_inv_to_ac_ess_bus_contactor
             .powered_by(vec![&self.static_inv]);
 
@@ -383,6 +383,45 @@ impl A320Electrical {
         self.debug_assert_invariants();
     }
 
+    fn ac_buses_and_emergency_gen_unpowered(&self) -> bool {
+        self.ac_bus_1.is_unpowered()
+            && self.ac_bus_2.is_unpowered()
+            && self.emergency_gen.is_unpowered()
+    }
+
+    /// Determines if the 2XB contactors should be closed. 2XB are the two contactors
+    /// which connect BAT2 to DC ESS BUS; and BAT 1 to the static inverter.
+    fn should_close_2xb_contactors(&self, context: &UpdateContext) -> bool {
+        (self.battery_contactors_closed_and_speed_less_than_50_knots(context)
+            && self.ac_buses_and_emergency_gen_unpowered())
+            || self.ac_buses_and_emergency_gen_unpowered_and_velocity_equal_to_or_greater_than_50_knots(context)
+    }
+
+    /// Determines if 15XE2 should be closed. 15XE2 is the contactor which connects
+    /// the static inverter to the AC ESS BUS.
+    fn should_close_15xe2_contactor(&self, context: &UpdateContext) -> bool {
+        self.ac_buses_and_emergency_gen_unpowered_and_velocity_equal_to_or_greater_than_50_knots(
+            context,
+        )
+    }
+
+    fn ac_buses_and_emergency_gen_unpowered_and_velocity_equal_to_or_greater_than_50_knots(
+        &self,
+        context: &UpdateContext,
+    ) -> bool {
+        self.ac_buses_and_emergency_gen_unpowered()
+            && context.indicated_airspeed >= Velocity::new::<knot>(50.)
+    }
+
+    fn battery_contactors_closed_and_speed_less_than_50_knots(
+        &self,
+        context: &UpdateContext,
+    ) -> bool {
+        context.indicated_airspeed < Velocity::new::<knot>(50.)
+            && self.battery_1_contactor.is_closed()
+            && self.battery_2_contactor.is_closed()
+    }
+
     fn close_multiple_contactors_when(contactors: Vec<&mut Contactor>, should_be_closed: bool) {
         for contactor in contactors {
             contactor.close_when(should_be_closed);
@@ -395,7 +434,7 @@ impl A320Electrical {
 
     fn debug_assert_invariants(&self) {
         debug_assert!(self.battery_never_powers_dc_ess_shed());
-        debug_assert!(self.only_one_source_powers_dc_ess_bus());
+        debug_assert!(self.max_one_source_powers_dc_ess_bus());
         debug_assert!(self.static_inverter_or_emergency_gen_powers_ac_ess_bus());
         debug_assert!(
             self.batteries_power_both_static_inv_and_dc_ess_bus_at_the_same_time_or_not_at_all()
@@ -407,10 +446,13 @@ impl A320Electrical {
             && self.dc_ess_shed_contactor.is_closed())
     }
 
-    fn only_one_source_powers_dc_ess_bus(&self) -> bool {
-        self.battery_2_to_dc_ess_bus_contactor.is_closed()
-            ^ self.dc_bat_bus_to_dc_ess_bus_contactor.is_closed()
-            ^ self.tr_ess_contactor.is_closed()
+    fn max_one_source_powers_dc_ess_bus(&self) -> bool {
+        (!self.battery_2_to_dc_ess_bus_contactor.is_closed()
+            && !self.dc_bat_bus_to_dc_ess_bus_contactor.is_closed()
+            && !self.tr_ess_contactor.is_closed())
+            || (self.battery_2_to_dc_ess_bus_contactor.is_closed()
+                ^ self.dc_bat_bus_to_dc_ess_bus_contactor.is_closed()
+                ^ self.tr_ess_contactor.is_closed())
     }
 
     fn static_inverter_or_emergency_gen_powers_ac_ess_bus(&self) -> bool {
@@ -525,6 +567,39 @@ mod a320_electrical_circuit_tests {
     };
 
     use super::*;
+
+    #[test]
+    fn everything_off() {
+        let tester = tester_with()
+            .bat_1_off()
+            .bat_2_off()
+            .and()
+            .airspeed(Velocity::new::<knot>(0.))
+            .run();
+
+        assert_eq!(tester.ac_bus_1_output(), Current::none());
+        assert_eq!(tester.ac_bus_2_output(), Current::none());
+        assert_eq!(tester.ac_ess_bus_output(), Current::none());
+        assert_eq!(tester.ac_ess_shed_bus_output(), Current::none());
+        assert_eq!(tester.static_inverter_input(), Current::none());
+        assert_eq!(tester.ac_stat_inv_bus_output(), Current::none());
+        assert_eq!(tester.tr_1_input(), Current::none());
+        assert_eq!(tester.tr_2_input(), Current::none());
+        assert_eq!(tester.tr_ess_input(), Current::none());
+        assert_eq!(tester.dc_bus_1_output(), Current::none());
+        assert_eq!(tester.dc_bus_2_output(), Current::none());
+        assert_eq!(tester.dc_bat_bus_output(), Current::none());
+        assert_eq!(tester.dc_ess_bus_output(), Current::none());
+        assert_eq!(tester.dc_ess_shed_bus_output(), Current::none());
+        assert_eq!(
+            tester.hot_bus_1_output(),
+            Current::some(ElectricPowerSource::Battery(1))
+        );
+        assert_eq!(
+            tester.hot_bus_2_output(),
+            Current::some(ElectricPowerSource::Battery(2))
+        );
+    }
 
     /// # Source
     /// A320 manual electrical distribution table
@@ -1179,7 +1254,7 @@ mod a320_electrical_circuit_tests {
     fn distribution_table_on_ground_bat_only_rat_stall_or_speed_between_50_to_100_knots() {
         let tester = tester_with()
             .running_emergency_generator()
-            .airspeed(Velocity::new::<knot>(50.))
+            .airspeed(Velocity::new::<knot>(50.0))
             .and()
             .on_the_ground()
             .run();
@@ -1411,12 +1486,63 @@ mod a320_electrical_circuit_tests {
     }
 
     #[test]
-    fn when_ac_bus_1_becomes_unpowered_bat_1_and_static_inverter_power_ac_ess_bus_for_a_while() {
+    fn when_ac_bus_1_becomes_unpowered_but_ac_bus_2_powered_nothing_powers_ac_ess_bus_for_a_while()
+    {
         let tester = tester_with()
             .running_engine_2()
             .and()
             .bus_tie_off()
             .run_waiting_until_just_before_ac_ess_feed_transition();
+
+        assert_eq!(tester.static_inverter_input(), Current::none());
+        assert_eq!(tester.ac_ess_bus_output(), Current::none());
+    }
+
+    #[test]
+    fn when_ac_bus_1_becomes_unpowered_but_ac_bus_2_powered_nothing_powers_dc_ess_bus_for_a_while()
+    {
+        let tester = tester_with()
+            .running_engine_2()
+            .and()
+            .bus_tie_off()
+            .run_waiting_until_just_before_ac_ess_feed_transition();
+
+        assert_eq!(tester.dc_ess_bus_output(), Current::none());
+    }
+
+    #[test]
+    fn bat_only_low_airspeed_when_a_single_battery_contactor_closed_static_inverter_has_no_input() {
+        let tester = tester_with()
+            .bat_1_auto()
+            .bat_2_off()
+            .and()
+            .airspeed(Velocity::new::<knot>(49.))
+            .run_waiting_for(Duration::from_secs(1_000));
+
+        assert_eq!(tester.static_inverter_input(), Current::none());
+    }
+
+    #[test]
+    fn bat_only_low_airspeed_when_both_battery_contactors_closed_static_inverter_has_input() {
+        let tester = tester_with()
+            .bat_1_auto()
+            .bat_2_auto()
+            .and()
+            .airspeed(Velocity::new::<knot>(49.))
+            .run_waiting_for(Duration::from_secs(1_000));
+
+        assert_eq!(
+            tester.static_inverter_input(),
+            Current::some(ElectricPowerSource::Battery(1))
+        );
+    }
+
+    #[test]
+    fn when_airspeed_above_50_and_ac_bus_1_and_2_unpowered_and_emergency_gen_off_static_inverter_powers_ac_ess_bus(
+    ) {
+        let tester = tester_with()
+            .airspeed(Velocity::new::<knot>(51.))
+            .run_waiting_for(Duration::from_secs(1_000));
 
         assert_eq!(
             tester.static_inverter_input(),
@@ -1425,20 +1551,6 @@ mod a320_electrical_circuit_tests {
         assert_eq!(
             tester.ac_ess_bus_output(),
             Current::some(ElectricPowerSource::StaticInverter)
-        );
-    }
-
-    #[test]
-    fn when_ac_bus_1_becomes_unpowered_bat_2_powers_dc_ess_bus_for_a_while() {
-        let tester = tester_with()
-            .running_engine_2()
-            .and()
-            .bus_tie_off()
-            .run_waiting_until_just_before_ac_ess_feed_transition();
-
-        assert_eq!(
-            tester.dc_ess_bus_output(),
-            Current::some(ElectricPowerSource::Battery(2))
         );
     }
 
@@ -1822,8 +1934,18 @@ mod a320_electrical_circuit_tests {
             self
         }
 
+        fn bat_1_auto(mut self) -> ElectricalCircuitTester {
+            self.overhead.bat_1.push_auto();
+            self
+        }
+
         fn bat_2_off(mut self) -> ElectricalCircuitTester {
             self.overhead.bat_2.push_off();
+            self
+        }
+
+        fn bat_2_auto(mut self) -> ElectricalCircuitTester {
+            self.overhead.bat_2.push_auto();
             self
         }
 
