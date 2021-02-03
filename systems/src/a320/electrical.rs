@@ -49,7 +49,6 @@ impl A320Electrical {
 
         self.alternating_current
             .update_with_direct_current_state(context, &self.direct_current);
-        self.alternating_current.update_shedding();
 
         self.debug_assert_invariants();
     }
@@ -170,6 +169,8 @@ impl A320AlternatingCurrentElectrical {
             &self.ac_ess_to_tr_ess_contactor,
             &self.emergency_gen_contactor,
         ]);
+
+        self.update_shedding();
     }
 
     fn update_with_direct_current_state<T: DirectCurrentState>(
