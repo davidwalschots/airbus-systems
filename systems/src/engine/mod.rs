@@ -5,13 +5,13 @@ use crate::simulator::{
 };
 
 pub struct Engine {
-    index: usize,
+    number: usize,
     pub n2: Ratio,
 }
 impl Engine {
-    pub fn new(index: usize) -> Engine {
+    pub fn new(number: usize) -> Engine {
         Engine {
-            index,
+            number,
             n2: Ratio::new::<percent>(0.),
         }
     }
@@ -25,6 +25,6 @@ impl SimulatorVisitable for Engine {
 }
 impl SimulatorReadWritable for Engine {
     fn read(&mut self, state: &SimulatorReadState) {
-        self.n2 = state.engine_n2[self.index];
+        self.n2 = state.engine_n2[self.number - 1];
     }
 }
