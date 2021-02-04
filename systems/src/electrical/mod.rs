@@ -48,40 +48,29 @@ impl Current {
     }
 }
 
-pub struct ReadPowerConsumptionVisitor {
-    state: PowerConsumptionState,
+pub struct ReadPowerConsumptionVisitor<'a> {
+    state: &'a mut PowerConsumptionState,
 }
-impl ReadPowerConsumptionVisitor {
-    pub fn new() -> Self {
-        ReadPowerConsumptionVisitor {
-            state: Default::default(),
-        }
-    }
-
-    pub fn get_state(self) -> PowerConsumptionState {
-        self.state
+impl<'a> ReadPowerConsumptionVisitor<'a> {
+    pub fn new(state: &'a mut PowerConsumptionState) -> Self {
+        ReadPowerConsumptionVisitor { state }
     }
 }
-impl SimulatorElementVisitor for ReadPowerConsumptionVisitor {
+impl<'a> SimulatorElementVisitor for ReadPowerConsumptionVisitor<'a> {
     fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorElement>) {
         visited.read_power_consumption(&mut self.state);
     }
 }
-impl Default for ReadPowerConsumptionVisitor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
-pub struct WritePowerConsumptionVisitor {
-    state: PowerConsumptionState,
+pub struct WritePowerConsumptionVisitor<'a> {
+    state: &'a PowerConsumptionState,
 }
-impl WritePowerConsumptionVisitor {
-    pub fn new(state: PowerConsumptionState) -> Self {
+impl<'a> WritePowerConsumptionVisitor<'a> {
+    pub fn new(state: &'a PowerConsumptionState) -> Self {
         WritePowerConsumptionVisitor { state }
     }
 }
-impl SimulatorElementVisitor for WritePowerConsumptionVisitor {
+impl<'a> SimulatorElementVisitor for WritePowerConsumptionVisitor<'a> {
     fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorElement>) {
         visited.write_power_consumption(&self.state);
     }
@@ -90,11 +79,13 @@ impl SimulatorElementVisitor for WritePowerConsumptionVisitor {
 pub struct PowerConsumptionState {
     // TODO change this to a HashMap with sum of power usage.
     consumption: Vec<PowerConsumption>,
+    bus_state: ElectricalBusState,
 }
 impl PowerConsumptionState {
-    fn new() -> Self {
+    pub fn new(bus_state: ElectricalBusState) -> Self {
         PowerConsumptionState {
             consumption: vec![],
+            bus_state,
         }
     }
 
@@ -106,32 +97,60 @@ impl PowerConsumptionState {
         Power::new::<watt>(0.)
     }
 }
-impl Default for PowerConsumptionState {
-    fn default() -> Self {
-        Self::new()
+
+pub struct ElectricalBusState {
+    powered_buses: Vec<ElectricalBusType>,
+}
+impl ElectricalBusState {
+    pub fn new() -> ElectricalBusState {
+        ElectricalBusState {
+            powered_buses: vec![],
+        }
     }
+
+    pub fn add(&mut self, bus: &ElectricalBus) {
+        if bus.is_powered() {
+            self.powered_buses.push(bus.get_type());
+        }
+    }
+}
+
+pub trait ElectricalBusStateFactory {
+    fn create_electrical_bus_state(&self) -> ElectricalBusState;
 }
 
 pub struct PowerConsumption {
     current: Current,
-    consumption: Power,
+    power_demand: Power,
+    powered_by: Vec<ElectricalBusType>,
 }
 impl PowerConsumption {
-    // TODO: Add different constructors, e.g. when powered always stable consumption,
-    // or only based on condition etc.
-    fn new(current: Current, consumption: Power) -> Self {
+    pub fn from_single(bus_type: ElectricalBusType) -> Self {
         PowerConsumption {
-            current,
-            consumption: if current.is_powered() {
-                consumption
-            } else {
-                Power::new::<watt>(0.)
-            },
+            current: Current::none(),
+            power_demand: Power::new::<watt>(0.),
+            powered_by: vec![bus_type],
         }
     }
 
-    fn is_powered(&self) -> bool {
+    pub fn is_powered(&self) -> bool {
         self.current.is_powered()
+    }
+
+    pub fn demand_when(&mut self, condition: bool, power: Power) {
+        if condition {
+            self.demand(power);
+        } else {
+            self.no_demand();
+        }
+    }
+
+    pub fn demand(&mut self, power: Power) {
+        self.power_demand = power;
+    }
+
+    pub fn no_demand(&mut self) {
+        self.power_demand = Power::new::<watt>(0.);
     }
 }
 impl Powerable for PowerConsumption {
@@ -151,11 +170,6 @@ impl SimulatorElementVisitable for PowerConsumption {
 impl SimulatorElement for PowerConsumption {
     fn read_power_consumption(&self, state: &mut PowerConsumptionState) {
         state.add(&self);
-    }
-}
-impl Default for PowerConsumption {
-    fn default() -> Self {
-        PowerConsumption::new(Current::none(), Power::new::<watt>(0.))
     }
 }
 
@@ -489,26 +503,33 @@ impl ElectricSource for ExternalPowerSource {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum ElectricalBusType {
+    AlternatingCurrent(u8),
+    AlternatingCurrentEssential,
+    AlternatingCurrentEssentialShed,
+    AlternatingCurrentStaticInverter,
+    DirectCurrent(u8),
+    DirectCurrentEssential,
+    DirectCurrentEssentialShed,
+    DirectCurrentBattery,
+    DirectCurrentHot(u8),
+}
+
 pub struct ElectricalBus {
     input: Current,
-    failed: bool,
+    bus_type: ElectricalBusType,
 }
 impl ElectricalBus {
-    pub fn new() -> ElectricalBus {
+    pub fn new(bus_type: ElectricalBusType) -> ElectricalBus {
         ElectricalBus {
             input: Current::none(),
-            failed: false,
+            bus_type,
         }
     }
 
-    #[cfg(test)]
-    pub fn fail(&mut self) {
-        self.failed = true;
-    }
-
-    #[cfg(test)]
-    pub fn normal(&mut self) {
-        self.failed = false;
+    fn get_type(&self) -> ElectricalBusType {
+        self.bus_type
     }
 }
 impl Powerable for ElectricalBus {
@@ -522,11 +543,7 @@ impl Powerable for ElectricalBus {
 }
 impl ElectricSource for ElectricalBus {
     fn output(&self) -> Current {
-        if !self.failed {
-            self.input
-        } else {
-            Current::none()
-        }
+        self.input
     }
 }
 

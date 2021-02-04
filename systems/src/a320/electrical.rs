@@ -2,9 +2,10 @@ use super::A320Hydraulic;
 use crate::{
     apu::AuxiliaryPowerUnit,
     electrical::{
-        combine_electric_sources, Battery, CombinedElectricSource, Contactor, Current,
-        ElectricSource, ElectricalBus, EmergencyGenerator, EngineGenerator, ExternalPowerSource,
-        PowerConsumptionState, Powerable, StaticInverter, TransformerRectifier,
+        combine_electric_sources, Battery, CombinedElectricSource, Contactor, ElectricSource,
+        ElectricalBus, ElectricalBusState, ElectricalBusStateFactory, ElectricalBusType,
+        EmergencyGenerator, EngineGenerator, ExternalPowerSource, Powerable, StaticInverter,
+        TransformerRectifier,
     },
     engine::Engine,
     overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
@@ -16,21 +17,6 @@ use crate::{
 };
 use std::time::Duration;
 use uom::si::{f64::*, velocity::knot};
-
-pub trait A320ElectricalCurrentState {
-    fn ac_bus_1(&self) -> &ElectricalBus;
-    fn ac_bus_2(&self) -> &ElectricalBus;
-    fn ac_ess_bus(&self) -> &ElectricalBus;
-    fn ac_ess_shed_bus(&self) -> &ElectricalBus;
-    fn ac_stat_inv_bus(&self) -> &ElectricalBus;
-    fn dc_bus_1(&self) -> &ElectricalBus;
-    fn dc_bus_2(&self) -> &ElectricalBus;
-    fn dc_ess_bus(&self) -> &ElectricalBus;
-    fn dc_ess_shed_bus(&self) -> &ElectricalBus;
-    fn dc_bat_bus(&self) -> &ElectricalBus;
-    fn hot_bus_1(&self) -> &ElectricalBus;
-    fn hot_bus_2(&self) -> &ElectricalBus;
-}
 
 pub struct A320Electrical {
     alternating_current: A320AlternatingCurrentElectrical,
@@ -69,12 +55,6 @@ impl A320Electrical {
         self.debug_assert_invariants();
     }
 
-    fn debug_assert_invariants(&self) {
-        self.alternating_current.debug_assert_invariants();
-        self.direct_current.debug_assert_invariants();
-    }
-}
-impl A320ElectricalCurrentState for A320Electrical {
     fn ac_bus_1(&self) -> &ElectricalBus {
         self.alternating_current.ac_bus_1()
     }
@@ -122,6 +102,30 @@ impl A320ElectricalCurrentState for A320Electrical {
     fn hot_bus_2(&self) -> &ElectricalBus {
         self.direct_current.hot_bus_2()
     }
+
+    fn debug_assert_invariants(&self) {
+        self.alternating_current.debug_assert_invariants();
+        self.direct_current.debug_assert_invariants();
+    }
+}
+impl ElectricalBusStateFactory for A320Electrical {
+    fn create_electrical_bus_state(&self) -> ElectricalBusState {
+        let mut state = ElectricalBusState::new();
+        state.add(self.ac_bus_1());
+        state.add(self.ac_bus_2());
+        state.add(self.ac_ess_bus());
+        state.add(self.ac_ess_shed_bus());
+        state.add(self.ac_stat_inv_bus());
+        state.add(self.dc_bus_1());
+        state.add(self.dc_bus_2());
+        state.add(self.dc_ess_bus());
+        state.add(self.dc_ess_shed_bus());
+        state.add(self.dc_bat_bus());
+        state.add(self.hot_bus_1());
+        state.add(self.hot_bus_2());
+
+        state
+    }
 }
 impl SimulatorElementVisitable for A320Electrical {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
@@ -167,10 +171,10 @@ impl A320AlternatingCurrentElectrical {
         A320AlternatingCurrentElectrical {
             main_power_sources: A320MainPowerSources::new(),
             ac_ess_feed_contactors: A320AcEssFeedContactors::new(),
-            ac_bus_1: ElectricalBus::new(),
-            ac_bus_2: ElectricalBus::new(),
-            ac_ess_bus: ElectricalBus::new(),
-            ac_ess_shed_bus: ElectricalBus::new(),
+            ac_bus_1: ElectricalBus::new(ElectricalBusType::AlternatingCurrent(1)),
+            ac_bus_2: ElectricalBus::new(ElectricalBusType::AlternatingCurrent(2)),
+            ac_ess_bus: ElectricalBus::new(ElectricalBusType::AlternatingCurrentEssential),
+            ac_ess_shed_bus: ElectricalBus::new(ElectricalBusType::AlternatingCurrentEssentialShed),
             ac_ess_shed_contactor: Contactor::new(String::from("8XH")),
             tr_1: TransformerRectifier::new(1),
             tr_2: TransformerRectifier::new(2),
@@ -179,7 +183,9 @@ impl A320AlternatingCurrentElectrical {
             emergency_gen: EmergencyGenerator::new(),
             emergency_gen_contactor: Contactor::new(String::from("2XE")),
             static_inv_to_ac_ess_bus_contactor: Contactor::new(String::from("15XE2")),
-            ac_stat_inv_bus: ElectricalBus::new(),
+            ac_stat_inv_bus: ElectricalBus::new(
+                ElectricalBusType::AlternatingCurrentStaticInverter,
+            ),
         }
     }
 
@@ -377,14 +383,14 @@ struct A320DirectCurrentElectrical {
 impl A320DirectCurrentElectrical {
     fn new() -> Self {
         A320DirectCurrentElectrical {
-            dc_bus_1: ElectricalBus::new(),
+            dc_bus_1: ElectricalBus::new(ElectricalBusType::DirectCurrent(1)),
             dc_bus_1_tie_contactor: Contactor::new(String::from("1PC1")),
-            dc_bus_2: ElectricalBus::new(),
+            dc_bus_2: ElectricalBus::new(ElectricalBusType::DirectCurrent(2)),
             dc_bus_2_tie_contactor: Contactor::new(String::from("1PC2")),
-            dc_bat_bus: ElectricalBus::new(),
-            dc_ess_bus: ElectricalBus::new(),
+            dc_bat_bus: ElectricalBus::new(ElectricalBusType::DirectCurrentBattery),
+            dc_ess_bus: ElectricalBus::new(ElectricalBusType::DirectCurrentEssential),
             dc_bat_bus_to_dc_ess_bus_contactor: Contactor::new(String::from("4PC")),
-            dc_ess_shed_bus: ElectricalBus::new(),
+            dc_ess_shed_bus: ElectricalBus::new(ElectricalBusType::DirectCurrentEssentialShed),
             dc_ess_shed_contactor: Contactor::new(String::from("8PH")),
             battery_1: Battery::full(1),
             battery_1_contactor: Contactor::new(String::from("6PB1")),
@@ -393,8 +399,8 @@ impl A320DirectCurrentElectrical {
             battery_2_to_dc_ess_bus_contactor: Contactor::new(String::from("2XB-2")),
             battery_1_to_static_inv_contactor: Contactor::new(String::from("2XB-1")),
             static_inverter: StaticInverter::new(),
-            hot_bus_1: ElectricalBus::new(),
-            hot_bus_2: ElectricalBus::new(),
+            hot_bus_1: ElectricalBus::new(ElectricalBusType::DirectCurrentHot(1)),
+            hot_bus_2: ElectricalBus::new(ElectricalBusType::DirectCurrentHot(2)),
             tr_1_contactor: Contactor::new(String::from("5PU1")),
             tr_2_contactor: Contactor::new(String::from("5PU2")),
             tr_ess_contactor: Contactor::new(String::from("3PE")),

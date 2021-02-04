@@ -17,7 +17,6 @@ use uom::si::{f64::*, length::foot, ratio::percent, thermodynamic_temperature::d
 /// Not yet implemented. Will power this up when implementing the electrical system.
 /// It is powered when MASTER SW is ON.
 pub struct ElectronicControlBox {
-    power_consumption: PowerConsumption,
     turbine_state: TurbineState,
     master_is_on: bool,
     start_is_on: bool,
@@ -38,7 +37,6 @@ impl ElectronicControlBox {
 
     pub fn new() -> Self {
         ElectronicControlBox {
-            power_consumption: PowerConsumption::default(),
             turbine_state: TurbineState::Shutdown,
             master_is_on: false,
             start_is_on: false,
@@ -263,22 +261,6 @@ impl BleedAirValveController for ElectronicControlBox {
             && self.bleed_is_on
     }
 }
-impl Powerable for ElectronicControlBox {
-    fn set_input(&mut self, current: Current) {
-        self.power_consumption.set_input(current);
-    }
-
-    fn get_input(&self) -> Current {
-        self.power_consumption.get_input()
-    }
-}
-impl SimulatorElementVisitable for ElectronicControlBox {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
-        self.power_consumption.accept(visitor);
-        visitor.visit(&mut Box::new(self));
-    }
-}
-impl SimulatorElement for ElectronicControlBox {}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ApuFault {

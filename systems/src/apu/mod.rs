@@ -6,7 +6,7 @@
 
 use self::{air_intake_flap::AirIntakeFlap, electronic_control_box::ElectronicControlBox};
 use crate::{
-    electrical::{Current, ElectricPowerSource, ElectricSource, PowerConsumptionState, Powerable},
+    electrical::{Current, ElectricPowerSource, ElectricSource},
     overhead::{FirePushButton, OnOffPushButton},
     pneumatic::{BleedAirValve, BleedAirValveState, Valve},
     simulator::{
@@ -226,19 +226,9 @@ impl ElectricSource for AuxiliaryPowerUnit {
         self.generator.output()
     }
 }
-impl Powerable for AuxiliaryPowerUnit {
-    fn set_input(&mut self, current: Current) {
-        self.ecb.set_input(current);
-    }
-
-    fn get_input(&self) -> Current {
-        self.ecb.get_input()
-    }
-}
 impl SimulatorElementVisitable for AuxiliaryPowerUnit {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         self.generator.accept(visitor);
-        self.ecb.accept(visitor);
         visitor.visit(&mut Box::new(self));
     }
 }

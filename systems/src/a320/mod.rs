@@ -4,8 +4,8 @@ use crate::{
         AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
     electrical::{
-        ExternalPowerSource, PowerConsumptionState, Powerable, ReadPowerConsumptionVisitor,
-        WritePowerConsumptionVisitor,
+        ElectricalBusStateFactory, ExternalPowerSource, PowerConsumptionState,
+        ReadPowerConsumptionVisitor, WritePowerConsumptionVisitor,
     },
     engine::Engine,
     simulator::{
@@ -54,15 +54,12 @@ impl A320 {
         }
     }
 
-    fn flow_electricity(&mut self) {
-        self.apu.powered_by(self.electrical.dc_bat_bus())
-    }
-
     fn handle_power_consumption(&mut self) {
-        let mut visitor = ReadPowerConsumptionVisitor::new();
+        let mut state = PowerConsumptionState::new(self.electrical.create_electrical_bus_state());
+        let mut visitor = ReadPowerConsumptionVisitor::new(&mut state);
         self.accept(&mut Box::new(&mut visitor));
 
-        let mut visitor = WritePowerConsumptionVisitor::new(visitor.get_state());
+        let mut visitor = WritePowerConsumptionVisitor::new(&state);
         self.accept(&mut Box::new(&mut visitor));
     }
 }
