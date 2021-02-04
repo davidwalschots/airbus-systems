@@ -5,7 +5,7 @@ use crate::{
         SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, UpdateContext,
     },
 };
-use std::{cmp::min, vec};
+use std::{cmp::min, collections::HashMap, vec};
 use uom::si::{
     electric_charge::ampere_hour, f64::*, power::watt, ratio::percent,
     thermodynamic_temperature::degree_celsius,
@@ -47,18 +47,37 @@ impl Current {
         self.source.is_none()
     }
 }
-
-pub struct ReadPowerConsumptionVisitor<'a> {
-    state: &'a mut PowerConsumptionState,
-}
-impl<'a> ReadPowerConsumptionVisitor<'a> {
-    pub fn new(state: &'a mut PowerConsumptionState) -> Self {
-        ReadPowerConsumptionVisitor { state }
+impl Default for Current {
+    fn default() -> Self {
+        Current::none()
     }
 }
-impl<'a> SimulatorElementVisitor for ReadPowerConsumptionVisitor<'a> {
+
+pub struct SupplyPowerVisitor {
+    supply: PowerSupply,
+}
+impl SupplyPowerVisitor {
+    pub fn new(supply: PowerSupply) -> Self {
+        SupplyPowerVisitor { supply }
+    }
+}
+impl SimulatorElementVisitor for SupplyPowerVisitor {
     fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorElement>) {
-        visited.read_power_consumption(&mut self.state);
+        visited.supply_power(&self.supply);
+    }
+}
+
+pub struct DeterminePowerConsumptionVisitor<'a> {
+    state: &'a mut PowerConsumptionState,
+}
+impl<'a> DeterminePowerConsumptionVisitor<'a> {
+    pub fn new(state: &'a mut PowerConsumptionState) -> Self {
+        DeterminePowerConsumptionVisitor { state }
+    }
+}
+impl<'a> SimulatorElementVisitor for DeterminePowerConsumptionVisitor<'a> {
+    fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorElement>) {
+        visited.determine_power_consumption(&mut self.state);
     }
 }
 
@@ -77,20 +96,22 @@ impl<'a> SimulatorElementVisitor for WritePowerConsumptionVisitor<'a> {
 }
 
 pub struct PowerConsumptionState {
-    // TODO change this to a HashMap with sum of power usage.
-    consumption: Vec<PowerConsumption>,
-    bus_state: ElectricalBusState,
+    consumption: HashMap<ElectricalBusType, Power>,
 }
 impl PowerConsumptionState {
-    pub fn new(bus_state: ElectricalBusState) -> Self {
+    pub fn new() -> Self {
         PowerConsumptionState {
-            consumption: vec![],
-            bus_state,
+            consumption: HashMap::new(),
         }
     }
 
-    pub fn add(&mut self, consumption: &PowerConsumption) {
-        // TODO
+    pub fn add(&mut self, bus_type: &ElectricalBusType, power: Power) {
+        let existing_power = match self.consumption.get(bus_type) {
+            Some(power) => *power,
+            None => Power::new::<watt>(0.),
+        };
+
+        self.consumption.insert(*bus_type, existing_power + power);
     }
 
     pub fn get_total_consumption_for(&self, source: ElectricPowerSource) -> Power {
@@ -98,43 +119,48 @@ impl PowerConsumptionState {
     }
 }
 
-pub struct ElectricalBusState {
-    powered_buses: Vec<ElectricalBusType>,
+pub struct PowerSupply {
+    state: HashMap<ElectricalBusType, Current>,
 }
-impl ElectricalBusState {
-    pub fn new() -> ElectricalBusState {
-        ElectricalBusState {
-            powered_buses: vec![],
+impl PowerSupply {
+    pub fn new() -> PowerSupply {
+        PowerSupply {
+            state: HashMap::new(),
         }
     }
 
     pub fn add(&mut self, bus: &ElectricalBus) {
-        if bus.is_powered() {
-            self.powered_buses.push(bus.get_type());
+        self.state.insert(bus.get_type(), bus.output());
+    }
+
+    fn is_powered(&self, bus_type: &ElectricalBusType) -> bool {
+        match self.state.get(bus_type) {
+            Some(current) => current.is_powered(),
+            None => false,
         }
     }
 }
 
 pub trait ElectricalBusStateFactory {
-    fn create_electrical_bus_state(&self) -> ElectricalBusState;
+    fn create_power_supply(&self) -> PowerSupply;
 }
 
 pub struct PowerConsumption {
-    current: Current,
+    is_powered_by: Option<ElectricalBusType>,
     power_demand: Power,
     powered_by: Vec<ElectricalBusType>,
 }
 impl PowerConsumption {
     pub fn from_single(bus_type: ElectricalBusType) -> Self {
         PowerConsumption {
-            current: Current::none(),
+            is_powered_by: None,
             power_demand: Power::new::<watt>(0.),
             powered_by: vec![bus_type],
         }
     }
 
     pub fn is_powered(&self) -> bool {
-        self.current.is_powered()
+        self.is_powered_by.is_some()
     }
 
     pub fn demand_when(&mut self, condition: bool, power: Power) {
@@ -152,14 +178,26 @@ impl PowerConsumption {
     pub fn no_demand(&mut self) {
         self.power_demand = Power::new::<watt>(0.);
     }
-}
-impl Powerable for PowerConsumption {
-    fn set_input(&mut self, current: Current) {
-        self.current = current;
+
+    fn try_powering(&mut self, supply: &PowerSupply) -> Option<(&ElectricalBusType, Power)> {
+        let first_powered_bus_type = self.powered_by.iter().find(|bus| supply.is_powered(bus));
+
+        self.is_powered_by = match first_powered_bus_type {
+            Some(bus_type) => Some(*bus_type),
+            None => None,
+        };
+
+        match first_powered_bus_type {
+            Some(bus_type) => Some((bus_type, self.power_demand)),
+            None => None,
+        }
     }
 
-    fn get_input(&self) -> Current {
-        self.current
+    fn get_demand(&self) -> Option<(ElectricalBusType, Power)> {
+        match self.is_powered_by {
+            Some(bus_type) => Some((bus_type, self.power_demand)),
+            None => None,
+        }
     }
 }
 impl SimulatorElementVisitable for PowerConsumption {
@@ -168,8 +206,15 @@ impl SimulatorElementVisitable for PowerConsumption {
     }
 }
 impl SimulatorElement for PowerConsumption {
-    fn read_power_consumption(&self, state: &mut PowerConsumptionState) {
-        state.add(&self);
+    fn supply_power(&mut self, supply: &PowerSupply) {
+        self.try_powering(supply);
+    }
+
+    fn determine_power_consumption(&mut self, state: &mut PowerConsumptionState) {
+        match self.get_demand() {
+            Some((bus_type, power)) => state.add(&bus_type, power),
+            None => {}
+        }
     }
 }
 
@@ -503,7 +548,7 @@ impl ElectricSource for ExternalPowerSource {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ElectricalBusType {
     AlternatingCurrent(u8),
     AlternatingCurrentEssential,

@@ -4,8 +4,9 @@ use crate::{
         AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
     electrical::{
-        ElectricalBusStateFactory, ExternalPowerSource, PowerConsumptionState,
-        ReadPowerConsumptionVisitor, WritePowerConsumptionVisitor,
+        DeterminePowerConsumptionVisitor, ElectricalBusStateFactory, ElectricalBusType,
+        ExternalPowerSource, PowerConsumption, PowerConsumptionState, PowerSupply,
+        SupplyPowerVisitor, WritePowerConsumptionVisitor,
     },
     engine::Engine,
     simulator::{
@@ -13,6 +14,7 @@ use crate::{
         UpdateContext,
     },
 };
+use uom::si::{f64::*, power::watt};
 
 mod electrical;
 pub use electrical::*;
@@ -36,6 +38,8 @@ pub struct A320 {
     electrical: A320Electrical,
     ext_pwr: ExternalPowerSource,
     hydraulic: A320Hydraulic,
+    fake_ac1: FakePowerConsumer,
+    fake_ac2: FakePowerConsumer,
 }
 impl A320 {
     pub fn new() -> A320 {
@@ -51,16 +55,31 @@ impl A320 {
             electrical: A320Electrical::new(),
             ext_pwr: ExternalPowerSource::new(),
             hydraulic: A320Hydraulic::new(),
+            fake_ac1: FakePowerConsumer::new(PowerConsumption::from_single(
+                ElectricalBusType::AlternatingCurrent(1),
+            )),
+            fake_ac2: FakePowerConsumer::new(PowerConsumption::from_single(
+                ElectricalBusType::AlternatingCurrent(2),
+            )),
         }
     }
 
-    fn handle_power_consumption(&mut self) {
-        let mut state = PowerConsumptionState::new(self.electrical.create_electrical_bus_state());
-        let mut visitor = ReadPowerConsumptionVisitor::new(&mut state);
-        self.accept(&mut Box::new(&mut visitor));
-
+    fn write_power_consumption(&mut self, state: PowerConsumptionState) {
         let mut visitor = WritePowerConsumptionVisitor::new(&state);
         self.accept(&mut Box::new(&mut visitor));
+    }
+
+    fn supply_power_to_elements(&mut self, power_supply: PowerSupply) {
+        let mut visitor = SupplyPowerVisitor::new(power_supply);
+        self.accept(&mut Box::new(&mut visitor));
+    }
+
+    fn determine_power_consumption(&mut self) -> PowerConsumptionState {
+        let mut power_consumption_state = PowerConsumptionState::new();
+        let mut visitor = DeterminePowerConsumptionVisitor::new(&mut power_consumption_state);
+        self.accept(&mut Box::new(&mut visitor));
+
+        power_consumption_state
     }
 }
 impl Default for A320 {
@@ -98,7 +117,14 @@ impl Aircraft for A320 {
             &self.electrical_overhead,
         );
 
-        self.handle_power_consumption();
+        self.supply_power_to_elements(self.electrical.create_power_supply());
+
+        // Update everything that needs to know if it is powered here.
+        self.fake_ac1.update();
+        self.fake_ac2.update();
+
+        let power_consumption = self.determine_power_consumption();
+        self.write_power_consumption(power_consumption);
     }
 }
 impl SimulatorElementVisitable for A320 {
@@ -112,7 +138,29 @@ impl SimulatorElementVisitable for A320 {
         self.engine_1.accept(visitor);
         self.engine_2.accept(visitor);
         self.electrical.accept(visitor);
+        self.fake_ac1.accept(visitor);
+        self.fake_ac2.accept(visitor);
         visitor.visit(&mut Box::new(self));
     }
 }
 impl SimulatorElement for A320 {}
+
+struct FakePowerConsumer {
+    power_consumption: PowerConsumption,
+}
+impl FakePowerConsumer {
+    fn new(power_consumption: PowerConsumption) -> Self {
+        FakePowerConsumer { power_consumption }
+    }
+
+    fn update(&mut self) {
+        self.power_consumption.demand(Power::new::<watt>(10000.));
+    }
+}
+impl SimulatorElementVisitable for FakePowerConsumer {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        self.power_consumption.accept(visitor);
+        visitor.visit(&mut Box::new(self));
+    }
+}
+impl SimulatorElement for FakePowerConsumer {}

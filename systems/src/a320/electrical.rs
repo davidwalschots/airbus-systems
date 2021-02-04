@@ -3,8 +3,8 @@ use crate::{
     apu::AuxiliaryPowerUnit,
     electrical::{
         combine_electric_sources, Battery, CombinedElectricSource, Contactor, ElectricSource,
-        ElectricalBus, ElectricalBusState, ElectricalBusStateFactory, ElectricalBusType,
-        EmergencyGenerator, EngineGenerator, ExternalPowerSource, Powerable, StaticInverter,
+        ElectricalBus, ElectricalBusStateFactory, ElectricalBusType, EmergencyGenerator,
+        EngineGenerator, ExternalPowerSource, PowerSupply, Powerable, StaticInverter,
         TransformerRectifier,
     },
     engine::Engine,
@@ -109,8 +109,8 @@ impl A320Electrical {
     }
 }
 impl ElectricalBusStateFactory for A320Electrical {
-    fn create_electrical_bus_state(&self) -> ElectricalBusState {
-        let mut state = ElectricalBusState::new();
+    fn create_power_supply(&self) -> PowerSupply {
+        let mut state = PowerSupply::new();
         state.add(self.ac_bus_1());
         state.add(self.ac_bus_2());
         state.add(self.ac_ess_bus());
