@@ -1,7 +1,14 @@
-use crate::{engine::Engine, overhead::OnOffPushButton, simulator::UpdateContext};
-use std::cmp::min;
+use crate::{
+    engine::Engine,
+    overhead::OnOffPushButton,
+    simulator::{
+        SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, UpdateContext,
+    },
+};
+use std::{cmp::min, vec};
 use uom::si::{
-    electric_charge::ampere_hour, f64::*, ratio::percent, thermodynamic_temperature::degree_celsius,
+    electric_charge::ampere_hour, f64::*, power::watt, ratio::percent,
+    thermodynamic_temperature::degree_celsius,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -38,6 +45,117 @@ impl Current {
 
     pub fn is_unpowered(&self) -> bool {
         self.source.is_none()
+    }
+}
+
+pub struct ReadPowerConsumptionVisitor {
+    state: PowerConsumptionState,
+}
+impl ReadPowerConsumptionVisitor {
+    pub fn new() -> Self {
+        ReadPowerConsumptionVisitor {
+            state: Default::default(),
+        }
+    }
+
+    pub fn get_state(self) -> PowerConsumptionState {
+        self.state
+    }
+}
+impl SimulatorElementVisitor for ReadPowerConsumptionVisitor {
+    fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorElement>) {
+        visited.read_power_consumption(&mut self.state);
+    }
+}
+impl Default for ReadPowerConsumptionVisitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct WritePowerConsumptionVisitor {
+    state: PowerConsumptionState,
+}
+impl WritePowerConsumptionVisitor {
+    pub fn new(state: PowerConsumptionState) -> Self {
+        WritePowerConsumptionVisitor { state }
+    }
+}
+impl SimulatorElementVisitor for WritePowerConsumptionVisitor {
+    fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorElement>) {
+        visited.write_power_consumption(&self.state);
+    }
+}
+
+pub struct PowerConsumptionState {
+    // TODO change this to a HashMap with sum of power usage.
+    consumption: Vec<PowerConsumption>,
+}
+impl PowerConsumptionState {
+    fn new() -> Self {
+        PowerConsumptionState {
+            consumption: vec![],
+        }
+    }
+
+    pub fn add(&mut self, consumption: &PowerConsumption) {
+        // TODO
+    }
+
+    pub fn get_total_consumption_for(&self, source: ElectricPowerSource) -> Power {
+        Power::new::<watt>(0.)
+    }
+}
+impl Default for PowerConsumptionState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct PowerConsumption {
+    current: Current,
+    consumption: Power,
+}
+impl PowerConsumption {
+    // TODO: Add different constructors, e.g. when powered always stable consumption,
+    // or only based on condition etc.
+    fn new(current: Current, consumption: Power) -> Self {
+        PowerConsumption {
+            current,
+            consumption: if current.is_powered() {
+                consumption
+            } else {
+                Power::new::<watt>(0.)
+            },
+        }
+    }
+
+    fn is_powered(&self) -> bool {
+        self.current.is_powered()
+    }
+}
+impl Powerable for PowerConsumption {
+    fn set_input(&mut self, current: Current) {
+        self.current = current;
+    }
+
+    fn get_input(&self) -> Current {
+        self.current
+    }
+}
+impl SimulatorElementVisitable for PowerConsumption {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        visitor.visit(&mut Box::new(self));
+    }
+}
+impl SimulatorElement for PowerConsumption {
+    fn read_power_consumption(&self, state: &mut PowerConsumptionState) {
+        state.add(&self);
+    }
+}
+impl Default for PowerConsumption {
+    fn default() -> Self {
+        PowerConsumption::new(Current::none(), Power::new::<watt>(0.))
     }
 }
 
@@ -213,6 +331,16 @@ impl ElectricSource for EngineGenerator {
         } else {
             Current::none()
         }
+    }
+}
+impl SimulatorElementVisitable for EngineGenerator {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        visitor.visit(&mut Box::new(self));
+    }
+}
+impl SimulatorElement for EngineGenerator {
+    fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
+        // TODO
     }
 }
 
@@ -445,6 +573,16 @@ impl ElectricSource for TransformerRectifier {
         }
     }
 }
+impl SimulatorElementVisitable for TransformerRectifier {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        visitor.visit(&mut Box::new(self));
+    }
+}
+impl SimulatorElement for TransformerRectifier {
+    fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
+        // TODO
+    }
+}
 
 pub struct EmergencyGenerator {
     running: bool,
@@ -481,6 +619,16 @@ impl ElectricSource for EmergencyGenerator {
         }
     }
 }
+impl SimulatorElementVisitable for EmergencyGenerator {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        visitor.visit(&mut Box::new(self));
+    }
+}
+impl SimulatorElement for EmergencyGenerator {
+    fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
+        // TODO
+    }
+}
 
 pub struct Battery {
     number: u8,
@@ -513,8 +661,6 @@ impl Battery {
     pub fn is_full(&self) -> bool {
         self.charge >= ElectricCharge::new::<ampere_hour>(Battery::MAX_ELECTRIC_CHARGE_AMPERE_HOURS)
     }
-
-    // TODO: Charging and depleting battery when used.
 }
 impl Powerable for Battery {
     fn set_input(&mut self, current: Current) {
@@ -532,6 +678,16 @@ impl ElectricSource for Battery {
         } else {
             Current::none()
         }
+    }
+}
+impl SimulatorElementVisitable for Battery {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        visitor.visit(&mut Box::new(self));
+    }
+}
+impl SimulatorElement for Battery {
+    fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
+        // TODO: Charging and depleting battery when used.
     }
 }
 
@@ -561,6 +717,16 @@ impl ElectricSource for StaticInverter {
         } else {
             Current::none()
         }
+    }
+}
+impl SimulatorElementVisitable for StaticInverter {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        visitor.visit(&mut Box::new(self));
+    }
+}
+impl SimulatorElement for StaticInverter {
+    fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
+        // TODO
     }
 }
 
@@ -791,7 +957,7 @@ mod tests {
             contactor_has_no_output_when_powered_by_nothing(closed_contactor());
         }
 
-        fn contactor_has_no_output_when_powered_by_nothing(mut contactor: Contactor) {
+        fn contactor_has_no_output_when_powered_by_nothing(contactor: Contactor) {
             assert!(contactor.is_unpowered());
         }
 

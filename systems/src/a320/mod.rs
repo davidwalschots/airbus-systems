@@ -3,9 +3,15 @@ use crate::{
     apu::{
         AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
-    electrical::ExternalPowerSource,
+    electrical::{
+        ExternalPowerSource, PowerConsumptionState, Powerable, ReadPowerConsumptionVisitor,
+        WritePowerConsumptionVisitor,
+    },
     engine::Engine,
-    simulator::{Aircraft, SimulatorVisitable, SimulatorVisitor, UpdateContext},
+    simulator::{
+        Aircraft, SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor,
+        UpdateContext,
+    },
 };
 
 mod electrical;
@@ -47,6 +53,18 @@ impl A320 {
             hydraulic: A320Hydraulic::new(),
         }
     }
+
+    fn flow_electricity(&mut self) {
+        self.apu.powered_by(self.electrical.dc_bat_bus())
+    }
+
+    fn handle_power_consumption(&mut self) {
+        let mut visitor = ReadPowerConsumptionVisitor::new();
+        self.accept(&mut Box::new(&mut visitor));
+
+        let mut visitor = WritePowerConsumptionVisitor::new(visitor.get_state());
+        self.accept(&mut Box::new(&mut visitor));
+    }
 }
 impl Default for A320 {
     fn default() -> Self {
@@ -81,11 +99,13 @@ impl Aircraft for A320 {
             &self.ext_pwr,
             &self.hydraulic,
             &self.electrical_overhead,
-        )
+        );
+
+        self.handle_power_consumption();
     }
 }
-impl SimulatorVisitable for A320 {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
+impl SimulatorElementVisitable for A320 {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         self.apu.accept(visitor);
         self.apu_fire_overhead.accept(visitor);
         self.apu_overhead.accept(visitor);
@@ -95,5 +115,7 @@ impl SimulatorVisitable for A320 {
         self.engine_1.accept(visitor);
         self.engine_2.accept(visitor);
         self.electrical.accept(visitor);
+        visitor.visit(&mut Box::new(self));
     }
 }
+impl SimulatorElement for A320 {}

@@ -8,6 +8,8 @@ mod update_context;
 pub use update_context::test_helpers;
 pub use update_context::UpdateContext;
 
+use crate::electrical::PowerConsumptionState;
+
 /// Trait for reading data from and writing data to the simulator.
 pub trait SimulatorReadWriter {
     /// Reads data from the simulator into a model representing that state.
@@ -16,7 +18,7 @@ pub trait SimulatorReadWriter {
     fn write(&self, state: &SimulatorWriteState);
 }
 
-pub trait Aircraft: SimulatorVisitable {
+pub trait Aircraft: SimulatorElementVisitable {
     fn update(&mut self, context: &UpdateContext);
 }
 
@@ -60,8 +62,8 @@ impl<'a> SimulatorToModelVisitor<'a> {
         SimulatorToModelVisitor { state }
     }
 }
-impl SimulatorVisitor for SimulatorToModelVisitor<'_> {
-    fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorReadWritable>) {
+impl SimulatorElementVisitor for SimulatorToModelVisitor<'_> {
+    fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorElement>) {
         visited.read(&self.state);
     }
 }
@@ -82,8 +84,8 @@ impl ModelToSimulatorVisitor {
         self.state
     }
 }
-impl SimulatorVisitor for ModelToSimulatorVisitor {
-    fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorReadWritable>) {
+impl SimulatorElementVisitor for ModelToSimulatorVisitor {
+    fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorElement>) {
         visited.write(&mut self.state);
     }
 }
@@ -102,25 +104,29 @@ pub fn from_bool(value: bool) -> f64 {
     }
 }
 
-/// Trait for making a piece of the aircraft system simulation read from and/or write to simulator data.
-pub trait SimulatorReadWritable {
+/// Trait for an element within the aircraft system simulation.
+pub trait SimulatorElement {
     /// Reads data representing the current state of the simulator into the aircraft system simulation.
     fn read(&mut self, _state: &SimulatorReadState) {}
 
     /// Writes data from the aircraft system simulation to a model which can be passed to the simulator.
     fn write(&self, _state: &mut SimulatorWriteState) {}
+
+    /// Reads power consumption data from the given element into the state.
+    fn read_power_consumption(&self, _state: &mut PowerConsumptionState) {}
+
+    /// Writes power consumption data from the given state into the element.
+    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {}
 }
 
-/// Trait for making a piece of the aircraft system simulation visitable
-/// for the purpose of reading and writing simulator data.
-pub trait SimulatorVisitable {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>);
+/// Trait for making a piece of the aircraft system simulation visitable.
+pub trait SimulatorElementVisitable: SimulatorElement {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>);
 }
 
-/// Trait for visitors that visit the aircraft's system simulation
-/// for the purpose of reading and writing simulator data.
-pub trait SimulatorVisitor {
-    fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorReadWritable>);
+/// Trait for visitors that visit the aircraft's system simulation.
+pub trait SimulatorElementVisitor {
+    fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorElement>);
 }
 
 /// The data which is read from the simulator and can

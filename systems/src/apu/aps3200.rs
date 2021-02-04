@@ -1,9 +1,9 @@
 use super::{ApuGenerator, Turbine, TurbineController, TurbineState};
 use crate::{
-    electrical::{Current, ElectricPowerSource, ElectricSource},
+    electrical::{Current, ElectricPowerSource, ElectricSource, PowerConsumptionState},
     shared::{random_number, TimedRandom},
     simulator::{
-        SimulatorReadWritable, SimulatorVisitable, SimulatorVisitor, SimulatorWriteState,
+        SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
         UpdateContext,
     },
 };
@@ -497,18 +497,22 @@ impl ElectricSource for Aps3200ApuGenerator {
         self.output
     }
 }
-impl SimulatorVisitable for Aps3200ApuGenerator {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
+impl SimulatorElementVisitable for Aps3200ApuGenerator {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         visitor.visit(&mut Box::new(self));
     }
 }
-impl SimulatorReadWritable for Aps3200ApuGenerator {
+impl SimulatorElement for Aps3200ApuGenerator {
     fn write(&self, state: &mut SimulatorWriteState) {
         state.apu_gen_current = self.current;
         state.apu_gen_frequency = self.frequency;
         state.apu_gen_frequency_within_normal_range = self.frequency_within_normal_range();
         state.apu_gen_potential = self.potential;
         state.apu_gen_potential_within_normal_range = self.potential_within_normal_range();
+    }
+
+    fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
+        // TODO
     }
 }
 
@@ -646,15 +650,15 @@ mod apu_generator_tests {
         assert!(tester.get_generator_output().is_unpowered());
     }
 
-    fn apu_generator() -> Box<dyn ApuGenerator> {
+    fn apu_generator() -> Box<Aps3200ApuGenerator> {
         Box::new(Aps3200ApuGenerator::new())
     }
 
-    fn update_above_threshold(generator: &mut dyn ApuGenerator) {
+    fn update_above_threshold(generator: &mut Aps3200ApuGenerator) {
         generator.update(&context(), Ratio::new::<percent>(100.), false);
     }
 
-    fn update_below_threshold(generator: &mut dyn ApuGenerator) {
+    fn update_below_threshold(generator: &mut Aps3200ApuGenerator) {
         generator.update(&context(), Ratio::new::<percent>(0.), false);
     }
 }

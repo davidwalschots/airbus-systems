@@ -6,11 +6,11 @@
 
 use self::{air_intake_flap::AirIntakeFlap, electronic_control_box::ElectronicControlBox};
 use crate::{
-    electrical::{Current, ElectricPowerSource, ElectricSource},
+    electrical::{Current, ElectricPowerSource, ElectricSource, PowerConsumptionState, Powerable},
     overhead::{FirePushButton, OnOffPushButton},
     pneumatic::{BleedAirValve, BleedAirValveState, Valve},
     simulator::{
-        SimulatorReadState, SimulatorReadWritable, SimulatorVisitable, SimulatorVisitor,
+        SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReadState,
         SimulatorWriteState, UpdateContext,
     },
 };
@@ -226,13 +226,23 @@ impl ElectricSource for AuxiliaryPowerUnit {
         self.generator.output()
     }
 }
-impl SimulatorVisitable for AuxiliaryPowerUnit {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
+impl Powerable for AuxiliaryPowerUnit {
+    fn set_input(&mut self, current: Current) {
+        self.ecb.set_input(current);
+    }
+
+    fn get_input(&self) -> Current {
+        self.ecb.get_input()
+    }
+}
+impl SimulatorElementVisitable for AuxiliaryPowerUnit {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         self.generator.accept(visitor);
+        self.ecb.accept(visitor);
         visitor.visit(&mut Box::new(self));
     }
 }
-impl SimulatorReadWritable for AuxiliaryPowerUnit {
+impl SimulatorElement for AuxiliaryPowerUnit {
     fn write(&self, state: &mut SimulatorWriteState) {
         state.apu_air_intake_flap_is_ecam_open = self.air_intake_flap_is_apu_ecam_open();
         state.apu_air_intake_flap_opened_for = self.get_air_intake_flap_open_amount();
@@ -275,7 +285,7 @@ pub enum TurbineState {
     Stopping,
 }
 
-pub trait ApuGenerator: ElectricSource + SimulatorVisitable + SimulatorReadWritable {
+pub trait ApuGenerator: ElectricSource + SimulatorElementVisitable + SimulatorElement {
     fn update(&mut self, context: &UpdateContext, n: Ratio, is_emergency_shutdown: bool);
     fn frequency_within_normal_range(&self) -> bool;
     fn potential_within_normal_range(&self) -> bool;
@@ -295,12 +305,12 @@ impl AuxiliaryPowerUnitFireOverheadPanel {
         self.apu_fire_button.is_released()
     }
 }
-impl SimulatorVisitable for AuxiliaryPowerUnitFireOverheadPanel {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
+impl SimulatorElementVisitable for AuxiliaryPowerUnitFireOverheadPanel {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         visitor.visit(&mut Box::new(self));
     }
 }
-impl SimulatorReadWritable for AuxiliaryPowerUnitFireOverheadPanel {
+impl SimulatorElement for AuxiliaryPowerUnitFireOverheadPanel {
     fn read(&mut self, state: &SimulatorReadState) {
         self.apu_fire_button.set(state.apu_fire_button_released);
     }
@@ -347,12 +357,12 @@ impl AuxiliaryPowerUnitOverheadPanel {
         self.start.shows_available()
     }
 }
-impl SimulatorVisitable for AuxiliaryPowerUnitOverheadPanel {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
+impl SimulatorElementVisitable for AuxiliaryPowerUnitOverheadPanel {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         visitor.visit(&mut Box::new(self));
     }
 }
-impl SimulatorReadWritable for AuxiliaryPowerUnitOverheadPanel {
+impl SimulatorElement for AuxiliaryPowerUnitOverheadPanel {
     fn read(&mut self, state: &SimulatorReadState) {
         self.master.set(state.apu_master_sw_on);
         self.start.set(state.apu_start_sw_on);

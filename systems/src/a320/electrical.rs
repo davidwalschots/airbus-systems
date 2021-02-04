@@ -2,20 +2,35 @@ use super::A320Hydraulic;
 use crate::{
     apu::AuxiliaryPowerUnit,
     electrical::{
-        combine_electric_sources, Battery, CombinedElectricSource, Contactor, ElectricSource,
-        ElectricalBus, EmergencyGenerator, EngineGenerator, ExternalPowerSource, Powerable,
-        StaticInverter, TransformerRectifier,
+        combine_electric_sources, Battery, CombinedElectricSource, Contactor, Current,
+        ElectricSource, ElectricalBus, EmergencyGenerator, EngineGenerator, ExternalPowerSource,
+        PowerConsumptionState, Powerable, StaticInverter, TransformerRectifier,
     },
     engine::Engine,
     overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
     shared::DelayedTrueLogicGate,
     simulator::{
-        SimulatorReadState, SimulatorReadWritable, SimulatorVisitable, SimulatorVisitor,
+        SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReadState,
         UpdateContext,
     },
 };
 use std::time::Duration;
 use uom::si::{f64::*, velocity::knot};
+
+pub trait A320ElectricalCurrentState {
+    fn ac_bus_1(&self) -> &ElectricalBus;
+    fn ac_bus_2(&self) -> &ElectricalBus;
+    fn ac_ess_bus(&self) -> &ElectricalBus;
+    fn ac_ess_shed_bus(&self) -> &ElectricalBus;
+    fn ac_stat_inv_bus(&self) -> &ElectricalBus;
+    fn dc_bus_1(&self) -> &ElectricalBus;
+    fn dc_bus_2(&self) -> &ElectricalBus;
+    fn dc_ess_bus(&self) -> &ElectricalBus;
+    fn dc_ess_shed_bus(&self) -> &ElectricalBus;
+    fn dc_bat_bus(&self) -> &ElectricalBus;
+    fn hot_bus_1(&self) -> &ElectricalBus;
+    fn hot_bus_2(&self) -> &ElectricalBus;
+}
 
 pub struct A320Electrical {
     alternating_current: A320AlternatingCurrentElectrical,
@@ -59,11 +74,63 @@ impl A320Electrical {
         self.direct_current.debug_assert_invariants();
     }
 }
-impl SimulatorVisitable for A320Electrical {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
-        // TODO
+impl A320ElectricalCurrentState for A320Electrical {
+    fn ac_bus_1(&self) -> &ElectricalBus {
+        self.alternating_current.ac_bus_1()
+    }
+
+    fn ac_bus_2(&self) -> &ElectricalBus {
+        self.alternating_current.ac_bus_2()
+    }
+
+    fn ac_ess_bus(&self) -> &ElectricalBus {
+        self.alternating_current.ac_ess_bus()
+    }
+
+    fn ac_ess_shed_bus(&self) -> &ElectricalBus {
+        self.alternating_current.ac_ess_shed_bus()
+    }
+
+    fn ac_stat_inv_bus(&self) -> &ElectricalBus {
+        self.alternating_current.ac_stat_inv_bus()
+    }
+
+    fn dc_bus_1(&self) -> &ElectricalBus {
+        self.direct_current.dc_bus_1()
+    }
+
+    fn dc_bus_2(&self) -> &ElectricalBus {
+        self.direct_current.dc_bus_2()
+    }
+
+    fn dc_ess_bus(&self) -> &ElectricalBus {
+        self.direct_current.dc_ess_bus()
+    }
+
+    fn dc_ess_shed_bus(&self) -> &ElectricalBus {
+        self.direct_current.dc_ess_shed_bus()
+    }
+
+    fn dc_bat_bus(&self) -> &ElectricalBus {
+        self.direct_current.dc_bat_bus()
+    }
+
+    fn hot_bus_1(&self) -> &ElectricalBus {
+        self.direct_current.hot_bus_1()
+    }
+
+    fn hot_bus_2(&self) -> &ElectricalBus {
+        self.direct_current.hot_bus_2()
     }
 }
+impl SimulatorElementVisitable for A320Electrical {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        self.alternating_current.accept(visitor);
+        self.direct_current.accept(visitor);
+        visitor.visit(&mut Box::new(self));
+    }
+}
+impl SimulatorElement for A320Electrical {}
 
 trait AlternatingCurrentState {
     fn ac_bus_1_and_2_unpowered(&self) -> bool;
@@ -214,6 +281,26 @@ impl A320AlternatingCurrentElectrical {
         !(self.static_inv_to_ac_ess_bus_contactor.is_closed()
             && self.ac_ess_to_tr_ess_contactor.is_closed())
     }
+
+    fn ac_bus_1(&self) -> &ElectricalBus {
+        &self.ac_bus_1
+    }
+
+    fn ac_bus_2(&self) -> &ElectricalBus {
+        &self.ac_bus_2
+    }
+
+    fn ac_ess_bus(&self) -> &ElectricalBus {
+        &self.ac_ess_bus
+    }
+
+    fn ac_ess_shed_bus(&self) -> &ElectricalBus {
+        &self.ac_ess_shed_bus
+    }
+
+    fn ac_stat_inv_bus(&self) -> &ElectricalBus {
+        &self.ac_stat_inv_bus
+    }
 }
 impl AlternatingCurrentState for A320AlternatingCurrentElectrical {
     fn ac_bus_1_and_2_unpowered(&self) -> bool {
@@ -248,6 +335,17 @@ impl AlternatingCurrentState for A320AlternatingCurrentElectrical {
         &self.tr_ess
     }
 }
+impl SimulatorElementVisitable for A320AlternatingCurrentElectrical {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        self.emergency_gen.accept(visitor);
+        self.main_power_sources.accept(visitor);
+        self.tr_1.accept(visitor);
+        self.tr_2.accept(visitor);
+        self.tr_ess.accept(visitor);
+        visitor.visit(&mut Box::new(self));
+    }
+}
+impl SimulatorElement for A320AlternatingCurrentElectrical {}
 
 trait DirectCurrentState {
     fn static_inverter(&self) -> &StaticInverter;
@@ -450,12 +548,49 @@ impl A320DirectCurrentElectrical {
         self.battery_1_to_static_inv_contactor.is_closed()
             == self.battery_2_to_dc_ess_bus_contactor.is_closed()
     }
+
+    fn dc_bus_1(&self) -> &ElectricalBus {
+        &self.dc_bus_1
+    }
+
+    fn dc_bus_2(&self) -> &ElectricalBus {
+        &self.dc_bus_2
+    }
+
+    fn dc_ess_bus(&self) -> &ElectricalBus {
+        &self.dc_ess_bus
+    }
+
+    fn dc_ess_shed_bus(&self) -> &ElectricalBus {
+        &self.dc_ess_shed_bus
+    }
+
+    fn dc_bat_bus(&self) -> &ElectricalBus {
+        &self.dc_bat_bus
+    }
+
+    fn hot_bus_1(&self) -> &ElectricalBus {
+        &self.hot_bus_1
+    }
+
+    fn hot_bus_2(&self) -> &ElectricalBus {
+        &self.hot_bus_2
+    }
 }
 impl DirectCurrentState for A320DirectCurrentElectrical {
     fn static_inverter(&self) -> &StaticInverter {
         &self.static_inverter
     }
 }
+impl SimulatorElementVisitable for A320DirectCurrentElectrical {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        self.battery_1.accept(visitor);
+        self.battery_2.accept(visitor);
+        self.static_inverter.accept(visitor);
+        visitor.visit(&mut Box::new(self));
+    }
+}
+impl SimulatorElement for A320DirectCurrentElectrical {}
 
 struct A320MainPowerSources {
     engine_1_gen: EngineGenerator,
@@ -563,6 +698,14 @@ impl A320MainPowerSources {
         ])
     }
 }
+impl SimulatorElementVisitable for A320MainPowerSources {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        self.engine_1_gen.accept(visitor);
+        self.engine_2_gen.accept(visitor);
+        visitor.visit(&mut Box::new(self));
+    }
+}
+impl SimulatorElement for A320MainPowerSources {}
 
 struct A320AcEssFeedContactors {
     ac_ess_feed_contactor_1: Contactor,
@@ -691,12 +834,12 @@ impl A320ElectricalOverheadPanel {
         self.bat_2.is_auto()
     }
 }
-impl SimulatorVisitable for A320ElectricalOverheadPanel {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
+impl SimulatorElementVisitable for A320ElectricalOverheadPanel {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         visitor.visit(&mut Box::new(self));
     }
 }
-impl SimulatorReadWritable for A320ElectricalOverheadPanel {
+impl SimulatorElement for A320ElectricalOverheadPanel {
     fn read(&mut self, state: &SimulatorReadState) {
         self.ext_pwr.set_available(state.external_power_available);
         self.ext_pwr.set(state.external_power_sw_on);

@@ -2,7 +2,7 @@ use crate::{
     overhead::OnOffPushButton,
     pneumatic::BleedAirValveState,
     simulator::{
-        SimulatorReadState, SimulatorReadWritable, SimulatorVisitable, SimulatorVisitor,
+        SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReadState,
         SimulatorWriteState,
     },
 };
@@ -30,12 +30,12 @@ impl A320PneumaticOverheadPanel {
         self.apu_bleed.has_fault()
     }
 }
-impl SimulatorVisitable for A320PneumaticOverheadPanel {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorVisitor>) {
+impl SimulatorElementVisitable for A320PneumaticOverheadPanel {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         visitor.visit(&mut Box::new(self));
     }
 }
-impl SimulatorReadWritable for A320PneumaticOverheadPanel {
+impl SimulatorElement for A320PneumaticOverheadPanel {
     fn read(&mut self, state: &SimulatorReadState) {
         self.apu_bleed.set(state.apu_bleed_sw_on);
     }
