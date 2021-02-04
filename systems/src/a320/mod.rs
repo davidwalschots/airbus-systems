@@ -4,9 +4,9 @@ use crate::{
         AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
     electrical::{
-        DeterminePowerConsumptionVisitor, ElectricalBusStateFactory, ElectricalBusType,
-        ExternalPowerSource, PowerConsumption, PowerConsumptionState, PowerSupply,
-        SupplyPowerVisitor, WritePowerConsumptionVisitor,
+        DeterminePowerConsumptionState, DeterminePowerConsumptionVisitor,
+        ElectricalBusStateFactory, ElectricalBusType, ExternalPowerSource, PowerConsumption,
+        PowerSupply, SupplyPowerVisitor, WritePowerConsumptionVisitor,
     },
     engine::Engine,
     simulator::{
@@ -38,8 +38,6 @@ pub struct A320 {
     electrical: A320Electrical,
     ext_pwr: ExternalPowerSource,
     hydraulic: A320Hydraulic,
-    fake_ac1: FakePowerConsumer,
-    fake_ac2: FakePowerConsumer,
 }
 impl A320 {
     pub fn new() -> A320 {
@@ -55,27 +53,24 @@ impl A320 {
             electrical: A320Electrical::new(),
             ext_pwr: ExternalPowerSource::new(),
             hydraulic: A320Hydraulic::new(),
-            fake_ac1: FakePowerConsumer::new(PowerConsumption::from_single(
-                ElectricalBusType::AlternatingCurrent(1),
-            )),
-            fake_ac2: FakePowerConsumer::new(PowerConsumption::from_single(
-                ElectricalBusType::AlternatingCurrent(2),
-            )),
         }
     }
 
-    fn write_power_consumption(&mut self, state: PowerConsumptionState) {
+    fn write_power_consumption(&mut self, state: DeterminePowerConsumptionState) {
         let mut visitor = WritePowerConsumptionVisitor::new(&state);
         self.accept(&mut Box::new(&mut visitor));
     }
 
-    fn supply_power_to_elements(&mut self, power_supply: PowerSupply) {
-        let mut visitor = SupplyPowerVisitor::new(power_supply);
+    fn supply_power_to_elements(&mut self, supply: &PowerSupply) {
+        let mut visitor = SupplyPowerVisitor::new(supply);
         self.accept(&mut Box::new(&mut visitor));
     }
 
-    fn determine_power_consumption(&mut self) -> PowerConsumptionState {
-        let mut power_consumption_state = PowerConsumptionState::new();
+    fn determine_power_consumption(
+        &mut self,
+        supply: PowerSupply,
+    ) -> DeterminePowerConsumptionState {
+        let mut power_consumption_state = DeterminePowerConsumptionState::new(supply);
         let mut visitor = DeterminePowerConsumptionVisitor::new(&mut power_consumption_state);
         self.accept(&mut Box::new(&mut visitor));
 
@@ -117,13 +112,12 @@ impl Aircraft for A320 {
             &self.electrical_overhead,
         );
 
-        self.supply_power_to_elements(self.electrical.create_power_supply());
+        let supply = self.electrical.create_power_supply();
+        self.supply_power_to_elements(&supply);
 
         // Update everything that needs to know if it is powered here.
-        self.fake_ac1.update();
-        self.fake_ac2.update();
 
-        let power_consumption = self.determine_power_consumption();
+        let power_consumption = self.determine_power_consumption(supply);
         self.write_power_consumption(power_consumption);
     }
 }
@@ -138,29 +132,7 @@ impl SimulatorElementVisitable for A320 {
         self.engine_1.accept(visitor);
         self.engine_2.accept(visitor);
         self.electrical.accept(visitor);
-        self.fake_ac1.accept(visitor);
-        self.fake_ac2.accept(visitor);
         visitor.visit(&mut Box::new(self));
     }
 }
 impl SimulatorElement for A320 {}
-
-struct FakePowerConsumer {
-    power_consumption: PowerConsumption,
-}
-impl FakePowerConsumer {
-    fn new(power_consumption: PowerConsumption) -> Self {
-        FakePowerConsumer { power_consumption }
-    }
-
-    fn update(&mut self) {
-        self.power_consumption.demand(Power::new::<watt>(10000.));
-    }
-}
-impl SimulatorElementVisitable for FakePowerConsumer {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
-        self.power_consumption.accept(visitor);
-        visitor.visit(&mut Box::new(self));
-    }
-}
-impl SimulatorElement for FakePowerConsumer {}

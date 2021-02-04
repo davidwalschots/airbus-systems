@@ -1,6 +1,6 @@
 use super::{ApuGenerator, Turbine, TurbineController, TurbineState};
 use crate::{
-    electrical::{Current, ElectricPowerSource, ElectricSource, PowerConsumptionState},
+    electrical::{Current, ElectricPowerSource, ElectricSource, DeterminePowerConsumptionState},
     shared::{random_number, TimedRandom},
     simulator::{
         SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
@@ -511,7 +511,7 @@ impl SimulatorElement for Aps3200ApuGenerator {
         state.apu_gen_potential_within_normal_range = self.potential_within_normal_range();
     }
 
-    fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
+    fn write_power_consumption(&mut self, state: &DeterminePowerConsumptionState) {
         // TODO
     }
 }

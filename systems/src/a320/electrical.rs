@@ -1677,6 +1677,26 @@ mod a320_electrical_circuit_tests {
     }
 
     #[test]
+    fn create_power_supply_returns_power_supply() {
+        let tester = tester_with().running_engines().run();
+        let power_supply = tester.create_power_supply();
+
+        assert!(power_supply.is_powered(&ElectricalBusType::AlternatingCurrent(1)));
+        assert!(power_supply.is_powered(&ElectricalBusType::AlternatingCurrent(2)));
+        assert!(power_supply.is_powered(&ElectricalBusType::AlternatingCurrentEssential));
+        assert!(power_supply.is_powered(&ElectricalBusType::AlternatingCurrentEssentialShed));
+        assert!(!power_supply.is_powered(&ElectricalBusType::AlternatingCurrentStaticInverter));
+        assert!(!power_supply.is_powered(&ElectricalBusType::AlternatingCurrentStaticInverter));
+        assert!(power_supply.is_powered(&ElectricalBusType::DirectCurrent(1)));
+        assert!(power_supply.is_powered(&ElectricalBusType::DirectCurrent(2)));
+        assert!(power_supply.is_powered(&ElectricalBusType::DirectCurrentBattery));
+        assert!(power_supply.is_powered(&ElectricalBusType::DirectCurrentEssential));
+        assert!(power_supply.is_powered(&ElectricalBusType::DirectCurrentEssentialShed));
+        assert!(power_supply.is_powered(&ElectricalBusType::DirectCurrentHot(1)));
+        assert!(power_supply.is_powered(&ElectricalBusType::DirectCurrentHot(2)));
+    }
+
+    #[test]
     fn when_engine_1_and_apu_running_apu_powers_ac_bus_2() {
         let tester = tester_with().running_engine_1().and().running_apu().run();
 
@@ -2384,6 +2404,10 @@ mod a320_electrical_circuit_tests {
 
         fn hot_bus_2_output(&self) -> Current {
             self.elec.direct_current.hot_bus_2.output()
+        }
+
+        fn create_power_supply(&self) -> PowerSupply {
+            self.elec.create_power_supply()
         }
 
         fn both_ac_ess_feed_contactors_open(&self) -> bool {
