@@ -355,13 +355,13 @@ impl SimulatorElementVisitable for AuxiliaryPowerUnitOverheadPanel {
 impl SimulatorElement for AuxiliaryPowerUnitOverheadPanel {
     fn read(&mut self, state: &SimulatorReadState) {
         self.master.set(state.apu_master_sw_on);
-        self.start.set(state.apu_start_sw_on);
+        self.start.set(state.apu_start_on);
     }
 
     fn write(&self, state: &mut SimulatorWriteState) {
         state.apu_master_sw_fault = self.master_has_fault();
-        state.apu_start_sw_on = self.start_is_on();
-        state.apu_start_sw_available = self.start_shows_available();
+        state.apu_start_on = self.start_is_on();
+        state.apu_start_available = self.start_shows_available();
     }
 }
 

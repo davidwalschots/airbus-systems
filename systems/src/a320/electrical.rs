@@ -12,7 +12,7 @@ use crate::{
     shared::DelayedTrueLogicGate,
     simulator::{
         SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReadState,
-        UpdateContext,
+        SimulatorWriteState, UpdateContext,
     },
 };
 use std::time::Duration;
@@ -847,9 +847,35 @@ impl SimulatorElementVisitable for A320ElectricalOverheadPanel {
 }
 impl SimulatorElement for A320ElectricalOverheadPanel {
     fn read(&mut self, state: &SimulatorReadState) {
-        self.ext_pwr.set_available(state.external_power_available);
-        self.ext_pwr.set(state.external_power_sw_on);
-        self.apu_gen.set(state.apu_gen_sw_on);
+        self.ext_pwr
+            .set_available(state.elec_external_power_available);
+        self.ext_pwr.set(state.elec_external_power_on);
+        self.apu_gen.set(state.apu_gen_on);
+        self.ac_ess_feed.set(state.elec_ac_ess_feed_activated);
+        self.bat_1.set(state.elec_battery_1_activated);
+        self.bat_2.set(state.elec_battery_2_activated);
+        self.bus_tie.set(state.elec_bus_tie_activated);
+        self.commercial.set(state.elec_commercial_activated);
+        self.galy_and_cab.set(state.elec_galy_and_cab_activated);
+        self.gen_1.set(state.elec_gen_1_activated);
+        self.gen_2.set(state.elec_gen_2_activated);
+        if state.elec_idg_1_activated {
+            self.idg_1.turn_off()
+        }
+        if state.elec_idg_2_activated {
+            self.idg_2.turn_off()
+        }
+    }
+
+    fn write(&self, state: &mut SimulatorWriteState) {
+        state.elec_ac_ess_feed_fault = false; // TODO
+        state.elec_battery_1_fault = false; // TODO
+        state.elec_battery_2_fault = false; // TODO
+        state.elec_galy_and_cab_fault = false; // TODO
+        state.elec_gen_1_fault = false; // TODO
+        state.elec_gen_2_fault = false; // TODO
+        state.elec_idg_1_fault = false; // TODO
+        state.elec_idg_2_fault = false; // TODO
     }
 }
 

@@ -103,6 +103,14 @@ impl NormalAltnPushButton {
     pub fn is_altn(&self) -> bool {
         self.state == NormalAltnPushButtonState::Altn
     }
+
+    pub fn set(&mut self, value: bool) {
+        self.state = if value {
+            NormalAltnPushButtonState::Normal
+        } else {
+            NormalAltnPushButtonState::Altn
+        };
+    }
 }
 
 #[derive(PartialEq)]
@@ -144,6 +152,14 @@ impl AutoOffPushButton {
 
     pub fn is_off(&self) -> bool {
         self.state == AutoOffPushButtonState::Off
+    }
+
+    pub fn set(&mut self, value: bool) {
+        self.state = if value {
+            AutoOffPushButtonState::Auto
+        } else {
+            AutoOffPushButtonState::Off
+        };
     }
 }
 
