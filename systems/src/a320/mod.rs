@@ -3,18 +3,14 @@ use crate::{
     apu::{
         AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
-    electrical::{
-        DeterminePowerConsumptionState, DeterminePowerConsumptionVisitor,
-        ElectricalBusStateFactory, ElectricalBusType, ExternalPowerSource, PowerConsumption,
-        PowerSupply, SupplyPowerVisitor, WritePowerConsumptionVisitor,
-    },
+    electrical::{ElectricalBusStateFactory, ExternalPowerSource, PowerConsumptionHandler},
     engine::Engine,
     simulator::{
         Aircraft, SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor,
         UpdateContext,
     },
 };
-use uom::si::{f64::*, power::watt};
+use uom::si::f64::*;
 
 mod electrical;
 pub use electrical::*;
@@ -55,27 +51,6 @@ impl A320 {
             hydraulic: A320Hydraulic::new(),
         }
     }
-
-    fn write_power_consumption(&mut self, state: DeterminePowerConsumptionState) {
-        let mut visitor = WritePowerConsumptionVisitor::new(&state);
-        self.accept(&mut Box::new(&mut visitor));
-    }
-
-    fn supply_power_to_elements(&mut self, supply: &PowerSupply) {
-        let mut visitor = SupplyPowerVisitor::new(supply);
-        self.accept(&mut Box::new(&mut visitor));
-    }
-
-    fn determine_power_consumption(
-        &mut self,
-        supply: PowerSupply,
-    ) -> DeterminePowerConsumptionState {
-        let mut power_consumption_state = DeterminePowerConsumptionState::new(supply);
-        let mut visitor = DeterminePowerConsumptionVisitor::new(&mut power_consumption_state);
-        self.accept(&mut Box::new(&mut visitor));
-
-        power_consumption_state
-    }
 }
 impl Default for A320 {
     fn default() -> Self {
@@ -112,13 +87,14 @@ impl Aircraft for A320 {
             &self.electrical_overhead,
         );
 
-        let supply = self.electrical.create_power_supply();
-        self.supply_power_to_elements(&supply);
+        let power_supply = self.electrical.create_power_supply();
+        let mut power_consumption_handler = PowerConsumptionHandler::new(&power_supply);
+        power_consumption_handler.supply_power_to_elements(&mut Box::new(self));
 
         // Update everything that needs to know if it is powered here.
 
-        let power_consumption = self.determine_power_consumption(supply);
-        self.write_power_consumption(power_consumption);
+        power_consumption_handler.determine_power_consumption(&mut Box::new(self));
+        power_consumption_handler.write_power_consumption(&mut Box::new(self));
     }
 }
 impl SimulatorElementVisitable for A320 {

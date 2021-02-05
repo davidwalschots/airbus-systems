@@ -8,7 +8,7 @@ mod update_context;
 pub use update_context::test_helpers;
 pub use update_context::UpdateContext;
 
-use crate::electrical::{DeterminePowerConsumptionState, PowerSupply};
+use crate::electrical::{PowerConsumptionState, PowerSupply};
 
 /// Trait for reading data from and writing data to the simulator.
 pub trait SimulatorReadWriter {
@@ -116,10 +116,10 @@ pub trait SimulatorElement {
     fn supply_power(&mut self, supply: &PowerSupply) {}
 
     /// Determines the electrical demand of the element at this time.
-    fn determine_power_consumption(&mut self, state: &mut DeterminePowerConsumptionState) {}
+    fn determine_power_consumption(&mut self, state: &mut PowerConsumptionState) {}
 
     /// Writes electrical consumption to elements that can cater to such demand.
-    fn write_power_consumption(&mut self, _state: &DeterminePowerConsumptionState) {}
+    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {}
 }
 
 /// Trait for making a piece of the aircraft system simulation visitable.
