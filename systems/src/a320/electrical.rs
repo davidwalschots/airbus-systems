@@ -857,7 +857,7 @@ impl SimulatorElement for A320ElectricalOverheadPanel {
 mod a320_electrical_circuit_tests {
     use crate::{
         apu::tests::{running_apu, stopped_apu},
-        electrical::{Current, ElectricPowerSource, IntegratedDriveGenerator},
+        electrical::{Current, ElectricPowerSource},
     };
 
     use uom::si::{
@@ -2495,9 +2495,7 @@ mod a320_electrical_circuit_tests {
 
         fn new_running_engine() -> Engine {
             let mut engine = Engine::new(1);
-            engine.n2 = Ratio::new::<percent>(
-                IntegratedDriveGenerator::ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD + 1.,
-            );
+            engine.n2 = Ratio::new::<percent>(80.);
 
             engine
         }

@@ -4,11 +4,9 @@ use super::{
     Turbine, TurbineController, TurbineState,
 };
 use crate::{
-    electrical::{Current, ElectricSource, PowerConsumption, Powerable},
+    electrical::ElectricSource,
     pneumatic::{BleedAirValveController, Valve},
-    simulator::{
-        SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, UpdateContext,
-    },
+    simulator::UpdateContext,
 };
 use std::time::Duration;
 use uom::si::{f64::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius};
