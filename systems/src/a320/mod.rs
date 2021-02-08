@@ -108,6 +108,7 @@ impl SimulatorElementVisitable for A320 {
         self.engine_1.accept(visitor);
         self.engine_2.accept(visitor);
         self.electrical.accept(visitor);
+        self.ext_pwr.accept(visitor);
         visitor.visit(&mut Box::new(self));
     }
 }

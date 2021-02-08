@@ -1,4 +1,7 @@
-use crate::simulator::UpdateContext;
+use crate::simulator::{
+    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReadState,
+    UpdateContext,
+};
 
 use super::{Current, ElectricPowerSource, ElectricSource};
 
@@ -21,6 +24,16 @@ impl ElectricSource for ExternalPowerSource {
         } else {
             Current::none()
         }
+    }
+}
+impl SimulatorElementVisitable for ExternalPowerSource {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        visitor.visit(&mut Box::new(self));
+    }
+}
+impl SimulatorElement for ExternalPowerSource {
+    fn read(&mut self, state: &SimulatorReadState) {
+        self.is_connected = state.electrical.external_power_available;
     }
 }
 
