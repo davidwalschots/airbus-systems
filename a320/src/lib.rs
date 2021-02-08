@@ -323,6 +323,8 @@ impl SimulatorReadWriter for A320SimulatorReadWriter {
         self.apu_start_contactor_energized
             .set_value(from_bool(state.apu.start_contactor_energized));
         self.apu_available.set_value(from_bool(state.apu.available));
+        self.apu_start_pb_available
+            .set_value(from_bool(state.apu.start_pb_available));
         self.apu_start_pb_on
             .set_value(from_bool(state.apu.start_pb_on));
         self.elec_ac_bus_1_is_powered
