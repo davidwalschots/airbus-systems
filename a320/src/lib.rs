@@ -60,26 +60,48 @@ struct A320SimulatorReadWriter {
     apu_start_contactor_energized: NamedVariable,
     apu_start_pb_on: NamedVariable,
     apu_start_pb_available: NamedVariable,
+    elec_ac_bus_1_is_powered: NamedVariable,
+    elec_ac_bus_2_is_powered: NamedVariable,
+    elec_ac_bus_tie_contactor_1_closed: NamedVariable,
+    elec_ac_bus_tie_contactor_2_closed: NamedVariable,
+    elec_ac_ess_bus_is_powered: NamedVariable,
+    elec_ac_ess_feed_contactor_1_closed: NamedVariable,
+    elec_ac_ess_feed_contactor_2_closed: NamedVariable,
     elec_ac_ess_feed_pb_normal: NamedVariable,
     elec_ac_ess_feed_pb_fault: NamedVariable,
+    elec_apu_generator_contactor_closed: NamedVariable,
+    elec_battery_contactor_1_closed: NamedVariable,
+    elec_battery_contactor_2_closed: NamedVariable,
     elec_battery_1_pb_fault: NamedVariable,
     elec_battery_2_pb_fault: NamedVariable,
     elec_battery_1_pb_auto: NamedVariable,
     elec_battery_2_pb_auto: NamedVariable,
     elec_bus_tie_pb_auto: NamedVariable,
     elec_commercial_pb_on: NamedVariable,
+    elec_dc_bat_bus_is_powered: NamedVariable,
+    elec_dc_bus_1_is_powered: NamedVariable,
+    elec_dc_bus_2_is_powered: NamedVariable,
+    elec_dc_bus_tie_contactor_1_closed: NamedVariable,
+    elec_dc_bus_tie_contactor_2_closed: NamedVariable,
+    elec_dc_ess_bus_is_powered: NamedVariable,
     elec_external_power_available: AircraftVariable,
+    elec_external_power_contactor_closed: NamedVariable,
     elec_external_power_pb_on: AircraftVariable,
     elec_galy_and_cab_pb_auto: NamedVariable,
     elec_galy_and_cab_pb_fault: NamedVariable,
-    elec_generator_1_pb_on: AircraftVariable,
     elec_generator_1_pb_fault: NamedVariable,
-    elec_generator_2_pb_on: AircraftVariable,
+    elec_generator_1_pb_on: AircraftVariable,
     elec_generator_2_pb_fault: NamedVariable,
+    elec_generator_2_pb_on: AircraftVariable,
+    elec_generator_line_contactor_1_closed: NamedVariable,
+    elec_generator_line_contactor_2_closed: NamedVariable,
     elec_idg_1_pb_fault: NamedVariable,
     elec_idg_1_pb_released: NamedVariable,
     elec_idg_2_pb_fault: NamedVariable,
     elec_idg_2_pb_released: NamedVariable,
+    elec_tr_1_contactor_closed: NamedVariable,
+    elec_tr_2_contactor_closed: NamedVariable,
+    elec_tr_ess_contactor_closed: NamedVariable,
     engine_1_n2: AircraftVariable,
     engine_2_n2: AircraftVariable,
     indicated_airspeed: AircraftVariable,
@@ -121,19 +143,56 @@ impl A320SimulatorReadWriter {
             ),
             apu_start_pb_on: NamedVariable::from("A32NX_APU_START_PB_ON"),
             apu_start_pb_available: NamedVariable::from("A32NX_APU_START_PB_AVAILABLE"),
+            elec_ac_bus_1_is_powered: NamedVariable::from("A32NX_ELEC_AC_BUS_1_IS_POWERED"),
+            elec_ac_bus_2_is_powered: NamedVariable::from("A32NX_ELEC_AC_BUS_2_IS_POWERED"),
+            elec_ac_bus_tie_contactor_1_closed: NamedVariable::from(
+                "A32NX_ELEC_AC_BUS_TIE_CONTACTOR_1_CLOSED",
+            ),
+            elec_ac_bus_tie_contactor_2_closed: NamedVariable::from(
+                "A32NX_ELEC_AC_BUS_TIE_CONTACTOR_2_CLOSED",
+            ),
+            elec_ac_ess_bus_is_powered: NamedVariable::from("A32NX_ELEC_AC_ESS_BUS_IS_POWERED"),
+            elec_ac_ess_feed_contactor_1_closed: NamedVariable::from(
+                "A32NX_ELEC_AC_ESS_FEED_CONTACTOR_1_CLOSED",
+            ),
+            elec_ac_ess_feed_contactor_2_closed: NamedVariable::from(
+                "A32NX_ELEC_AC_ESS_FEED_CONTACTOR_2_CLOSED",
+            ),
             elec_ac_ess_feed_pb_normal: NamedVariable::from("A32NX_ELEC_AC_ESS_FEED_PB_NORMAL"),
             elec_ac_ess_feed_pb_fault: NamedVariable::from("A32NX_ELEC_AC_ESS_FEED_PB_FAULT"),
+            elec_apu_generator_contactor_closed: NamedVariable::from(
+                "A32NX_ELEC_APU_GENERATOR_CONTACTOR_CLOSED",
+            ),
+            elec_battery_contactor_1_closed: NamedVariable::from(
+                "A32NX_ELEC_BATTERY_CONTACTOR_1_CLOSED",
+            ),
+            elec_battery_contactor_2_closed: NamedVariable::from(
+                "A32NX_ELEC_BATTERY_CONTACTOR_2_CLOSED",
+            ),
             elec_battery_1_pb_auto: NamedVariable::from("A32NX_ELEC_BATTERY_10_PB_AUTO"),
             elec_battery_1_pb_fault: NamedVariable::from("A32NX_ELEC_BATTERY_10_PB_FAULT"),
             elec_battery_2_pb_auto: NamedVariable::from("A32NX_ELEC_BATTERY_11_PB_AUTO"),
             elec_battery_2_pb_fault: NamedVariable::from("A32NX_ELEC_BATTERY_11_PB_FAULT"),
             elec_bus_tie_pb_auto: NamedVariable::from("A32NX_ELEC_BUS_TIE_PB_AUTO"),
             elec_commercial_pb_on: NamedVariable::from("A32NX_ELEC_COMMERCIAL_PB_ON"),
+            elec_dc_bat_bus_is_powered: NamedVariable::from("A32NX_ELEC_DC_BAT_BUS_IS_POWERED"),
+            elec_dc_bus_1_is_powered: NamedVariable::from("A32NX_ELEC_DC_BUS_1_IS_POWERED"),
+            elec_dc_bus_2_is_powered: NamedVariable::from("A32NX_ELEC_DC_BUS_2_IS_POWERED"),
+            elec_dc_bus_tie_contactor_1_closed: NamedVariable::from(
+                "A32NX_DC_BUS_TIE_CONTACTOR_1_CLOSED",
+            ),
+            elec_dc_bus_tie_contactor_2_closed: NamedVariable::from(
+                "A32NX_DC_BUS_TIE_CONTACTOR_2_CLOSED",
+            ),
+            elec_dc_ess_bus_is_powered: NamedVariable::from("A32NX_ELEC_DC_ESS_BUS_IS_POWERED"),
             elec_external_power_available: AircraftVariable::from(
                 "EXTERNAL POWER AVAILABLE",
                 "Bool",
                 1,
             )?,
+            elec_external_power_contactor_closed: NamedVariable::from(
+                "A32NX_ELEC_EXTERNAL_POWER_CONTACTOR_CLOSED",
+            ),
             elec_external_power_pb_on: AircraftVariable::from("EXTERNAL POWER ON", "Bool", 1)?,
             elec_galy_and_cab_pb_auto: NamedVariable::from("A32NX_ELEC_GALY_CAB_PB_AUTO"),
             elec_galy_and_cab_pb_fault: NamedVariable::from("A32NX_ELEC_GALY_CAB_PB_FAULT"),
@@ -149,10 +208,19 @@ impl A320SimulatorReadWriter {
                 2,
             )?,
             elec_generator_2_pb_fault: NamedVariable::from("A32NX_ELEC_GEN_2_PB_FAULT"),
+            elec_generator_line_contactor_1_closed: NamedVariable::from(
+                "A32NX_ELEC_GENERATOR_LINE_CONTACTOR_1_CLOSED",
+            ),
+            elec_generator_line_contactor_2_closed: NamedVariable::from(
+                "A32NX_ELEC_GENERATOR_LINE_CONTACTOR_2_CLOSED",
+            ),
             elec_idg_1_pb_fault: NamedVariable::from("A32NX_ELEC_IDG_1_PB_FAULT"),
             elec_idg_1_pb_released: NamedVariable::from("A32NX_ELEC_IDG_1_PB_RELEASED"),
             elec_idg_2_pb_fault: NamedVariable::from("A32NX_ELEC_IDG_2_PB_FAULT"),
             elec_idg_2_pb_released: NamedVariable::from("A32NX_ELEC_IDG_2_PB_RELEASED"),
+            elec_tr_1_contactor_closed: NamedVariable::from("A32NX_ELEC_TR_1_CONTACTOR_CLOSED"),
+            elec_tr_2_contactor_closed: NamedVariable::from("A32NX_ELEC_TR_2_CONTACTOR_CLOSED"),
+            elec_tr_ess_contactor_closed: NamedVariable::from("A32NX_ELEC_TR_ESS_CONTACTOR_CLOSED"),
             engine_1_n2: AircraftVariable::from("ENG N2 RPM", "Percent", 1)?,
             engine_2_n2: AircraftVariable::from("ENG N2 RPM", "Percent", 2)?,
             indicated_airspeed: AircraftVariable::from("AIRSPEED INDICATED", "Knots", 0)?,
@@ -257,21 +325,69 @@ impl SimulatorReadWriter for A320SimulatorReadWriter {
         self.apu_available.set_value(from_bool(state.apu.available));
         self.apu_start_pb_on
             .set_value(from_bool(state.apu.start_pb_on));
+        self.elec_ac_bus_1_is_powered
+            .set_value(from_bool(state.electrical.ac_bus_is_powered[0]));
+        self.elec_ac_bus_2_is_powered
+            .set_value(from_bool(state.electrical.ac_bus_is_powered[1]));
+        self.elec_ac_ess_bus_is_powered
+            .set_value(from_bool(state.electrical.ac_ess_bus_is_powered));
+        self.elec_ac_ess_feed_contactor_1_closed
+            .set_value(from_bool(state.electrical.ac_ess_feed_contactor_closed[0]));
+        self.elec_ac_ess_feed_contactor_2_closed
+            .set_value(from_bool(state.electrical.ac_ess_feed_contactor_closed[1]));
         self.elec_ac_ess_feed_pb_fault
             .set_value(from_bool(state.electrical.ac_ess_feed_pb_fault));
+        self.elec_apu_generator_contactor_closed
+            .set_value(from_bool(state.electrical.apu_generator_contactor_closed));
         self.elec_battery_1_pb_fault
             .set_value(from_bool(state.electrical.battery_pb_fault[0]));
         self.elec_battery_2_pb_fault
             .set_value(from_bool(state.electrical.battery_pb_fault[1]));
+        self.elec_battery_contactor_1_closed
+            .set_value(from_bool(state.electrical.battery_contactor_closed[0]));
+        self.elec_battery_contactor_2_closed
+            .set_value(from_bool(state.electrical.battery_contactor_closed[1]));
+        self.elec_ac_bus_tie_contactor_1_closed
+            .set_value(from_bool(state.electrical.ac_bus_tie_contactor_closed[0]));
+        self.elec_ac_bus_tie_contactor_2_closed
+            .set_value(from_bool(state.electrical.ac_bus_tie_contactor_closed[1]));
+        self.elec_dc_bat_bus_is_powered
+            .set_value(from_bool(state.electrical.dc_bat_bus_is_powered));
+        self.elec_dc_bus_1_is_powered
+            .set_value(from_bool(state.electrical.dc_bus_is_powered[0]));
+        self.elec_dc_bus_2_is_powered
+            .set_value(from_bool(state.electrical.dc_bus_is_powered[1]));
+        self.elec_dc_bus_tie_contactor_1_closed
+            .set_value(from_bool(state.electrical.dc_bus_tie_contactor_closed[0]));
+        self.elec_dc_bus_tie_contactor_2_closed
+            .set_value(from_bool(state.electrical.dc_bus_tie_contactor_closed[1]));
+        self.elec_dc_ess_bus_is_powered
+            .set_value(from_bool(state.electrical.dc_ess_bus_is_powered));
+        self.elec_external_power_contactor_closed
+            .set_value(from_bool(state.electrical.external_power_contactor_closed));
         self.elec_galy_and_cab_pb_fault
             .set_value(from_bool(state.electrical.galy_and_cab_pb_fault));
         self.elec_generator_1_pb_fault
             .set_value(from_bool(state.electrical.generator_pb_fault[0]));
+        self.elec_generator_line_contactor_1_closed
+            .set_value(from_bool(
+                state.electrical.engine_generator_line_contactor_closed[0],
+            ));
         self.elec_generator_2_pb_fault
             .set_value(from_bool(state.electrical.generator_pb_fault[1]));
+        self.elec_generator_line_contactor_2_closed
+            .set_value(from_bool(
+                state.electrical.engine_generator_line_contactor_closed[1],
+            ));
         self.elec_idg_1_pb_fault
             .set_value(from_bool(state.electrical.idg_pb_fault[0]));
         self.elec_idg_2_pb_fault
             .set_value(from_bool(state.electrical.idg_pb_fault[1]));
+        self.elec_tr_1_contactor_closed
+            .set_value(from_bool(state.electrical.tr_contactor_closed[0]));
+        self.elec_tr_2_contactor_closed
+            .set_value(from_bool(state.electrical.tr_contactor_closed[1]));
+        self.elec_tr_ess_contactor_closed
+            .set_value(from_bool(state.electrical.tr_contactor_closed[2]));
     }
 }

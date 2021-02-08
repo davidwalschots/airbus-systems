@@ -223,10 +223,14 @@ impl A320AlternatingCurrentElectrical {
         self.ac_ess_bus
             .powered_by(&self.ac_ess_feed_contactors.electric_sources());
 
-        self.emergency_gen_contactor
-            .close_when(self.ac_bus_1.is_unpowered() && self.ac_bus_2.is_unpowered());
+        self.emergency_gen_contactor.close_when(
+            self.ac_bus_1.is_unpowered()
+                && self.ac_bus_2.is_unpowered()
+                && self.emergency_gen.is_powered(),
+        );
         self.emergency_gen_contactor.powered_by(&self.emergency_gen);
 
+        // TODO It's a bit odd the emergency gen powers the TR ESS via 15XE1. That's not the real situation. Fix it.
         self.ac_ess_to_tr_ess_contactor.powered_by(&self.ac_ess_bus);
         self.ac_ess_to_tr_ess_contactor
             .or_powered_by(&self.emergency_gen_contactor);
@@ -345,13 +349,20 @@ impl SimulatorElementVisitable for A320AlternatingCurrentElectrical {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         self.emergency_gen.accept(visitor);
         self.main_power_sources.accept(visitor);
+        self.ac_ess_feed_contactors.accept(visitor);
         self.tr_1.accept(visitor);
         self.tr_2.accept(visitor);
         self.tr_ess.accept(visitor);
         visitor.visit(&mut Box::new(self));
     }
 }
-impl SimulatorElement for A320AlternatingCurrentElectrical {}
+impl SimulatorElement for A320AlternatingCurrentElectrical {
+    fn write(&self, state: &mut SimulatorWriteState) {
+        state.electrical.ac_bus_is_powered[0] = self.ac_bus_1.is_powered();
+        state.electrical.ac_bus_is_powered[1] = self.ac_bus_2.is_powered();
+        state.electrical.ac_ess_bus_is_powered = self.ac_ess_bus.is_powered();
+    }
+}
 
 trait DirectCurrentState {
     fn static_inverter(&self) -> &StaticInverter;
@@ -596,7 +607,21 @@ impl SimulatorElementVisitable for A320DirectCurrentElectrical {
         visitor.visit(&mut Box::new(self));
     }
 }
-impl SimulatorElement for A320DirectCurrentElectrical {}
+impl SimulatorElement for A320DirectCurrentElectrical {
+    fn write(&self, state: &mut SimulatorWriteState) {
+        state.electrical.battery_contactor_closed[0] = self.battery_1_contactor.is_closed();
+        state.electrical.battery_contactor_closed[1] = self.battery_2_contactor.is_closed();
+        state.electrical.dc_bat_bus_is_powered = self.dc_bat_bus.is_powered();
+        state.electrical.dc_bus_is_powered[0] = self.dc_bus_1.is_powered();
+        state.electrical.dc_bus_is_powered[1] = self.dc_bus_2.is_powered();
+        state.electrical.dc_bus_tie_contactor_closed[0] = self.dc_bus_1_tie_contactor.is_closed();
+        state.electrical.dc_bus_tie_contactor_closed[1] = self.dc_bus_2_tie_contactor.is_closed();
+        state.electrical.dc_ess_bus_is_powered = self.dc_ess_bus.is_powered();
+        state.electrical.tr_contactor_closed[0] = self.tr_1_contactor.is_closed();
+        state.electrical.tr_contactor_closed[1] = self.tr_2_contactor.is_closed();
+        state.electrical.tr_contactor_closed[2] = self.tr_ess_contactor.is_closed();
+    }
+}
 
 struct A320MainPowerSources {
     engine_1_gen: EngineGenerator,
@@ -711,7 +736,18 @@ impl SimulatorElementVisitable for A320MainPowerSources {
         visitor.visit(&mut Box::new(self));
     }
 }
-impl SimulatorElement for A320MainPowerSources {}
+impl SimulatorElement for A320MainPowerSources {
+    fn write(&self, state: &mut SimulatorWriteState) {
+        state.electrical.apu_generator_contactor_closed = self.apu_gen_contactor.is_closed();
+        state.electrical.external_power_contactor_closed = self.ext_pwr_contactor.is_closed();
+        state.electrical.engine_generator_line_contactor_closed[0] =
+            self.engine_1_gen_contactor.is_closed();
+        state.electrical.engine_generator_line_contactor_closed[1] =
+            self.engine_2_gen_contactor.is_closed();
+        state.electrical.ac_bus_tie_contactor_closed[0] = self.bus_tie_1_contactor.is_closed();
+        state.electrical.ac_bus_tie_contactor_closed[1] = self.bus_tie_2_contactor.is_closed();
+    }
+}
 
 struct A320AcEssFeedContactors {
     ac_ess_feed_contactor_1: Contactor,
@@ -765,6 +801,17 @@ impl A320AcEssFeedContactors {
 
     fn provides_power(&self) -> bool {
         self.electric_sources().output().is_powered()
+    }
+}
+impl SimulatorElementVisitable for A320AcEssFeedContactors {
+    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        visitor.visit(&mut Box::new(self));
+    }
+}
+impl SimulatorElement for A320AcEssFeedContactors {
+    fn write(&self, state: &mut SimulatorWriteState) {
+        state.electrical.ac_ess_feed_contactor_closed[0] = self.ac_ess_feed_contactor_1.is_closed();
+        state.electrical.ac_ess_feed_contactor_closed[1] = self.ac_ess_feed_contactor_2.is_closed();
     }
 }
 

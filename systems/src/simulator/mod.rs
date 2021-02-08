@@ -225,11 +225,24 @@ pub struct SimulatorApuWriteState {
 
 #[derive(Default)]
 pub struct SimulatorElectricalWriteState {
+    pub ac_bus_tie_contactor_closed: [bool; 2],
+    pub ac_bus_is_powered: [bool; 2],
+    pub ac_ess_bus_is_powered: bool,
     pub ac_ess_feed_pb_fault: bool,
+    pub ac_ess_feed_contactor_closed: [bool; 2],
+    pub apu_generator_contactor_closed: bool,
     pub battery_pb_fault: [bool; 2],
+    pub battery_contactor_closed: [bool; 2],
+    pub dc_bat_bus_is_powered: bool,
+    pub dc_bus_is_powered: [bool; 2],
+    pub dc_bus_tie_contactor_closed: [bool; 2],
+    pub dc_ess_bus_is_powered: bool,
+    pub engine_generator_line_contactor_closed: [bool; 2],
+    pub external_power_contactor_closed: bool,
     pub galy_and_cab_pb_fault: bool,
     pub generator_pb_fault: [bool; 2],
     pub idg_pb_fault: [bool; 2],
+    pub tr_contactor_closed: [bool; 3],
 }
 
 #[derive(Default)]
