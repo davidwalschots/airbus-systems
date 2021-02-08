@@ -46,6 +46,8 @@ impl SimulatorElementVisitable for EngineGenerator {
 }
 impl SimulatorElement for EngineGenerator {
     fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
+        let watts =
+            state.get_total_consumption_for(&ElectricPowerSource::EngineGenerator(self.number));
         // TODO
     }
 }

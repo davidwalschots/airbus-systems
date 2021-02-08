@@ -848,34 +848,38 @@ impl SimulatorElementVisitable for A320ElectricalOverheadPanel {
 impl SimulatorElement for A320ElectricalOverheadPanel {
     fn read(&mut self, state: &SimulatorReadState) {
         self.ext_pwr
-            .set_available(state.elec_external_power_available);
-        self.ext_pwr.set(state.elec_external_power_on);
-        self.apu_gen.set(state.apu_gen_on);
-        self.ac_ess_feed.set(state.elec_ac_ess_feed_activated);
-        self.bat_1.set(state.elec_battery_1_activated);
-        self.bat_2.set(state.elec_battery_2_activated);
-        self.bus_tie.set(state.elec_bus_tie_activated);
-        self.commercial.set(state.elec_commercial_activated);
-        self.galy_and_cab.set(state.elec_galy_and_cab_activated);
-        self.gen_1.set(state.elec_gen_1_activated);
-        self.gen_2.set(state.elec_gen_2_activated);
-        if state.elec_idg_1_activated {
+            .set_available(state.electrical.external_power_available);
+        self.ext_pwr.set_on(state.electrical.external_power_pb_on);
+        self.apu_gen.set_on(state.electrical.apu_generator_pb_on);
+        self.ac_ess_feed
+            .set_normal(state.electrical.ac_ess_feed_pb_normal);
+        self.bat_1.set_auto(state.electrical.battery_pb_auto[0]);
+        self.bat_2.set_auto(state.electrical.battery_pb_auto[1]);
+        self.bus_tie.set_auto(state.electrical.bus_tie_pb_auto);
+        self.commercial.set_on(state.electrical.commercial_pb_on);
+        self.galy_and_cab
+            .set_auto(state.electrical.galy_and_cab_pb_auto);
+        self.gen_1
+            .set_on(state.electrical.engine_generator_pb_on[0]);
+        self.gen_2
+            .set_on(state.electrical.engine_generator_pb_on[1]);
+        if state.electrical.idg_pb_released[0] {
             self.idg_1.turn_off()
         }
-        if state.elec_idg_2_activated {
+        if state.electrical.idg_pb_released[1] {
             self.idg_2.turn_off()
         }
     }
 
     fn write(&self, state: &mut SimulatorWriteState) {
-        state.elec_ac_ess_feed_fault = false; // TODO
-        state.elec_battery_1_fault = false; // TODO
-        state.elec_battery_2_fault = false; // TODO
-        state.elec_galy_and_cab_fault = false; // TODO
-        state.elec_gen_1_fault = false; // TODO
-        state.elec_gen_2_fault = false; // TODO
-        state.elec_idg_1_fault = false; // TODO
-        state.elec_idg_2_fault = false; // TODO
+        state.electrical.ac_ess_feed_pb_fault = false; // TODO
+        state.electrical.battery_pb_fault[0] = false; // TODO
+        state.electrical.battery_pb_fault[1] = false; // TODO
+        state.electrical.galy_and_cab_pb_fault = false; // TODO
+        state.electrical.generator_pb_fault[0] = false; // TODO
+        state.electrical.generator_pb_fault[1] = false; // TODO
+        state.electrical.idg_pb_fault[0] = false; // TODO
+        state.electrical.idg_pb_fault[1] = false; // TODO
     }
 }
 

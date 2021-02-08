@@ -234,18 +234,19 @@ impl SimulatorElementVisitable for AuxiliaryPowerUnit {
 }
 impl SimulatorElement for AuxiliaryPowerUnit {
     fn write(&self, state: &mut SimulatorWriteState) {
-        state.apu_air_intake_flap_is_ecam_open = self.air_intake_flap_is_apu_ecam_open();
-        state.apu_air_intake_flap_opened_for = self.get_air_intake_flap_open_amount();
-        state.apu_bleed_air_valve_open = self.bleed_air_valve_is_open();
-        state.apu_caution_egt = self.get_egt_caution_temperature();
-        state.apu_egt = self.get_egt();
-        state.apu_inoperable = self.is_inoperable();
-        state.apu_is_auto_shutdown = self.is_auto_shutdown();
-        state.apu_is_emergency_shutdown = self.is_emergency_shutdown();
-        state.apu_low_fuel_pressure_fault = self.has_fuel_low_pressure_fault();
-        state.apu_n = self.get_n();
-        state.apu_start_contactor_energized = self.start_contactor_energized();
-        state.apu_warning_egt = self.get_egt_warning_temperature();
+        state.apu.air_intake_flap_is_ecam_open = self.air_intake_flap_is_apu_ecam_open();
+        state.apu.air_intake_flap_opened_for = self.get_air_intake_flap_open_amount();
+        state.apu.available = self.is_available();
+        state.apu.bleed_air_valve_open = self.bleed_air_valve_is_open();
+        state.apu.caution_egt = self.get_egt_caution_temperature();
+        state.apu.egt = self.get_egt();
+        state.apu.inoperable = self.is_inoperable();
+        state.apu.is_auto_shutdown = self.is_auto_shutdown();
+        state.apu.is_emergency_shutdown = self.is_emergency_shutdown();
+        state.apu.low_fuel_pressure_fault = self.has_fuel_low_pressure_fault();
+        state.apu.n = self.get_n();
+        state.apu.start_contactor_energized = self.start_contactor_energized();
+        state.apu.warning_egt = self.get_egt_warning_temperature();
     }
 }
 impl BleedAirValveState for AuxiliaryPowerUnit {
@@ -302,7 +303,8 @@ impl SimulatorElementVisitable for AuxiliaryPowerUnitFireOverheadPanel {
 }
 impl SimulatorElement for AuxiliaryPowerUnitFireOverheadPanel {
     fn read(&mut self, state: &SimulatorReadState) {
-        self.apu_fire_button.set(state.apu_fire_button_released);
+        self.apu_fire_button
+            .set(state.fire.apu_fire_button_released);
     }
 }
 
@@ -354,14 +356,14 @@ impl SimulatorElementVisitable for AuxiliaryPowerUnitOverheadPanel {
 }
 impl SimulatorElement for AuxiliaryPowerUnitOverheadPanel {
     fn read(&mut self, state: &SimulatorReadState) {
-        self.master.set(state.apu_master_sw_on);
-        self.start.set(state.apu_start_on);
+        self.master.set_on(state.apu.master_sw_pb_on);
+        self.start.set_on(state.apu.start_pb_on);
     }
 
     fn write(&self, state: &mut SimulatorWriteState) {
-        state.apu_master_sw_fault = self.master_has_fault();
-        state.apu_start_on = self.start_is_on();
-        state.apu_start_available = self.start_shows_available();
+        state.apu.master_sw_pb_fault = self.master_has_fault();
+        state.apu.start_pb_on = self.start_is_on();
+        state.apu.start_pb_available = self.start_shows_available();
     }
 }
 
@@ -673,15 +675,15 @@ pub mod tests {
         }
 
         pub fn get_potential(&self) -> ElectricPotential {
-            self.write_state.apu_gen_potential
+            self.write_state.apu.generator_potential
         }
 
         pub fn get_frequency(&self) -> Frequency {
-            self.write_state.apu_gen_frequency
+            self.write_state.apu.generator_frequency
         }
 
         pub fn get_current(&self) -> ElectricCurrent {
-            self.write_state.apu_gen_current
+            self.write_state.apu.generator_current
         }
 
         fn start_contactor_energized(&self) -> bool {
@@ -842,7 +844,7 @@ pub mod tests {
         }
 
         #[test]
-        fn start_sw_on_light_turns_off_when_apu_available() {
+        fn start_sw_on_light_turns_off_and_avail_light_turns_on_when_apu_available() {
             let mut tester = tester_with().starting_apu();
 
             loop {

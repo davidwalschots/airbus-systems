@@ -26,7 +26,7 @@ impl OnOffPushButton {
         }
     }
 
-    pub fn set(&mut self, value: bool) {
+    pub fn set_on(&mut self, value: bool) {
         self.state = if value {
             OnOffPushButtonState::On
         } else {
@@ -104,7 +104,7 @@ impl NormalAltnPushButton {
         self.state == NormalAltnPushButtonState::Altn
     }
 
-    pub fn set(&mut self, value: bool) {
+    pub fn set_normal(&mut self, value: bool) {
         self.state = if value {
             NormalAltnPushButtonState::Normal
         } else {
@@ -154,7 +154,7 @@ impl AutoOffPushButton {
         self.state == AutoOffPushButtonState::Off
     }
 
-    pub fn set(&mut self, value: bool) {
+    pub fn set_auto(&mut self, value: bool) {
         self.state = if value {
             AutoOffPushButtonState::Auto
         } else {

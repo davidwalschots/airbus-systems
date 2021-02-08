@@ -37,11 +37,11 @@ impl SimulatorElementVisitable for A320PneumaticOverheadPanel {
 }
 impl SimulatorElement for A320PneumaticOverheadPanel {
     fn read(&mut self, state: &SimulatorReadState) {
-        self.apu_bleed.set(state.apu_bleed_on);
+        self.apu_bleed.set_on(state.pneumatic.apu_bleed_pb_on);
     }
 
     fn write(&self, state: &mut SimulatorWriteState) {
-        state.apu_bleed_fault = self.apu_bleed_has_fault()
+        state.pneumatic.apu_bleed_pb_fault = self.apu_bleed_has_fault()
     }
 }
 

@@ -137,26 +137,13 @@ pub trait SimulatorElementVisitor {
 #[derive(Default)]
 pub struct SimulatorReadState {
     pub ambient_temperature: ThermodynamicTemperature,
-    pub apu_bleed_on: bool,
-    pub apu_fire_button_released: bool,
-    pub apu_gen_on: bool,
-    pub apu_master_sw_on: bool,
-    pub apu_start_on: bool,
-    pub elec_ac_ess_feed_activated: bool,
-    pub elec_battery_1_activated: bool,
-    pub elec_battery_2_activated: bool,
-    pub elec_bus_tie_activated: bool,
-    pub elec_commercial_activated: bool,
-    pub elec_galy_and_cab_activated: bool,
-    pub elec_gen_1_activated: bool,
-    pub elec_gen_2_activated: bool,
-    pub elec_idg_1_activated: bool,
-    pub elec_idg_2_activated: bool,
-    pub elec_external_power_available: bool,
-    pub elec_external_power_on: bool,
+    pub apu: SimulatorApuReadState,
+    pub electrical: SimulatorElectricalReadState,
+    pub fire: SimulatorFireReadState,
     pub indicated_airspeed: Velocity,
     pub indicated_altitude: Length,
     pub left_inner_tank_fuel_quantity: Mass,
+    pub pneumatic: SimulatorPneumaticReadState,
     pub unlimited_fuel: bool,
     pub engine_n2: [Ratio; 2],
 }
@@ -172,37 +159,80 @@ impl SimulatorReadState {
     }
 }
 
+#[derive(Default)]
+pub struct SimulatorApuReadState {
+    pub master_sw_pb_on: bool,
+    pub start_pb_on: bool,
+}
+
+#[derive(Default)]
+pub struct SimulatorPneumaticReadState {
+    pub apu_bleed_pb_on: bool,
+}
+
+#[derive(Default)]
+pub struct SimulatorFireReadState {
+    pub apu_fire_button_released: bool,
+}
+
+#[derive(Default)]
+pub struct SimulatorElectricalReadState {
+    pub ac_ess_feed_pb_normal: bool,
+    pub apu_generator_pb_on: bool,
+    pub battery_pb_auto: [bool; 2],
+    pub bus_tie_pb_auto: bool,
+    pub commercial_pb_on: bool,
+    pub galy_and_cab_pb_auto: bool,
+    pub engine_generator_pb_on: [bool; 2],
+    pub idg_pb_released: [bool; 2],
+    pub external_power_available: bool,
+    pub external_power_pb_on: bool,
+}
+
 /// The data which is written from the aircraft system simulation
 /// into the the simulator.
 #[derive(Default)]
 pub struct SimulatorWriteState {
-    pub apu_air_intake_flap_is_ecam_open: bool,
-    pub apu_air_intake_flap_opened_for: Ratio,
-    pub apu_bleed_air_valve_open: bool,
-    pub apu_bleed_fault: bool,
-    pub apu_caution_egt: ThermodynamicTemperature,
-    pub apu_egt: ThermodynamicTemperature,
-    pub apu_gen_current: ElectricCurrent,
-    pub apu_gen_frequency: Frequency,
-    pub apu_gen_frequency_within_normal_range: bool,
-    pub apu_gen_potential: ElectricPotential,
-    pub apu_gen_potential_within_normal_range: bool,
-    pub apu_inoperable: bool,
-    pub apu_is_auto_shutdown: bool,
-    pub apu_is_emergency_shutdown: bool,
-    pub apu_low_fuel_pressure_fault: bool,
-    pub apu_master_sw_fault: bool,
-    pub apu_n: Ratio,
-    pub apu_start_contactor_energized: bool,
-    pub apu_start_available: bool,
-    pub apu_start_on: bool,
-    pub apu_warning_egt: ThermodynamicTemperature,
-    pub elec_ac_ess_feed_fault: bool,
-    pub elec_battery_1_fault: bool,
-    pub elec_battery_2_fault: bool,
-    pub elec_galy_and_cab_fault: bool,
-    pub elec_gen_1_fault: bool,
-    pub elec_gen_2_fault: bool,
-    pub elec_idg_1_fault: bool,
-    pub elec_idg_2_fault: bool,
+    pub apu: SimulatorApuWriteState,
+    pub electrical: SimulatorElectricalWriteState,
+    pub pneumatic: SimulatorPneumaticWriteState,
+}
+
+#[derive(Default)]
+pub struct SimulatorApuWriteState {
+    pub available: bool,
+    pub air_intake_flap_is_ecam_open: bool,
+    pub air_intake_flap_opened_for: Ratio,
+    pub bleed_air_valve_open: bool,
+    pub caution_egt: ThermodynamicTemperature,
+    pub egt: ThermodynamicTemperature,
+    pub generator_current: ElectricCurrent,
+    pub generator_frequency: Frequency,
+    pub generator_frequency_within_normal_range: bool,
+    pub generator_potential: ElectricPotential,
+    pub generator_potential_within_normal_range: bool,
+    pub inoperable: bool,
+    pub is_auto_shutdown: bool,
+    pub is_emergency_shutdown: bool,
+    pub low_fuel_pressure_fault: bool,
+    pub master_sw_pb_fault: bool,
+    pub n: Ratio,
+    pub start_contactor_energized: bool,
+    pub start_pb_on: bool,
+    pub start_pb_available: bool,
+    pub warning_egt: ThermodynamicTemperature,
+}
+
+#[derive(Default)]
+pub struct SimulatorElectricalWriteState {
+    pub ac_ess_feed_pb_fault: bool,
+    pub battery_pb_fault: [bool; 2],
+    pub galy_and_cab_pb_fault: bool,
+    pub generator_pb_fault: [bool; 2],
+    pub idg_pb_fault: [bool; 2],
+}
+
+#[derive(Default)]
+pub struct SimulatorPneumaticWriteState {
+    pub apu_bleed_pb_fault: bool,
 }
