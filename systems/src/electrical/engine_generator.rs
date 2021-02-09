@@ -58,7 +58,7 @@ pub struct IntegratedDriveGenerator {
     connected: bool,
 }
 impl IntegratedDriveGenerator {
-    pub const ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD: f64 = 59.5;
+    pub const ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD: f64 = 58.;
     pub const ENGINE_N2_POWER_DOWN_OUTPUT_THRESHOLD: f64 = 56.;
     const STABILIZATION_TIME_IN_MILLISECONDS: u64 = 500;
 
