@@ -504,11 +504,13 @@ impl SimulatorElementVisitable for Aps3200ApuGenerator {
 }
 impl SimulatorElement for Aps3200ApuGenerator {
     fn write(&self, state: &mut SimulatorWriteState) {
-        state.apu.generator_current = self.current;
-        state.apu.generator_frequency = self.frequency;
-        state.apu.generator_frequency_within_normal_range = self.frequency_within_normal_range();
-        state.apu.generator_potential = self.potential;
-        state.apu.generator_potential_within_normal_range = self.potential_within_normal_range();
+        // TODO: Replace with actual values once calculated.
+        state.apu.generator.load = Ratio::new::<percent>(0.);
+        state.apu.generator.load_within_normal_range = true;
+        state.apu.generator.frequency = self.frequency;
+        state.apu.generator.frequency_within_normal_range = self.frequency_within_normal_range();
+        state.apu.generator.potential = self.potential;
+        state.apu.generator.potential_within_normal_range = self.potential_within_normal_range();
     }
 
     fn write_power_consumption(&mut self, state: &PowerConsumptionState) {

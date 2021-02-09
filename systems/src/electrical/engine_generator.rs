@@ -3,18 +3,22 @@ use crate::{
     engine::Engine,
     overhead::OnOffPushButton,
     simulator::{
-        SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, UpdateContext,
+        SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
+        UpdateContext,
     },
 };
 use std::cmp::min;
-use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
+use uom::si::{
+    electric_potential::volt, f64::*, frequency::hertz, ratio::percent,
+    thermodynamic_temperature::degree_celsius,
+};
 
 pub struct EngineGenerator {
-    number: u8,
+    number: usize,
     idg: IntegratedDriveGenerator,
 }
 impl EngineGenerator {
-    pub fn new(number: u8) -> EngineGenerator {
+    pub fn new(number: usize) -> EngineGenerator {
         EngineGenerator {
             number,
             idg: IntegratedDriveGenerator::new(),
@@ -49,6 +53,36 @@ impl SimulatorElement for EngineGenerator {
         let watts =
             state.get_total_consumption_for(&ElectricPowerSource::EngineGenerator(self.number));
         // TODO
+    }
+
+    fn write(&self, state: &mut SimulatorWriteState) {
+        // TODO: Replace with actual values once calculated.
+        state.electrical.engine_generator[self.number - 1].load = Ratio::new::<percent>(0.);
+        state.electrical.engine_generator[self.number - 1].load_within_normal_range = true;
+        state.electrical.engine_generator[self.number - 1].frequency = if self.output().is_powered()
+        {
+            Frequency::new::<hertz>(400.)
+        } else {
+            Frequency::new::<hertz>(0.)
+        };
+        state.electrical.engine_generator[self.number - 1].frequency_within_normal_range =
+            if self.output().is_powered() {
+                true
+            } else {
+                false
+            };
+        state.electrical.engine_generator[self.number - 1].potential = if self.output().is_powered()
+        {
+            ElectricPotential::new::<volt>(115.)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        };
+        state.electrical.engine_generator[self.number - 1].potential_within_normal_range =
+            if self.output().is_powered() {
+                true
+            } else {
+                false
+            };
     }
 }
 

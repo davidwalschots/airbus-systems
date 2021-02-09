@@ -1,7 +1,8 @@
 use crate::simulator::{
     SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReadState,
-    UpdateContext,
+    SimulatorWriteState, UpdateContext,
 };
+use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
 use super::{Current, ElectricPowerSource, ElectricSource};
 
@@ -34,6 +35,36 @@ impl SimulatorElementVisitable for ExternalPowerSource {
 impl SimulatorElement for ExternalPowerSource {
     fn read(&mut self, state: &SimulatorReadState) {
         self.is_connected = state.electrical.external_power_available;
+    }
+
+    fn write(&self, state: &mut SimulatorWriteState) {
+        // TODO: Replace with actual values once calculated.
+        state.electrical.external_power.frequency = if self.output().is_powered() {
+            Frequency::new::<hertz>(400.)
+        } else {
+            Frequency::new::<hertz>(0.)
+        };
+        state
+            .electrical
+            .external_power
+            .frequency_within_normal_range = if self.output().is_powered() {
+            true
+        } else {
+            false
+        };
+        state.electrical.external_power.potential = if self.output().is_powered() {
+            ElectricPotential::new::<volt>(115.)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        };
+        state
+            .electrical
+            .external_power
+            .potential_within_normal_range = if self.output().is_powered() {
+            true
+        } else {
+            false
+        };
     }
 }
 

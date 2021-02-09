@@ -1,5 +1,8 @@
 use super::{Current, ElectricPowerSource, ElectricSource, PowerConsumptionState};
-use crate::simulator::{SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor};
+use crate::simulator::{
+    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
+};
+use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
 pub struct EmergencyGenerator {
     running: bool,
@@ -44,6 +47,36 @@ impl SimulatorElementVisitable for EmergencyGenerator {
 impl SimulatorElement for EmergencyGenerator {
     fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
         // TODO
+    }
+
+    fn write(&self, state: &mut SimulatorWriteState) {
+        // TODO: Replace with actual values once calculated.
+        state.electrical.emergency_generator.frequency = if self.output().is_powered() {
+            Frequency::new::<hertz>(400.)
+        } else {
+            Frequency::new::<hertz>(0.)
+        };
+        state
+            .electrical
+            .emergency_generator
+            .frequency_within_normal_range = if self.output().is_powered() {
+            true
+        } else {
+            false
+        };
+        state.electrical.emergency_generator.potential = if self.output().is_powered() {
+            ElectricPotential::new::<volt>(115.)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        };
+        state
+            .electrical
+            .emergency_generator
+            .potential_within_normal_range = if self.output().is_powered() {
+            true
+        } else {
+            false
+        };
     }
 }
 

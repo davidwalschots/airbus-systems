@@ -1,14 +1,16 @@
-use crate::simulator::{SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor};
-
 use super::{Current, ElectricPowerSource, ElectricSource, PowerConsumptionState, Powerable};
+use crate::simulator::{
+    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
+};
+use uom::si::{electric_current::ampere, electric_potential::volt, f64::*};
 
 pub struct TransformerRectifier {
-    number: u8,
+    number: usize,
     input: Current,
     failed: bool,
 }
 impl TransformerRectifier {
-    pub fn new(number: u8) -> TransformerRectifier {
+    pub fn new(number: usize) -> TransformerRectifier {
         TransformerRectifier {
             number,
             input: Current::none(),
@@ -49,6 +51,34 @@ impl SimulatorElementVisitable for TransformerRectifier {
 impl SimulatorElement for TransformerRectifier {
     fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
         // TODO
+    }
+
+    fn write(&self, state: &mut SimulatorWriteState) {
+        // TODO: Replace with actual values once calculated.
+        state.electrical.transformer_rectifiers[self.number - 1].current =
+            if self.output().is_powered() {
+                ElectricCurrent::new::<ampere>(150.)
+            } else {
+                ElectricCurrent::new::<ampere>(0.)
+            };
+        state.electrical.transformer_rectifiers[self.number - 1].current_within_normal_range =
+            if self.output().is_powered() {
+                true
+            } else {
+                false
+            };
+        state.electrical.transformer_rectifiers[self.number - 1].potential =
+            if self.output().is_powered() {
+                ElectricPotential::new::<volt>(28.)
+            } else {
+                ElectricPotential::new::<volt>(0.)
+            };
+        state.electrical.transformer_rectifiers[self.number - 1].potential_within_normal_range =
+            if self.output().is_powered() {
+                true
+            } else {
+                false
+            };
     }
 }
 

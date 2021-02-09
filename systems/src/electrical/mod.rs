@@ -18,13 +18,13 @@ pub use transformer_rectifier::TransformerRectifier;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ElectricPowerSource {
-    EngineGenerator(u8),
+    EngineGenerator(usize),
     ApuGenerator,
     External,
     EmergencyGenerator,
-    Battery(u8),
+    Battery(usize),
     Batteries,
-    TransformerRectifier(u8),
+    TransformerRectifier(usize),
     StaticInverter,
 }
 

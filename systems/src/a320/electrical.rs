@@ -617,9 +617,12 @@ impl SimulatorElement for A320DirectCurrentElectrical {
         state.electrical.dc_bus_tie_contactor_closed[0] = self.dc_bus_1_tie_contactor.is_closed();
         state.electrical.dc_bus_tie_contactor_closed[1] = self.dc_bus_2_tie_contactor.is_closed();
         state.electrical.dc_ess_bus_is_powered = self.dc_ess_bus.is_powered();
-        state.electrical.tr_contactor_closed[0] = self.tr_1_contactor.is_closed();
-        state.electrical.tr_contactor_closed[1] = self.tr_2_contactor.is_closed();
-        state.electrical.tr_contactor_closed[2] = self.tr_ess_contactor.is_closed();
+        state.electrical.transformer_rectifier_contactor_closed[0] =
+            self.tr_1_contactor.is_closed();
+        state.electrical.transformer_rectifier_contactor_closed[1] =
+            self.tr_2_contactor.is_closed();
+        state.electrical.transformer_rectifier_contactor_closed[2] =
+            self.tr_ess_contactor.is_closed();
     }
 }
 

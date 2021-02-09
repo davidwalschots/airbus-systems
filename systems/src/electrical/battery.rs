@@ -1,16 +1,20 @@
 use super::{Current, ElectricPowerSource, ElectricSource, PowerConsumptionState, Powerable};
-use crate::simulator::{SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor};
-use uom::si::{electric_charge::ampere_hour, f64::*};
+use crate::simulator::{
+    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
+};
+use uom::si::{
+    electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f64::*,
+};
 
 pub struct Battery {
-    number: u8,
+    number: usize,
     input: Current,
     charge: ElectricCharge,
 }
 impl Battery {
     const MAX_ELECTRIC_CHARGE_AMPERE_HOURS: f64 = 23.0;
 
-    pub fn full(number: u8) -> Battery {
+    pub fn full(number: usize) -> Battery {
         Battery::new(
             number,
             ElectricCharge::new::<ampere_hour>(Battery::MAX_ELECTRIC_CHARGE_AMPERE_HOURS),
@@ -18,11 +22,11 @@ impl Battery {
     }
 
     #[cfg(test)]
-    pub fn empty(number: u8) -> Battery {
+    pub fn empty(number: usize) -> Battery {
         Battery::new(number, ElectricCharge::new::<ampere_hour>(0.))
     }
 
-    fn new(number: u8, charge: ElectricCharge) -> Battery {
+    fn new(number: usize, charge: ElectricCharge) -> Battery {
         Battery {
             number,
             input: Current::none(),
@@ -60,6 +64,32 @@ impl SimulatorElementVisitable for Battery {
 impl SimulatorElement for Battery {
     fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
         // TODO: Charging and depleting battery when used.
+    }
+
+    fn write(&self, state: &mut SimulatorWriteState) {
+        // TODO: Replace with actual values once calculated.
+        state.electrical.batteries[self.number - 1].current = if self.output().is_powered() {
+            ElectricCurrent::new::<ampere>(150.)
+        } else {
+            ElectricCurrent::new::<ampere>(0.)
+        };
+        state.electrical.batteries[self.number - 1].current_within_normal_range =
+            if self.output().is_powered() {
+                true
+            } else {
+                false
+            };
+        state.electrical.batteries[self.number - 1].potential = if self.output().is_powered() {
+            ElectricPotential::new::<volt>(28.)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        };
+        state.electrical.batteries[self.number - 1].potential_within_normal_range =
+            if self.output().is_powered() {
+                true
+            } else {
+                false
+            };
     }
 }
 

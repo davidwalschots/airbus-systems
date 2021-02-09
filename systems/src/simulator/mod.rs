@@ -206,11 +206,7 @@ pub struct SimulatorApuWriteState {
     pub bleed_air_valve_open: bool,
     pub caution_egt: ThermodynamicTemperature,
     pub egt: ThermodynamicTemperature,
-    pub generator_current: ElectricCurrent,
-    pub generator_frequency: Frequency,
-    pub generator_frequency_within_normal_range: bool,
-    pub generator_potential: ElectricPotential,
-    pub generator_potential_within_normal_range: bool,
+    pub generator: SimulatorElectricalGeneratorWriteState,
     pub inoperable: bool,
     pub is_auto_shutdown: bool,
     pub is_emergency_shutdown: bool,
@@ -224,12 +220,23 @@ pub struct SimulatorApuWriteState {
 }
 
 #[derive(Default)]
+pub struct SimulatorElectricalGeneratorWriteState {
+    pub load: Ratio,
+    pub load_within_normal_range: bool,
+    pub frequency: Frequency,
+    pub frequency_within_normal_range: bool,
+    pub potential: ElectricPotential,
+    pub potential_within_normal_range: bool,
+}
+
+#[derive(Default)]
 pub struct SimulatorElectricalWriteState {
     pub ac_bus_tie_contactor_closed: [bool; 2],
     pub ac_bus_is_powered: [bool; 2],
     pub ac_ess_bus_is_powered: bool,
     pub ac_ess_feed_pb_fault: bool,
     pub ac_ess_feed_contactor_closed: [bool; 2],
+    pub batteries: [SimulatorCurrentPotentialElectricalWriteState; 2],
     pub apu_generator_contactor_closed: bool,
     pub battery_pb_fault: [bool; 2],
     pub battery_contactor_closed: [bool; 2],
@@ -237,12 +244,33 @@ pub struct SimulatorElectricalWriteState {
     pub dc_bus_is_powered: [bool; 2],
     pub dc_bus_tie_contactor_closed: [bool; 2],
     pub dc_ess_bus_is_powered: bool,
+    pub emergency_generator: SimulatorFrequencyPotentialElectricalWriteState,
     pub engine_generator_line_contactor_closed: [bool; 2],
+    pub engine_generator: [SimulatorElectricalGeneratorWriteState; 2],
     pub external_power_contactor_closed: bool,
+    pub external_power: SimulatorFrequencyPotentialElectricalWriteState,
     pub galy_and_cab_pb_fault: bool,
     pub generator_pb_fault: [bool; 2],
     pub idg_pb_fault: [bool; 2],
-    pub tr_contactor_closed: [bool; 3],
+    pub static_inverter: SimulatorFrequencyPotentialElectricalWriteState,
+    pub transformer_rectifier_contactor_closed: [bool; 3],
+    pub transformer_rectifiers: [SimulatorCurrentPotentialElectricalWriteState; 3],
+}
+
+#[derive(Default)]
+pub struct SimulatorFrequencyPotentialElectricalWriteState {
+    pub frequency: Frequency,
+    pub frequency_within_normal_range: bool,
+    pub potential: ElectricPotential,
+    pub potential_within_normal_range: bool,
+}
+
+#[derive(Default)]
+pub struct SimulatorCurrentPotentialElectricalWriteState {
+    pub current: ElectricCurrent,
+    pub current_within_normal_range: bool,
+    pub potential: ElectricPotential,
+    pub potential_within_normal_range: bool,
 }
 
 #[derive(Default)]

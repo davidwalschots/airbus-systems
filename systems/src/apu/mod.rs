@@ -675,15 +675,11 @@ pub mod tests {
         }
 
         pub fn get_potential(&self) -> ElectricPotential {
-            self.write_state.apu.generator_potential
+            self.write_state.apu.generator.potential
         }
 
         pub fn get_frequency(&self) -> Frequency {
-            self.write_state.apu.generator_frequency
-        }
-
-        pub fn get_current(&self) -> ElectricCurrent {
-            self.write_state.apu.generator_current
+            self.write_state.apu.generator.frequency
         }
 
         fn start_contactor_energized(&self) -> bool {
