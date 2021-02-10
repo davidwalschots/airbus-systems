@@ -1,6 +1,9 @@
 use super::{ApuGenerator, Turbine, TurbineController, TurbineState};
 use crate::{
-    electrical::{Current, ElectricPowerSource, ElectricSource, PowerConsumptionState},
+    electrical::{
+        Current, ElectricPowerSource, ElectricSource, ElectricalStateWriter, PowerConsumptionState,
+        ProvideFrequency, ProvideLoad, ProvidePotential,
+    },
     shared::{random_number, TimedRandom},
     simulator::{
         SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
@@ -374,6 +377,7 @@ fn calculate_towards_target_egt(
 
 /// APS3200 APU Generator
 pub struct Aps3200ApuGenerator {
+    writer: ElectricalStateWriter,
     output: Current,
     random_voltage: TimedRandom<f64>,
     current: ElectricCurrent,
@@ -383,8 +387,9 @@ pub struct Aps3200ApuGenerator {
 impl Aps3200ApuGenerator {
     const APU_GEN_POWERED_N: f64 = 84.;
 
-    pub fn new() -> Aps3200ApuGenerator {
+    pub fn new(number: usize) -> Aps3200ApuGenerator {
         Aps3200ApuGenerator {
+            writer: ElectricalStateWriter::new(&format!("APU_GEN_{}", number)),
             output: Current::none(),
             random_voltage: TimedRandom::new(
                 Duration::from_secs(1),
@@ -492,6 +497,34 @@ impl ApuGenerator for Aps3200ApuGenerator {
         (110.0..=120.0).contains(&volts)
     }
 }
+impl ProvidePotential for Aps3200ApuGenerator {
+    fn get_potential(&self) -> ElectricPotential {
+        self.potential
+    }
+
+    fn get_potential_normal(&self) -> bool {
+        self.potential_within_normal_range()
+    }
+}
+impl ProvideFrequency for Aps3200ApuGenerator {
+    fn get_frequency(&self) -> Frequency {
+        self.frequency
+    }
+
+    fn get_frequency_normal(&self) -> bool {
+        self.frequency_within_normal_range()
+    }
+}
+impl ProvideLoad for Aps3200ApuGenerator {
+    fn get_load(&self) -> Ratio {
+        // TODO: Replace with actual values once calculated.
+        Ratio::new::<percent>(0.)
+    }
+
+    fn get_load_normal(&self) -> bool {
+        true
+    }
+}
 impl ElectricSource for Aps3200ApuGenerator {
     fn output(&self) -> Current {
         self.output
@@ -504,13 +537,7 @@ impl SimulatorElementVisitable for Aps3200ApuGenerator {
 }
 impl SimulatorElement for Aps3200ApuGenerator {
     fn write(&self, state: &mut SimulatorWriteState) {
-        // TODO: Replace with actual values once calculated.
-        state.apu.generator.load = Ratio::new::<percent>(0.);
-        state.apu.generator.load_within_normal_range = true;
-        state.apu.generator.frequency = self.frequency;
-        state.apu.generator.frequency_within_normal_range = self.frequency_within_normal_range();
-        state.apu.generator.potential = self.potential;
-        state.apu.generator.potential_within_normal_range = self.potential_within_normal_range();
+        self.writer.write_alternating_with_load(self, state);
     }
 
     fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
@@ -652,8 +679,24 @@ mod apu_generator_tests {
         assert!(tester.get_generator_output().is_unpowered());
     }
 
+    #[test]
+    fn writes_its_state() {
+        let apu_gen = apu_generator();
+        let mut state = SimulatorWriteState::new();
+
+        apu_gen.write(&mut state);
+
+        assert!(state.len_is(6));
+        assert!(state.contains_f64("ELEC_APU_GEN_1_POTENTIAL", 0.));
+        assert!(state.contains_bool("ELEC_APU_GEN_1_POTENTIAL_NORMAL", false));
+        assert!(state.contains_f64("ELEC_APU_GEN_1_FREQUENCY", 0.));
+        assert!(state.contains_bool("ELEC_APU_GEN_1_FREQUENCY_NORMAL", false));
+        assert!(state.contains_f64("ELEC_APU_GEN_1_LOAD", 0.));
+        assert!(state.contains_bool("ELEC_APU_GEN_1_LOAD_NORMAL", true));
+    }
+
     fn apu_generator() -> Box<Aps3200ApuGenerator> {
-        Box::new(Aps3200ApuGenerator::new())
+        Box::new(Aps3200ApuGenerator::new(1))
     }
 
     fn update_above_threshold(generator: &mut Aps3200ApuGenerator) {

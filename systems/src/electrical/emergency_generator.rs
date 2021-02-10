@@ -1,16 +1,21 @@
-use super::{Current, ElectricPowerSource, ElectricSource, PowerConsumptionState};
+use super::{
+    Current, ElectricPowerSource, ElectricSource, ElectricalStateWriter, PowerConsumptionState,
+    ProvideFrequency, ProvidePotential,
+};
 use crate::simulator::{
     SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
 };
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
 pub struct EmergencyGenerator {
+    writer: ElectricalStateWriter,
     running: bool,
     is_blue_pressurised: bool,
 }
 impl EmergencyGenerator {
     pub fn new() -> EmergencyGenerator {
         EmergencyGenerator {
+            writer: ElectricalStateWriter::new("EMER_GEN"),
             running: false,
             is_blue_pressurised: false,
         }
@@ -39,6 +44,44 @@ impl ElectricSource for EmergencyGenerator {
         }
     }
 }
+impl ProvideFrequency for EmergencyGenerator {
+    fn get_frequency(&self) -> Frequency {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            Frequency::new::<hertz>(400.)
+        } else {
+            Frequency::new::<hertz>(0.)
+        }
+    }
+
+    fn get_frequency_normal(&self) -> bool {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            true
+        } else {
+            false
+        }
+    }
+}
+impl ProvidePotential for EmergencyGenerator {
+    fn get_potential(&self) -> ElectricPotential {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            ElectricPotential::new::<volt>(115.)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        }
+    }
+
+    fn get_potential_normal(&self) -> bool {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            true
+        } else {
+            false
+        }
+    }
+}
 impl SimulatorElementVisitable for EmergencyGenerator {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         visitor.visit(&mut Box::new(self));
@@ -50,33 +93,7 @@ impl SimulatorElement for EmergencyGenerator {
     }
 
     fn write(&self, state: &mut SimulatorWriteState) {
-        // TODO: Replace with actual values once calculated.
-        state.electrical.emergency_generator.frequency = if self.output().is_powered() {
-            Frequency::new::<hertz>(400.)
-        } else {
-            Frequency::new::<hertz>(0.)
-        };
-        state
-            .electrical
-            .emergency_generator
-            .frequency_within_normal_range = if self.output().is_powered() {
-            true
-        } else {
-            false
-        };
-        state.electrical.emergency_generator.potential = if self.output().is_powered() {
-            ElectricPotential::new::<volt>(115.)
-        } else {
-            ElectricPotential::new::<volt>(0.)
-        };
-        state
-            .electrical
-            .emergency_generator
-            .potential_within_normal_range = if self.output().is_powered() {
-            true
-        } else {
-            false
-        };
+        self.writer.write_alternating(self, state);
     }
 }
 
@@ -105,6 +122,20 @@ mod emergency_generator_tests {
         emer_gen.update(false);
 
         assert!(emer_gen.is_unpowered());
+    }
+
+    #[test]
+    fn writes_its_state() {
+        let bus = emergency_generator();
+        let mut state = SimulatorWriteState::new();
+
+        bus.write(&mut state);
+
+        assert!(state.len_is(4));
+        assert!(state.contains_f64("ELEC_EMER_GEN_POTENTIAL", 0.));
+        assert!(state.contains_bool("ELEC_EMER_GEN_POTENTIAL_NORMAL", false));
+        assert!(state.contains_f64("ELEC_EMER_GEN_FREQUENCY", 0.));
+        assert!(state.contains_bool("ELEC_EMER_GEN_FREQUENCY_NORMAL", false));
     }
 
     fn emergency_generator() -> EmergencyGenerator {

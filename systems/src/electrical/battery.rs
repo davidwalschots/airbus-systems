@@ -1,12 +1,17 @@
-use super::{Current, ElectricPowerSource, ElectricSource, PowerConsumptionState, Powerable};
+use super::{
+    Current, ElectricPowerSource, ElectricSource, ElectricalStateWriter, PowerConsumptionState,
+    Powerable, ProvideCurrent, ProvidePotential,
+};
 use crate::simulator::{
-    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
+    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorVariable,
+    SimulatorWriteState,
 };
 use uom::si::{
     electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f64::*,
 };
 
 pub struct Battery {
+    writer: ElectricalStateWriter,
     number: usize,
     input: Current,
     charge: ElectricCharge,
@@ -26,8 +31,9 @@ impl Battery {
         Battery::new(number, ElectricCharge::new::<ampere_hour>(0.))
     }
 
-    fn new(number: usize, charge: ElectricCharge) -> Battery {
-        Battery {
+    fn new(number: usize, charge: ElectricCharge) -> Self {
+        Self {
+            writer: ElectricalStateWriter::new(&format!("BAT_{}", number)),
             number,
             input: Current::none(),
             charge,
@@ -56,6 +62,44 @@ impl ElectricSource for Battery {
         }
     }
 }
+impl ProvideCurrent for Battery {
+    fn get_current(&self) -> ElectricCurrent {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            ElectricCurrent::new::<ampere>(150.)
+        } else {
+            ElectricCurrent::new::<ampere>(0.)
+        }
+    }
+
+    fn get_current_normal(&self) -> bool {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            true
+        } else {
+            false
+        }
+    }
+}
+impl ProvidePotential for Battery {
+    fn get_potential(&self) -> ElectricPotential {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            ElectricPotential::new::<volt>(28.)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        }
+    }
+
+    fn get_potential_normal(&self) -> bool {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            true
+        } else {
+            false
+        }
+    }
+}
 impl SimulatorElementVisitable for Battery {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         visitor.visit(&mut Box::new(self));
@@ -67,29 +111,7 @@ impl SimulatorElement for Battery {
     }
 
     fn write(&self, state: &mut SimulatorWriteState) {
-        // TODO: Replace with actual values once calculated.
-        state.electrical.batteries[self.number - 1].current = if self.output().is_powered() {
-            ElectricCurrent::new::<ampere>(150.)
-        } else {
-            ElectricCurrent::new::<ampere>(0.)
-        };
-        state.electrical.batteries[self.number - 1].current_within_normal_range =
-            if self.output().is_powered() {
-                true
-            } else {
-                false
-            };
-        state.electrical.batteries[self.number - 1].potential = if self.output().is_powered() {
-            ElectricPotential::new::<volt>(28.)
-        } else {
-            ElectricPotential::new::<volt>(0.)
-        };
-        state.electrical.batteries[self.number - 1].potential_within_normal_range =
-            if self.output().is_powered() {
-                true
-            } else {
-                false
-            };
+        self.writer.write_direct(self, state);
     }
 }
 
@@ -158,6 +180,20 @@ mod battery_tests {
         battery.powered_by(&Powerless {});
 
         assert!(battery.is_unpowered());
+    }
+
+    #[test]
+    fn writes_its_state() {
+        let bus = full_battery();
+        let mut state = SimulatorWriteState::new();
+
+        bus.write(&mut state);
+
+        assert!(state.len_is(4));
+        assert!(state.contains_f64("ELEC_BAT_1_CURRENT", 150.));
+        assert!(state.contains_bool("ELEC_BAT_1_CURRENT_NORMAL", true));
+        assert!(state.contains_f64("ELEC_BAT_1_POTENTIAL", 28.));
+        assert!(state.contains_bool("ELEC_BAT_1_POTENTIAL_NORMAL", true));
     }
 
     fn full_battery() -> Battery {

@@ -1,6 +1,6 @@
 //! Provides all the necessary types for integrating the
 //! crate into a Microsoft Flight Simulator aircraft.
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 use uom::si::f64::*;
 
 mod update_context;
@@ -13,9 +13,9 @@ use crate::electrical::{PowerConsumptionState, PowerSupply};
 /// Trait for reading data from and writing data to the simulator.
 pub trait SimulatorReadWriter {
     /// Reads data from the simulator into a model representing that state.
-    fn read(&self) -> SimulatorReadState;
+    fn read(&mut self) -> SimulatorReadState;
     /// Writes data from a model into the simulator.
-    fn write(&self, state: &SimulatorWriteState);
+    fn write(&mut self, state: &SimulatorWriteState);
 }
 
 pub trait Aircraft: SimulatorElementVisitable {
@@ -132,6 +132,34 @@ pub trait SimulatorElementVisitor {
     fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorElement>);
 }
 
+pub struct SimulatorVariable {
+    name: String,
+    value: f64,
+}
+impl SimulatorVariable {
+    pub fn from_f64(name: &str, value: f64) -> Self {
+        Self {
+            name: name.to_owned(),
+            value,
+        }
+    }
+
+    pub fn from_bool(name: &str, value: bool) -> Self {
+        Self {
+            name: name.to_owned(),
+            value: from_bool(value),
+        }
+    }
+
+    pub fn get_name(&self) -> &str {
+        &self.name[..]
+    }
+
+    pub fn get_value(&self) -> f64 {
+        self.value
+    }
+}
+
 /// The data which is read from the simulator and can
 /// be passed into the aircraft system simulation.
 #[derive(Default)]
@@ -193,9 +221,43 @@ pub struct SimulatorElectricalReadState {
 /// into the the simulator.
 #[derive(Default)]
 pub struct SimulatorWriteState {
+    pub variables: Vec<SimulatorVariable>,
+
     pub apu: SimulatorApuWriteState,
-    pub electrical: SimulatorElectricalWriteState,
-    pub pneumatic: SimulatorPneumaticWriteState,
+}
+impl SimulatorWriteState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add(&mut self, simulator_variable: SimulatorVariable) {
+        self.variables.push(simulator_variable);
+    }
+
+    #[cfg(test)]
+    pub fn contains_f64(&self, name: &str, value: f64) -> bool {
+        self.variables
+            .iter()
+            .any(|x| x.get_name() == name && x.get_value() == value)
+    }
+
+    #[cfg(test)]
+    pub fn contains_bool(&self, name: &str, value: bool) -> bool {
+        self.contains_f64(name, from_bool(value))
+    }
+
+    #[cfg(test)]
+    pub fn len_is(&self, length: usize) -> bool {
+        self.variables.len() == length
+    }
+
+    #[cfg(test)]
+    pub fn get(&self, name: &str) -> Option<f64> {
+        match self.variables.iter().find(|x| x.get_name() == name) {
+            Some(variable) => Some(variable.get_value()),
+            None => None,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -206,74 +268,11 @@ pub struct SimulatorApuWriteState {
     pub bleed_air_valve_open: bool,
     pub caution_egt: ThermodynamicTemperature,
     pub egt: ThermodynamicTemperature,
-    pub generator: SimulatorElectricalGeneratorWriteState,
     pub inoperable: bool,
     pub is_auto_shutdown: bool,
     pub is_emergency_shutdown: bool,
     pub low_fuel_pressure_fault: bool,
-    pub master_sw_pb_fault: bool,
     pub n: Ratio,
     pub start_contactor_energized: bool,
-    pub start_pb_on: bool,
-    pub start_pb_available: bool,
     pub warning_egt: ThermodynamicTemperature,
-}
-
-#[derive(Default)]
-pub struct SimulatorElectricalGeneratorWriteState {
-    pub load: Ratio,
-    pub load_within_normal_range: bool,
-    pub frequency: Frequency,
-    pub frequency_within_normal_range: bool,
-    pub potential: ElectricPotential,
-    pub potential_within_normal_range: bool,
-}
-
-#[derive(Default)]
-pub struct SimulatorElectricalWriteState {
-    pub ac_bus_tie_contactor_closed: [bool; 2],
-    pub ac_bus_is_powered: [bool; 2],
-    pub ac_ess_bus_is_powered: bool,
-    pub ac_ess_feed_pb_fault: bool,
-    pub ac_ess_feed_contactor_closed: [bool; 2],
-    pub batteries: [SimulatorCurrentPotentialElectricalWriteState; 2],
-    pub apu_generator_contactor_closed: bool,
-    pub battery_pb_fault: [bool; 2],
-    pub battery_contactor_closed: [bool; 2],
-    pub dc_bat_bus_is_powered: bool,
-    pub dc_bus_is_powered: [bool; 2],
-    pub dc_bus_tie_contactor_closed: [bool; 2],
-    pub dc_ess_bus_is_powered: bool,
-    pub emergency_generator: SimulatorFrequencyPotentialElectricalWriteState,
-    pub engine_generator_line_contactor_closed: [bool; 2],
-    pub engine_generator: [SimulatorElectricalGeneratorWriteState; 2],
-    pub external_power_contactor_closed: bool,
-    pub external_power: SimulatorFrequencyPotentialElectricalWriteState,
-    pub galy_and_cab_pb_fault: bool,
-    pub generator_pb_fault: [bool; 2],
-    pub idg_pb_fault: [bool; 2],
-    pub static_inverter: SimulatorFrequencyPotentialElectricalWriteState,
-    pub transformer_rectifier_contactor_closed: [bool; 3],
-    pub transformer_rectifiers: [SimulatorCurrentPotentialElectricalWriteState; 3],
-}
-
-#[derive(Default)]
-pub struct SimulatorFrequencyPotentialElectricalWriteState {
-    pub frequency: Frequency,
-    pub frequency_within_normal_range: bool,
-    pub potential: ElectricPotential,
-    pub potential_within_normal_range: bool,
-}
-
-#[derive(Default)]
-pub struct SimulatorCurrentPotentialElectricalWriteState {
-    pub current: ElectricCurrent,
-    pub current_within_normal_range: bool,
-    pub potential: ElectricPotential,
-    pub potential_within_normal_range: bool,
-}
-
-#[derive(Default)]
-pub struct SimulatorPneumaticWriteState {
-    pub apu_bleed_pb_fault: bool,
 }

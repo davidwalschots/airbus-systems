@@ -1,15 +1,20 @@
-use super::{Current, ElectricPowerSource, ElectricSource, PowerConsumptionState, Powerable};
+use super::{
+    Current, ElectricPowerSource, ElectricSource, ElectricalStateWriter, PowerConsumptionState,
+    Powerable, ProvideFrequency, ProvidePotential,
+};
 use crate::simulator::{
     SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
 };
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
 pub struct StaticInverter {
+    writer: ElectricalStateWriter,
     input: Current,
 }
 impl StaticInverter {
     pub fn new() -> StaticInverter {
         StaticInverter {
+            writer: ElectricalStateWriter::new("STAT_INV"),
             input: Current::none(),
         }
     }
@@ -32,6 +37,44 @@ impl ElectricSource for StaticInverter {
         }
     }
 }
+impl ProvidePotential for StaticInverter {
+    fn get_potential(&self) -> ElectricPotential {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            ElectricPotential::new::<volt>(115.)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        }
+    }
+
+    fn get_potential_normal(&self) -> bool {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            true
+        } else {
+            false
+        }
+    }
+}
+impl ProvideFrequency for StaticInverter {
+    fn get_frequency(&self) -> Frequency {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            Frequency::new::<hertz>(400.)
+        } else {
+            Frequency::new::<hertz>(0.)
+        }
+    }
+
+    fn get_frequency_normal(&self) -> bool {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            true
+        } else {
+            false
+        }
+    }
+}
 impl SimulatorElementVisitable for StaticInverter {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         visitor.visit(&mut Box::new(self));
@@ -43,33 +86,7 @@ impl SimulatorElement for StaticInverter {
     }
 
     fn write(&self, state: &mut SimulatorWriteState) {
-        // TODO: Replace with actual values once calculated.
-        state.electrical.static_inverter.frequency = if self.output().is_powered() {
-            Frequency::new::<hertz>(400.)
-        } else {
-            Frequency::new::<hertz>(0.)
-        };
-        state
-            .electrical
-            .static_inverter
-            .frequency_within_normal_range = if self.output().is_powered() {
-            true
-        } else {
-            false
-        };
-        state.electrical.static_inverter.potential = if self.output().is_powered() {
-            ElectricPotential::new::<volt>(115.)
-        } else {
-            ElectricPotential::new::<volt>(0.)
-        };
-        state
-            .electrical
-            .static_inverter
-            .potential_within_normal_range = if self.output().is_powered() {
-            true
-        } else {
-            false
-        };
+        self.writer.write_alternating(self, state);
     }
 }
 
@@ -110,6 +127,20 @@ mod static_inverter_tests {
         static_inv.powered_by(&Powerless {});
 
         assert!(static_inv.is_unpowered());
+    }
+
+    #[test]
+    fn writes_its_state() {
+        let static_inverter = static_inverter();
+        let mut state = SimulatorWriteState::new();
+
+        static_inverter.write(&mut state);
+
+        assert!(state.len_is(4));
+        assert!(state.contains_f64("ELEC_STAT_INV_POTENTIAL", 0.));
+        assert!(state.contains_bool("ELEC_STAT_INV_POTENTIAL_NORMAL", false));
+        assert!(state.contains_f64("ELEC_STAT_INV_FREQUENCY", 0.));
+        assert!(state.contains_bool("ELEC_STAT_INV_FREQUENCY_NORMAL", false));
     }
 
     fn static_inverter() -> StaticInverter {

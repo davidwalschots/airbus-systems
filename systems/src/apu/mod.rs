@@ -7,7 +7,7 @@
 use self::{air_intake_flap::AirIntakeFlap, electronic_control_box::ElectronicControlBox};
 use crate::{
     electrical::{Current, ElectricPowerSource, ElectricSource},
-    overhead::{FirePushButton, OnOffPushButton},
+    overhead::{FirePushButton, OnOffAvailablePushButton, OnOffFaultPushButton},
     pneumatic::{BleedAirValve, BleedAirValveState, Valve},
     simulator::{
         SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReadState,
@@ -97,10 +97,10 @@ pub struct AuxiliaryPowerUnit {
     fuel_pressure_switch: FuelPressureSwitch,
 }
 impl AuxiliaryPowerUnit {
-    pub fn new_aps3200() -> Self {
+    pub fn new_aps3200(number: usize) -> Self {
         AuxiliaryPowerUnit::new(
             Box::new(ShutdownAps3200Turbine::new()),
-            Box::new(Aps3200ApuGenerator::new()),
+            Box::new(Aps3200ApuGenerator::new(number)),
         )
     }
 
@@ -288,7 +288,7 @@ pub struct AuxiliaryPowerUnitFireOverheadPanel {
 impl AuxiliaryPowerUnitFireOverheadPanel {
     pub fn new() -> Self {
         AuxiliaryPowerUnitFireOverheadPanel {
-            apu_fire_button: FirePushButton::new(),
+            apu_fire_button: FirePushButton::new("APU"),
         }
     }
 
@@ -298,6 +298,8 @@ impl AuxiliaryPowerUnitFireOverheadPanel {
 }
 impl SimulatorElementVisitable for AuxiliaryPowerUnitFireOverheadPanel {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        self.apu_fire_button.accept(visitor);
+
         visitor.visit(&mut Box::new(self));
     }
 }
@@ -309,14 +311,14 @@ impl SimulatorElement for AuxiliaryPowerUnitFireOverheadPanel {
 }
 
 pub struct AuxiliaryPowerUnitOverheadPanel {
-    pub master: OnOffPushButton,
-    pub start: OnOffPushButton,
+    pub master: OnOffFaultPushButton,
+    pub start: OnOffAvailablePushButton,
 }
 impl AuxiliaryPowerUnitOverheadPanel {
     pub fn new() -> AuxiliaryPowerUnitOverheadPanel {
         AuxiliaryPowerUnitOverheadPanel {
-            master: OnOffPushButton::new_off(),
-            start: OnOffPushButton::new_off(),
+            master: OnOffFaultPushButton::new_off("APU_MASTER_SW"),
+            start: OnOffAvailablePushButton::new_off("APU_START"),
         }
     }
 
@@ -333,6 +335,7 @@ impl AuxiliaryPowerUnitOverheadPanel {
         self.master.set_fault(apu.has_fault());
     }
 
+    #[cfg(test)]
     fn master_has_fault(&self) -> bool {
         self.master.has_fault()
     }
@@ -345,12 +348,16 @@ impl AuxiliaryPowerUnitOverheadPanel {
         self.start.is_on()
     }
 
-    fn start_shows_available(&self) -> bool {
-        self.start.shows_available()
+    #[cfg(test)]
+    fn start_is_available(&self) -> bool {
+        self.start.is_available()
     }
 }
 impl SimulatorElementVisitable for AuxiliaryPowerUnitOverheadPanel {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        self.master.accept(visitor);
+        self.start.accept(visitor);
+
         visitor.visit(&mut Box::new(self));
     }
 }
@@ -359,12 +366,6 @@ impl SimulatorElement for AuxiliaryPowerUnitOverheadPanel {
         self.master.set_on(state.apu.master_sw_pb_on);
         self.start.set_on(state.apu.start_pb_on);
     }
-
-    fn write(&self, state: &mut SimulatorWriteState) {
-        state.apu.master_sw_pb_fault = self.master_has_fault();
-        state.apu.start_pb_on = self.start_is_on();
-        state.apu.start_pb_available = self.start_shows_available();
-    }
 }
 
 #[cfg(test)]
@@ -372,7 +373,10 @@ pub mod tests {
     use super::*;
     use crate::simulator::{test_helpers::context_with, ModelToSimulatorVisitor};
     use std::time::Duration;
-    use uom::si::{length::foot, ratio::percent, thermodynamic_temperature::degree_celsius};
+    use uom::si::{
+        electric_potential::volt, frequency::hertz, length::foot, ratio::percent,
+        thermodynamic_temperature::degree_celsius,
+    };
 
     pub fn running_apu() -> AuxiliaryPowerUnit {
         tester_with().running_apu().get_apu()
@@ -426,7 +430,7 @@ pub mod tests {
         apu: AuxiliaryPowerUnit,
         apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel,
         apu_overhead: AuxiliaryPowerUnitOverheadPanel,
-        apu_bleed: OnOffPushButton,
+        apu_bleed: OnOffFaultPushButton,
         ambient_temperature: ThermodynamicTemperature,
         indicated_altitude: Length,
         apu_gen_is_used: bool,
@@ -436,10 +440,10 @@ pub mod tests {
     impl AuxiliaryPowerUnitTester {
         fn new() -> Self {
             AuxiliaryPowerUnitTester {
-                apu: AuxiliaryPowerUnit::new_aps3200(),
+                apu: AuxiliaryPowerUnit::new_aps3200(1),
                 apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
                 apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
-                apu_bleed: OnOffPushButton::new_on(),
+                apu_bleed: OnOffFaultPushButton::new_on("TEST"),
                 ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
                 indicated_altitude: Length::new::<foot>(5000.),
                 apu_gen_is_used: true,
@@ -659,7 +663,7 @@ pub mod tests {
         }
 
         fn start_shows_available(&self) -> bool {
-            self.apu_overhead.start_shows_available()
+            self.apu_overhead.start_is_available()
         }
 
         fn master_has_fault(&self) -> bool {
@@ -675,11 +679,17 @@ pub mod tests {
         }
 
         pub fn get_potential(&self) -> ElectricPotential {
-            self.write_state.apu.generator.potential
+            match self.write_state.get("ELEC_APU_GEN_1_POTENTIAL") {
+                Some(volts) => ElectricPotential::new::<volt>(volts),
+                None => ElectricPotential::new::<volt>(0.),
+            }
         }
 
         pub fn get_frequency(&self) -> Frequency {
-            self.write_state.apu.generator.frequency
+            match self.write_state.get("ELEC_APU_GEN_1_FREQUENCY") {
+                Some(hz) => Frequency::new::<hertz>(hz),
+                None => Frequency::new::<hertz>(0.),
+            }
         }
 
         fn start_contactor_energized(&self) -> bool {

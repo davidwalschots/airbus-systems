@@ -8,7 +8,10 @@ use crate::{
         TransformerRectifier,
     },
     engine::Engine,
-    overhead::{AutoOffPushButton, NormalAltnPushButton, OnOffPushButton},
+    overhead::{
+        AutoOffFaultPushButton, NormalAltnFaultPushButton, OnOffAvailablePushButton,
+        OnOffFaultPushButton,
+    },
     shared::DelayedTrueLogicGate,
     simulator::{
         SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReadState,
@@ -175,14 +178,14 @@ impl A320AlternatingCurrentElectrical {
             ac_bus_2: ElectricalBus::new(ElectricalBusType::AlternatingCurrent(2)),
             ac_ess_bus: ElectricalBus::new(ElectricalBusType::AlternatingCurrentEssential),
             ac_ess_shed_bus: ElectricalBus::new(ElectricalBusType::AlternatingCurrentEssentialShed),
-            ac_ess_shed_contactor: Contactor::new(String::from("8XH")),
+            ac_ess_shed_contactor: Contactor::new("8XH"),
             tr_1: TransformerRectifier::new(1),
             tr_2: TransformerRectifier::new(2),
             tr_ess: TransformerRectifier::new(3),
-            ac_ess_to_tr_ess_contactor: Contactor::new(String::from("15XE1")),
+            ac_ess_to_tr_ess_contactor: Contactor::new("15XE1"),
             emergency_gen: EmergencyGenerator::new(),
-            emergency_gen_contactor: Contactor::new(String::from("2XE")),
-            static_inv_to_ac_ess_bus_contactor: Contactor::new(String::from("15XE2")),
+            emergency_gen_contactor: Contactor::new("2XE"),
+            static_inv_to_ac_ess_bus_contactor: Contactor::new("15XE2"),
             ac_stat_inv_bus: ElectricalBus::new(
                 ElectricalBusType::AlternatingCurrentStaticInverter,
             ),
@@ -230,7 +233,6 @@ impl A320AlternatingCurrentElectrical {
         );
         self.emergency_gen_contactor.powered_by(&self.emergency_gen);
 
-        // TODO It's a bit odd the emergency gen powers the TR ESS via 15XE1. That's not the real situation. Fix it.
         self.ac_ess_to_tr_ess_contactor.powered_by(&self.ac_ess_bus);
         self.ac_ess_to_tr_ess_contactor
             .or_powered_by(&self.emergency_gen_contactor);
@@ -353,16 +355,22 @@ impl SimulatorElementVisitable for A320AlternatingCurrentElectrical {
         self.tr_1.accept(visitor);
         self.tr_2.accept(visitor);
         self.tr_ess.accept(visitor);
+
+        self.ac_ess_shed_contactor.accept(visitor);
+        self.ac_ess_to_tr_ess_contactor.accept(visitor);
+        self.emergency_gen_contactor.accept(visitor);
+        self.static_inv_to_ac_ess_bus_contactor.accept(visitor);
+
+        self.ac_bus_1.accept(visitor);
+        self.ac_bus_2.accept(visitor);
+        self.ac_ess_bus.accept(visitor);
+        self.ac_ess_shed_bus.accept(visitor);
+        self.ac_stat_inv_bus.accept(visitor);
+
         visitor.visit(&mut Box::new(self));
     }
 }
-impl SimulatorElement for A320AlternatingCurrentElectrical {
-    fn write(&self, state: &mut SimulatorWriteState) {
-        state.electrical.ac_bus_is_powered[0] = self.ac_bus_1.is_powered();
-        state.electrical.ac_bus_is_powered[1] = self.ac_bus_2.is_powered();
-        state.electrical.ac_ess_bus_is_powered = self.ac_ess_bus.is_powered();
-    }
-}
+impl SimulatorElement for A320AlternatingCurrentElectrical {}
 
 trait DirectCurrentState {
     fn static_inverter(&self) -> &StaticInverter;
@@ -395,26 +403,26 @@ impl A320DirectCurrentElectrical {
     fn new() -> Self {
         A320DirectCurrentElectrical {
             dc_bus_1: ElectricalBus::new(ElectricalBusType::DirectCurrent(1)),
-            dc_bus_1_tie_contactor: Contactor::new(String::from("1PC1")),
+            dc_bus_1_tie_contactor: Contactor::new("1PC1"),
             dc_bus_2: ElectricalBus::new(ElectricalBusType::DirectCurrent(2)),
-            dc_bus_2_tie_contactor: Contactor::new(String::from("1PC2")),
+            dc_bus_2_tie_contactor: Contactor::new("1PC2"),
             dc_bat_bus: ElectricalBus::new(ElectricalBusType::DirectCurrentBattery),
             dc_ess_bus: ElectricalBus::new(ElectricalBusType::DirectCurrentEssential),
-            dc_bat_bus_to_dc_ess_bus_contactor: Contactor::new(String::from("4PC")),
+            dc_bat_bus_to_dc_ess_bus_contactor: Contactor::new("4PC"),
             dc_ess_shed_bus: ElectricalBus::new(ElectricalBusType::DirectCurrentEssentialShed),
-            dc_ess_shed_contactor: Contactor::new(String::from("8PH")),
+            dc_ess_shed_contactor: Contactor::new("8PH"),
             battery_1: Battery::full(1),
-            battery_1_contactor: Contactor::new(String::from("6PB1")),
+            battery_1_contactor: Contactor::new("6PB1"),
             battery_2: Battery::full(2),
-            battery_2_contactor: Contactor::new(String::from("6PB2")),
-            battery_2_to_dc_ess_bus_contactor: Contactor::new(String::from("2XB-2")),
-            battery_1_to_static_inv_contactor: Contactor::new(String::from("2XB-1")),
+            battery_2_contactor: Contactor::new("6PB2"),
+            battery_2_to_dc_ess_bus_contactor: Contactor::new("2XB_2"),
+            battery_1_to_static_inv_contactor: Contactor::new("2XB_1"),
             static_inverter: StaticInverter::new(),
             hot_bus_1: ElectricalBus::new(ElectricalBusType::DirectCurrentHot(1)),
             hot_bus_2: ElectricalBus::new(ElectricalBusType::DirectCurrentHot(2)),
-            tr_1_contactor: Contactor::new(String::from("5PU1")),
-            tr_2_contactor: Contactor::new(String::from("5PU2")),
-            tr_ess_contactor: Contactor::new(String::from("3PE")),
+            tr_1_contactor: Contactor::new("5PU1"),
+            tr_2_contactor: Contactor::new("5PU2"),
+            tr_ess_contactor: Contactor::new("3PE"),
         }
     }
 
@@ -604,27 +612,31 @@ impl SimulatorElementVisitable for A320DirectCurrentElectrical {
         self.battery_1.accept(visitor);
         self.battery_2.accept(visitor);
         self.static_inverter.accept(visitor);
+
+        self.dc_bus_1_tie_contactor.accept(visitor);
+        self.dc_bus_2_tie_contactor.accept(visitor);
+        self.dc_bat_bus_to_dc_ess_bus_contactor.accept(visitor);
+        self.dc_ess_shed_contactor.accept(visitor);
+        self.battery_1_contactor.accept(visitor);
+        self.battery_2_contactor.accept(visitor);
+        self.battery_2_to_dc_ess_bus_contactor.accept(visitor);
+        self.battery_1_to_static_inv_contactor.accept(visitor);
+        self.tr_1_contactor.accept(visitor);
+        self.tr_2_contactor.accept(visitor);
+        self.tr_ess_contactor.accept(visitor);
+
+        self.dc_bus_1.accept(visitor);
+        self.dc_bus_2.accept(visitor);
+        self.dc_bat_bus.accept(visitor);
+        self.dc_ess_bus.accept(visitor);
+        self.dc_ess_shed_bus.accept(visitor);
+        self.hot_bus_1.accept(visitor);
+        self.hot_bus_2.accept(visitor);
+
         visitor.visit(&mut Box::new(self));
     }
 }
-impl SimulatorElement for A320DirectCurrentElectrical {
-    fn write(&self, state: &mut SimulatorWriteState) {
-        state.electrical.battery_contactor_closed[0] = self.battery_1_contactor.is_closed();
-        state.electrical.battery_contactor_closed[1] = self.battery_2_contactor.is_closed();
-        state.electrical.dc_bat_bus_is_powered = self.dc_bat_bus.is_powered();
-        state.electrical.dc_bus_is_powered[0] = self.dc_bus_1.is_powered();
-        state.electrical.dc_bus_is_powered[1] = self.dc_bus_2.is_powered();
-        state.electrical.dc_bus_tie_contactor_closed[0] = self.dc_bus_1_tie_contactor.is_closed();
-        state.electrical.dc_bus_tie_contactor_closed[1] = self.dc_bus_2_tie_contactor.is_closed();
-        state.electrical.dc_ess_bus_is_powered = self.dc_ess_bus.is_powered();
-        state.electrical.transformer_rectifier_contactor_closed[0] =
-            self.tr_1_contactor.is_closed();
-        state.electrical.transformer_rectifier_contactor_closed[1] =
-            self.tr_2_contactor.is_closed();
-        state.electrical.transformer_rectifier_contactor_closed[2] =
-            self.tr_ess_contactor.is_closed();
-    }
-}
+impl SimulatorElement for A320DirectCurrentElectrical {}
 
 struct A320MainPowerSources {
     engine_1_gen: EngineGenerator,
@@ -640,13 +652,13 @@ impl A320MainPowerSources {
     fn new() -> Self {
         A320MainPowerSources {
             engine_1_gen: EngineGenerator::new(1),
-            engine_1_gen_contactor: Contactor::new(String::from("9XU1")),
+            engine_1_gen_contactor: Contactor::new("9XU1"),
             engine_2_gen: EngineGenerator::new(2),
-            engine_2_gen_contactor: Contactor::new(String::from("9XU2")),
-            bus_tie_1_contactor: Contactor::new(String::from("11XU1")),
-            bus_tie_2_contactor: Contactor::new(String::from("11XU2")),
-            apu_gen_contactor: Contactor::new(String::from("3XS")),
-            ext_pwr_contactor: Contactor::new(String::from("3XG")),
+            engine_2_gen_contactor: Contactor::new("9XU2"),
+            bus_tie_1_contactor: Contactor::new("11XU1"),
+            bus_tie_2_contactor: Contactor::new("11XU2"),
+            apu_gen_contactor: Contactor::new("3XS"),
+            ext_pwr_contactor: Contactor::new("3XG"),
         }
     }
 
@@ -736,21 +748,18 @@ impl SimulatorElementVisitable for A320MainPowerSources {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         self.engine_1_gen.accept(visitor);
         self.engine_2_gen.accept(visitor);
+
+        self.engine_1_gen_contactor.accept(visitor);
+        self.engine_2_gen_contactor.accept(visitor);
+        self.bus_tie_1_contactor.accept(visitor);
+        self.bus_tie_2_contactor.accept(visitor);
+        self.apu_gen_contactor.accept(visitor);
+        self.ext_pwr_contactor.accept(visitor);
+
         visitor.visit(&mut Box::new(self));
     }
 }
-impl SimulatorElement for A320MainPowerSources {
-    fn write(&self, state: &mut SimulatorWriteState) {
-        state.electrical.apu_generator_contactor_closed = self.apu_gen_contactor.is_closed();
-        state.electrical.external_power_contactor_closed = self.ext_pwr_contactor.is_closed();
-        state.electrical.engine_generator_line_contactor_closed[0] =
-            self.engine_1_gen_contactor.is_closed();
-        state.electrical.engine_generator_line_contactor_closed[1] =
-            self.engine_2_gen_contactor.is_closed();
-        state.electrical.ac_bus_tie_contactor_closed[0] = self.bus_tie_1_contactor.is_closed();
-        state.electrical.ac_bus_tie_contactor_closed[1] = self.bus_tie_2_contactor.is_closed();
-    }
-}
+impl SimulatorElement for A320MainPowerSources {}
 
 struct A320AcEssFeedContactors {
     ac_ess_feed_contactor_1: Contactor,
@@ -762,8 +771,8 @@ impl A320AcEssFeedContactors {
 
     fn new() -> Self {
         A320AcEssFeedContactors {
-            ac_ess_feed_contactor_1: Contactor::new(String::from("3XC1")),
-            ac_ess_feed_contactor_2: Contactor::new(String::from("3XC2")),
+            ac_ess_feed_contactor_1: Contactor::new("3XC1"),
+            ac_ess_feed_contactor_2: Contactor::new("3XC2"),
             ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate::new(
                 A320AcEssFeedContactors::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS,
             ),
@@ -808,45 +817,43 @@ impl A320AcEssFeedContactors {
 }
 impl SimulatorElementVisitable for A320AcEssFeedContactors {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        self.ac_ess_feed_contactor_1.accept(visitor);
+        self.ac_ess_feed_contactor_2.accept(visitor);
+
         visitor.visit(&mut Box::new(self));
     }
 }
-impl SimulatorElement for A320AcEssFeedContactors {
-    fn write(&self, state: &mut SimulatorWriteState) {
-        state.electrical.ac_ess_feed_contactor_closed[0] = self.ac_ess_feed_contactor_1.is_closed();
-        state.electrical.ac_ess_feed_contactor_closed[1] = self.ac_ess_feed_contactor_2.is_closed();
-    }
-}
+impl SimulatorElement for A320AcEssFeedContactors {}
 
 pub struct A320ElectricalOverheadPanel {
-    bat_1: AutoOffPushButton,
-    bat_2: AutoOffPushButton,
-    idg_1: OnOffPushButton,
-    idg_2: OnOffPushButton,
-    gen_1: OnOffPushButton,
-    gen_2: OnOffPushButton,
-    apu_gen: OnOffPushButton,
-    bus_tie: AutoOffPushButton,
-    ac_ess_feed: NormalAltnPushButton,
-    galy_and_cab: AutoOffPushButton,
-    ext_pwr: OnOffPushButton,
-    commercial: OnOffPushButton,
+    bat_1: AutoOffFaultPushButton,
+    bat_2: AutoOffFaultPushButton,
+    idg_1: OnOffFaultPushButton,
+    idg_2: OnOffFaultPushButton,
+    gen_1: OnOffFaultPushButton,
+    gen_2: OnOffFaultPushButton,
+    apu_gen: OnOffFaultPushButton,
+    bus_tie: AutoOffFaultPushButton,
+    ac_ess_feed: NormalAltnFaultPushButton,
+    galy_and_cab: AutoOffFaultPushButton,
+    ext_pwr: OnOffAvailablePushButton,
+    commercial: OnOffFaultPushButton,
 }
 impl A320ElectricalOverheadPanel {
     pub fn new() -> A320ElectricalOverheadPanel {
         A320ElectricalOverheadPanel {
-            bat_1: AutoOffPushButton::new_auto(),
-            bat_2: AutoOffPushButton::new_auto(),
-            idg_1: OnOffPushButton::new_on(),
-            idg_2: OnOffPushButton::new_on(),
-            gen_1: OnOffPushButton::new_on(),
-            gen_2: OnOffPushButton::new_on(),
-            apu_gen: OnOffPushButton::new_on(),
-            bus_tie: AutoOffPushButton::new_auto(),
-            ac_ess_feed: NormalAltnPushButton::new_normal(),
-            galy_and_cab: AutoOffPushButton::new_auto(),
-            ext_pwr: OnOffPushButton::new_on(),
-            commercial: OnOffPushButton::new_on(),
+            bat_1: AutoOffFaultPushButton::new_auto("ELEC_BAT_10"),
+            bat_2: AutoOffFaultPushButton::new_auto("ELEC_BAT_11"),
+            idg_1: OnOffFaultPushButton::new_on("ELEC_IDG_1"),
+            idg_2: OnOffFaultPushButton::new_on("ELEC_IDG_2"),
+            gen_1: OnOffFaultPushButton::new_on("ELEC_GEN_1"),
+            gen_2: OnOffFaultPushButton::new_on("ELEC_GEN_2"),
+            apu_gen: OnOffFaultPushButton::new_on("ELEC_APU_GEN"),
+            bus_tie: AutoOffFaultPushButton::new_auto("ELEC_BUS_TIE"),
+            ac_ess_feed: NormalAltnFaultPushButton::new_normal("ELEC_AC_ESS_FEED"),
+            galy_and_cab: AutoOffFaultPushButton::new_auto("ELEC_GALY_AND_CAB"),
+            ext_pwr: OnOffAvailablePushButton::new_on("ELEC_EXT_PWR"),
+            commercial: OnOffFaultPushButton::new_on("ELEC_COMMERCIAL"),
         }
     }
 
@@ -859,7 +866,7 @@ impl A320ElectricalOverheadPanel {
     }
 
     pub fn external_power_is_available(&self) -> bool {
-        self.ext_pwr.shows_available()
+        self.ext_pwr.is_available()
     }
 
     pub fn external_power_is_on(&self) -> bool {
@@ -892,6 +899,19 @@ impl A320ElectricalOverheadPanel {
 }
 impl SimulatorElementVisitable for A320ElectricalOverheadPanel {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+        self.bat_1.accept(visitor);
+        self.bat_2.accept(visitor);
+        self.idg_1.accept(visitor);
+        self.idg_2.accept(visitor);
+        self.gen_1.accept(visitor);
+        self.gen_2.accept(visitor);
+        self.apu_gen.accept(visitor);
+        self.bus_tie.accept(visitor);
+        self.ac_ess_feed.accept(visitor);
+        self.galy_and_cab.accept(visitor);
+        self.ext_pwr.accept(visitor);
+        self.commercial.accept(visitor);
+
         visitor.visit(&mut Box::new(self));
     }
 }
@@ -919,17 +939,6 @@ impl SimulatorElement for A320ElectricalOverheadPanel {
         if state.electrical.idg_pb_released[1] {
             self.idg_2.turn_off()
         }
-    }
-
-    fn write(&self, state: &mut SimulatorWriteState) {
-        state.electrical.ac_ess_feed_pb_fault = false; // TODO
-        state.electrical.battery_pb_fault[0] = false; // TODO
-        state.electrical.battery_pb_fault[1] = false; // TODO
-        state.electrical.galy_and_cab_pb_fault = false; // TODO
-        state.electrical.generator_pb_fault[0] = false; // TODO
-        state.electrical.generator_pb_fault[1] = false; // TODO
-        state.electrical.idg_pb_fault[0] = false; // TODO
-        state.electrical.idg_pb_fault[1] = false; // TODO
     }
 }
 

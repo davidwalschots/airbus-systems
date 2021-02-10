@@ -38,7 +38,7 @@ pub struct A320 {
 impl A320 {
     pub fn new() -> A320 {
         A320 {
-            apu: AuxiliaryPowerUnit::new_aps3200(),
+            apu: AuxiliaryPowerUnit::new_aps3200(1),
             apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
             apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
             pneumatic_overhead: A320PneumaticOverheadPanel::new(),

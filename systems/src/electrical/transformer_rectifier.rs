@@ -1,10 +1,14 @@
-use super::{Current, ElectricPowerSource, ElectricSource, PowerConsumptionState, Powerable};
+use super::{
+    Current, ElectricPowerSource, ElectricSource, ElectricalStateWriter, PowerConsumptionState,
+    Powerable, ProvideCurrent, ProvidePotential,
+};
 use crate::simulator::{
     SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
 };
 use uom::si::{electric_current::ampere, electric_potential::volt, f64::*};
 
 pub struct TransformerRectifier {
+    writer: ElectricalStateWriter,
     number: usize,
     input: Current,
     failed: bool,
@@ -12,6 +16,7 @@ pub struct TransformerRectifier {
 impl TransformerRectifier {
     pub fn new(number: usize) -> TransformerRectifier {
         TransformerRectifier {
+            writer: ElectricalStateWriter::new(&format!("TR_{}", number)),
             number,
             input: Current::none(),
             failed: false,
@@ -43,6 +48,44 @@ impl ElectricSource for TransformerRectifier {
         }
     }
 }
+impl ProvideCurrent for TransformerRectifier {
+    fn get_current(&self) -> ElectricCurrent {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            ElectricCurrent::new::<ampere>(150.)
+        } else {
+            ElectricCurrent::new::<ampere>(0.)
+        }
+    }
+
+    fn get_current_normal(&self) -> bool {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            true
+        } else {
+            false
+        }
+    }
+}
+impl ProvidePotential for TransformerRectifier {
+    fn get_potential(&self) -> ElectricPotential {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            ElectricPotential::new::<volt>(28.)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        }
+    }
+
+    fn get_potential_normal(&self) -> bool {
+        // TODO: Replace with actual values once calculated.
+        if self.output().is_powered() {
+            true
+        } else {
+            false
+        }
+    }
+}
 impl SimulatorElementVisitable for TransformerRectifier {
     fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
         visitor.visit(&mut Box::new(self));
@@ -54,31 +97,7 @@ impl SimulatorElement for TransformerRectifier {
     }
 
     fn write(&self, state: &mut SimulatorWriteState) {
-        // TODO: Replace with actual values once calculated.
-        state.electrical.transformer_rectifiers[self.number - 1].current =
-            if self.output().is_powered() {
-                ElectricCurrent::new::<ampere>(150.)
-            } else {
-                ElectricCurrent::new::<ampere>(0.)
-            };
-        state.electrical.transformer_rectifiers[self.number - 1].current_within_normal_range =
-            if self.output().is_powered() {
-                true
-            } else {
-                false
-            };
-        state.electrical.transformer_rectifiers[self.number - 1].potential =
-            if self.output().is_powered() {
-                ElectricPotential::new::<volt>(28.)
-            } else {
-                ElectricPotential::new::<volt>(0.)
-            };
-        state.electrical.transformer_rectifiers[self.number - 1].potential_within_normal_range =
-            if self.output().is_powered() {
-                true
-            } else {
-                false
-            };
+        self.writer.write_direct(self, state);
     }
 }
 
@@ -132,6 +151,20 @@ mod transformer_rectifier_tests {
         tr.powered_by(&Powerless {});
 
         assert!(tr.is_unpowered());
+    }
+
+    #[test]
+    fn writes_its_state() {
+        let transformer_rectifier = transformer_rectifier();
+        let mut state = SimulatorWriteState::new();
+
+        transformer_rectifier.write(&mut state);
+
+        assert!(state.len_is(4));
+        assert!(state.contains_f64("ELEC_TR_1_CURRENT", 0.));
+        assert!(state.contains_bool("ELEC_TR_1_CURRENT_NORMAL", false));
+        assert!(state.contains_f64("ELEC_TR_1_POTENTIAL", 0.));
+        assert!(state.contains_bool("ELEC_TR_1_POTENTIAL_NORMAL", false));
     }
 
     fn transformer_rectifier() -> TransformerRectifier {
