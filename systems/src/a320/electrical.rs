@@ -450,8 +450,10 @@ impl A320DirectCurrentElectrical {
 
         self.dc_bus_1_tie_contactor
             .close_when(self.dc_bus_1.is_powered() || self.dc_bus_2.is_powered());
-        self.dc_bus_2_tie_contactor
-            .close_when(self.dc_bus_1.is_unpowered() || self.dc_bus_2.is_unpowered());
+        self.dc_bus_2_tie_contactor.close_when(
+            (!self.dc_bus_1.is_powered() && self.dc_bus_2.is_powered())
+                || (!self.dc_bus_2.is_powered() && self.dc_bus_1.is_powered()),
+        );
 
         self.dc_bat_bus.powered_by(&self.dc_bus_1_tie_contactor);
         self.dc_bat_bus.or_powered_by(&self.dc_bus_2_tie_contactor);
@@ -2252,6 +2254,13 @@ mod a320_electrical_circuit_tests {
         assert!(tester.ac_bus_2_output().is_unpowered());
     }
 
+    #[test]
+    fn when_dc_bus_1_and_dc_bus_2_unpowered_dc_bus_2_to_dc_bat_remains_open() {
+        let tester = tester().run();
+
+        assert!(tester.dc_bus_2_tie_contactor_is_open());
+    }
+
     fn tester_with() -> ElectricalCircuitTester {
         tester()
     }
@@ -2502,6 +2511,10 @@ mod a320_electrical_circuit_tests {
                     .ac_ess_feed_contactors
                     .ac_ess_feed_contactor_2
                     .is_open()
+        }
+
+        fn dc_bus_2_tie_contactor_is_open(&self) -> bool {
+            self.elec.direct_current.dc_bus_2_tie_contactor.is_open()
         }
 
         fn run(mut self) -> ElectricalCircuitTester {
