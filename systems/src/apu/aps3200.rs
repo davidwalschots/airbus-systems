@@ -6,7 +6,7 @@ use crate::{
     },
     shared::{random_number, TimedRandom},
     simulator::{
-        SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
+        SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriter,
         UpdateContext,
     },
 };
@@ -496,6 +496,16 @@ impl ApuGenerator for Aps3200ApuGenerator {
         let volts = self.potential.get::<volt>();
         (110.0..=120.0).contains(&volts)
     }
+
+    #[cfg(test)]
+    fn get_frequency(&self) -> Frequency {
+        self.frequency
+    }
+
+    #[cfg(test)]
+    fn get_potential(&self) -> ElectricPotential {
+        self.potential
+    }
 }
 impl ProvidePotential for Aps3200ApuGenerator {
     fn get_potential(&self) -> ElectricPotential {
@@ -536,7 +546,7 @@ impl SimulatorElementVisitable for Aps3200ApuGenerator {
     }
 }
 impl SimulatorElement for Aps3200ApuGenerator {
-    fn write(&self, state: &mut SimulatorWriteState) {
+    fn write(&self, state: &mut SimulatorWriter) {
         self.writer.write_alternating_with_load(self, state);
     }
 
@@ -682,7 +692,7 @@ mod apu_generator_tests {
     #[test]
     fn writes_its_state() {
         let apu_gen = apu_generator();
-        let mut state = SimulatorWriteState::new();
+        let mut state = SimulatorWriter::new_for_test();
 
         apu_gen.write(&mut state);
 

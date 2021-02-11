@@ -1,7 +1,10 @@
 use crate::simulator::{
-    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReadState,
+    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReader,
 };
-use uom::si::{f64::*, mass::kilogram};
+use uom::si::{
+    f64::*,
+    mass::{kilogram, pound},
+};
 
 pub struct A320Fuel {
     unlimited_fuel: bool,
@@ -27,8 +30,9 @@ impl SimulatorElementVisitable for A320Fuel {
     }
 }
 impl SimulatorElement for A320Fuel {
-    fn read(&mut self, state: &SimulatorReadState) {
-        self.unlimited_fuel = state.unlimited_fuel;
-        self.left_inner_tank_fuel_quantity = state.left_inner_tank_fuel_quantity;
+    fn read(&mut self, state: &mut SimulatorReader) {
+        self.unlimited_fuel = state.get_bool("FUEL_UNLIMITED");
+        self.left_inner_tank_fuel_quantity =
+            Mass::new::<pound>(state.get_f64("FUEL_LEFT_INNER_TANK_QUANTITY"));
     }
 }

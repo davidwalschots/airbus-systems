@@ -3,7 +3,7 @@ use super::{
     Powerable, ProvideCurrent, ProvidePotential,
 };
 use crate::simulator::{
-    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
+    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriter,
 };
 use uom::si::{electric_current::ampere, electric_potential::volt, f64::*};
 
@@ -96,7 +96,7 @@ impl SimulatorElement for TransformerRectifier {
         // TODO
     }
 
-    fn write(&self, state: &mut SimulatorWriteState) {
+    fn write(&self, state: &mut SimulatorWriter) {
         self.writer.write_direct(self, state);
     }
 }
@@ -156,7 +156,7 @@ mod transformer_rectifier_tests {
     #[test]
     fn writes_its_state() {
         let transformer_rectifier = transformer_rectifier();
-        let mut state = SimulatorWriteState::new();
+        let mut state = SimulatorWriter::new_for_test();
 
         transformer_rectifier.write(&mut state);
 

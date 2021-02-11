@@ -17,8 +17,7 @@ pub use static_inverter::StaticInverter;
 pub use transformer_rectifier::TransformerRectifier;
 
 use crate::simulator::{
-    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorVariable,
-    SimulatorWriteState,
+    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriter,
 };
 use uom::si::{
     electric_current::ampere, electric_potential::volt, f64::*, frequency::hertz, ratio::percent,
@@ -110,9 +109,9 @@ pub trait Powerable {
             if is_battery_1_powered && is_battery_2_powered {
                 self.set_input(Current::some(ElectricPowerSource::Batteries));
             } else if is_battery_1_powered {
-                self.set_input(Current::some(ElectricPowerSource::Battery(1)));
+                self.set_input(Current::some(ElectricPowerSource::Battery(10)));
             } else if is_battery_2_powered {
-                self.set_input(Current::some(ElectricPowerSource::Battery(2)));
+                self.set_input(Current::some(ElectricPowerSource::Battery(11)));
             } else {
                 self.set_input(Current::none());
             }
@@ -190,11 +189,8 @@ impl SimulatorElementVisitable for Contactor {
     }
 }
 impl SimulatorElement for Contactor {
-    fn write(&self, state: &mut SimulatorWriteState) {
-        state.add(SimulatorVariable::from_bool(
-            &self.closed_id,
-            self.is_closed(),
-        ));
+    fn write(&self, state: &mut SimulatorWriter) {
+        state.write_bool(&self.closed_id, self.is_closed());
     }
 }
 
@@ -292,11 +288,8 @@ impl SimulatorElementVisitable for ElectricalBus {
     }
 }
 impl SimulatorElement for ElectricalBus {
-    fn write(&self, state: &mut SimulatorWriteState) {
-        state.add(SimulatorVariable::from_bool(
-            &self.bus_powered_id,
-            self.is_powered(),
-        ));
+    fn write(&self, state: &mut SimulatorWriter) {
+        state.write_bool(&self.bus_powered_id, self.is_powered());
     }
 }
 
@@ -327,7 +320,7 @@ impl ElectricalStateWriter {
     pub fn write_direct<T: ProvideCurrent + ProvidePotential>(
         &self,
         source: &T,
-        state: &mut SimulatorWriteState,
+        state: &mut SimulatorWriter,
     ) {
         self.write_current(source, state);
         self.write_potential(source, state);
@@ -336,7 +329,7 @@ impl ElectricalStateWriter {
     pub fn write_alternating<T: ProvidePotential + ProvideFrequency>(
         &self,
         source: &T,
-        state: &mut SimulatorWriteState,
+        state: &mut SimulatorWriter,
     ) {
         self.write_potential(source, state);
         self.write_frequency(source, state);
@@ -345,54 +338,30 @@ impl ElectricalStateWriter {
     pub fn write_alternating_with_load<T: ProvidePotential + ProvideFrequency + ProvideLoad>(
         &self,
         source: &T,
-        state: &mut SimulatorWriteState,
+        state: &mut SimulatorWriter,
     ) {
         self.write_alternating(source, state);
         self.write_load(source, state);
     }
 
-    fn write_current<T: ProvideCurrent>(&self, source: &T, state: &mut SimulatorWriteState) {
-        state.add(SimulatorVariable::from_f64(
-            &self.current_id,
-            source.get_current().get::<ampere>(),
-        ));
-        state.add(SimulatorVariable::from_bool(
-            &self.current_normal_id,
-            source.get_current_normal(),
-        ));
+    fn write_current<T: ProvideCurrent>(&self, source: &T, state: &mut SimulatorWriter) {
+        state.write_f64(&self.current_id, source.get_current().get::<ampere>());
+        state.write_bool(&self.current_normal_id, source.get_current_normal());
     }
 
-    fn write_potential<T: ProvidePotential>(&self, source: &T, state: &mut SimulatorWriteState) {
-        state.add(SimulatorVariable::from_f64(
-            &self.potential_id,
-            source.get_potential().get::<volt>(),
-        ));
-        state.add(SimulatorVariable::from_bool(
-            &self.potential_normal_id,
-            source.get_potential_normal(),
-        ));
+    fn write_potential<T: ProvidePotential>(&self, source: &T, state: &mut SimulatorWriter) {
+        state.write_f64(&self.potential_id, source.get_potential().get::<volt>());
+        state.write_bool(&self.potential_normal_id, source.get_potential_normal());
     }
 
-    fn write_frequency<T: ProvideFrequency>(&self, source: &T, state: &mut SimulatorWriteState) {
-        state.add(SimulatorVariable::from_f64(
-            &self.frequency_id,
-            source.get_frequency().get::<hertz>(),
-        ));
-        state.add(SimulatorVariable::from_bool(
-            &self.frequency_normal_id,
-            source.get_frequency_normal(),
-        ));
+    fn write_frequency<T: ProvideFrequency>(&self, source: &T, state: &mut SimulatorWriter) {
+        state.write_f64(&self.frequency_id, source.get_frequency().get::<hertz>());
+        state.write_bool(&self.frequency_normal_id, source.get_frequency_normal());
     }
 
-    fn write_load<T: ProvideLoad>(&self, source: &T, state: &mut SimulatorWriteState) {
-        state.add(SimulatorVariable::from_f64(
-            &self.load_id,
-            source.get_load().get::<percent>(),
-        ));
-        state.add(SimulatorVariable::from_bool(
-            &self.load_normal_id,
-            source.get_load_normal(),
-        ));
+    fn write_load<T: ProvideLoad>(&self, source: &T, state: &mut SimulatorWriter) {
+        state.write_f64(&self.load_id, source.get_load().get::<percent>());
+        state.write_bool(&self.load_normal_id, source.get_load_normal());
     }
 }
 
@@ -515,8 +484,8 @@ mod tests {
 
         #[test]
         fn or_powered_by_both_batteries_results_in_both_when_both_connected() {
-            let bat_1 = BatteryStub::new(Current::some(ElectricPowerSource::Battery(1)));
-            let bat_2 = BatteryStub::new(Current::some(ElectricPowerSource::Battery(2)));
+            let bat_1 = BatteryStub::new(Current::some(ElectricPowerSource::Battery(10)));
+            let bat_2 = BatteryStub::new(Current::some(ElectricPowerSource::Battery(11)));
 
             let expected = Current::some(ElectricPowerSource::Batteries);
 
@@ -537,7 +506,7 @@ mod tests {
 
         #[test]
         fn or_powered_by_battery_1_results_in_bat_1_output() {
-            let expected = Current::some(ElectricPowerSource::Battery(1));
+            let expected = Current::some(ElectricPowerSource::Battery(10));
 
             let bat_1 = BatteryStub::new(expected);
             let bat_2 = BatteryStub::new(Current::none());
@@ -547,7 +516,7 @@ mod tests {
 
         #[test]
         fn or_powered_by_battery_2_results_in_bat_2_output() {
-            let expected = Current::some(ElectricPowerSource::Battery(2));
+            let expected = Current::some(ElectricPowerSource::Battery(11));
 
             let bat_1 = BatteryStub::new(Current::none());
             let bat_2 = BatteryStub::new(expected);
@@ -652,7 +621,7 @@ mod tests {
         #[test]
         fn writes_its_state() {
             let bus = electrical_bus();
-            let mut state = SimulatorWriteState::new();
+            let mut state = SimulatorWriter::new_for_test();
 
             bus.write(&mut state);
 
@@ -759,7 +728,7 @@ mod tests {
         #[test]
         fn writes_its_state() {
             let contactor = contactor();
-            let mut state = SimulatorWriteState::new();
+            let mut state = SimulatorWriter::new_for_test();
 
             contactor.write(&mut state);
 
@@ -793,7 +762,7 @@ mod tests {
         #[test]
         fn writes_direct_current_state() {
             let writer = ElectricalStateWriter::new("BAT_2");
-            let mut state = SimulatorWriteState::new();
+            let mut state = SimulatorWriter::new_for_test();
 
             writer.write_direct(&StubElectricSource {}, &mut state);
 
@@ -807,7 +776,7 @@ mod tests {
         #[test]
         fn writes_alternating_current_state() {
             let writer = ElectricalStateWriter::new("APU_GEN");
-            let mut state = SimulatorWriteState::new();
+            let mut state = SimulatorWriter::new_for_test();
 
             writer.write_alternating(&StubElectricSource {}, &mut state);
 
@@ -821,7 +790,7 @@ mod tests {
         #[test]
         fn writes_alternating_current_with_load_state() {
             let writer = ElectricalStateWriter::new("APU_GEN");
-            let mut state = SimulatorWriteState::new();
+            let mut state = SimulatorWriter::new_for_test();
 
             writer.write_alternating_with_load(&StubElectricSource {}, &mut state);
 

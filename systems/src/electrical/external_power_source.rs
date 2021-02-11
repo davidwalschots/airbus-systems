@@ -1,6 +1,6 @@
 use crate::simulator::{
-    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReadState,
-    SimulatorWriteState, UpdateContext,
+    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReader,
+    SimulatorWriter, UpdateContext,
 };
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
@@ -76,11 +76,11 @@ impl SimulatorElementVisitable for ExternalPowerSource {
     }
 }
 impl SimulatorElement for ExternalPowerSource {
-    fn read(&mut self, state: &SimulatorReadState) {
-        self.is_connected = state.electrical.external_power_available;
+    fn read(&mut self, state: &mut SimulatorReader) {
+        self.is_connected = state.get_bool("EXT_PWR_IS_AVAILABLE");
     }
 
-    fn write(&self, state: &mut SimulatorWriteState) {
+    fn write(&self, state: &mut SimulatorWriter) {
         self.writer.write_alternating(self, state);
     }
 }
@@ -113,7 +113,7 @@ mod external_power_source_tests {
     #[test]
     fn writes_its_state() {
         let external_power = external_power_source();
-        let mut state = SimulatorWriteState::new();
+        let mut state = SimulatorWriter::new_for_test();
 
         external_power.write(&mut state);
 

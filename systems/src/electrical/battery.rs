@@ -3,8 +3,7 @@ use super::{
     Powerable, ProvideCurrent, ProvidePotential,
 };
 use crate::simulator::{
-    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorVariable,
-    SimulatorWriteState,
+    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriter,
 };
 use uom::si::{
     electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f64::*,
@@ -110,7 +109,7 @@ impl SimulatorElement for Battery {
         // TODO: Charging and depleting battery when used.
     }
 
-    fn write(&self, state: &mut SimulatorWriteState) {
+    fn write(&self, state: &mut SimulatorWriter) {
         self.writer.write_direct(self, state);
     }
 }
@@ -185,7 +184,7 @@ mod battery_tests {
     #[test]
     fn writes_its_state() {
         let bus = full_battery();
-        let mut state = SimulatorWriteState::new();
+        let mut state = SimulatorWriter::new_for_test();
 
         bus.write(&mut state);
 

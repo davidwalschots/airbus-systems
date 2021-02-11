@@ -1,7 +1,7 @@
 //! Provides all the necessary types for integrating the
 //! crate into a Microsoft Flight Simulator aircraft.
-use std::{collections::HashMap, time::Duration};
-use uom::si::f64::*;
+use std::time::Duration;
+use uom::si::{f64::*, length::foot, thermodynamic_temperature::degree_celsius, velocity::knot};
 
 mod update_context;
 #[cfg(test)]
@@ -12,10 +12,8 @@ use crate::electrical::{PowerConsumptionState, PowerSupply};
 
 /// Trait for reading data from and writing data to the simulator.
 pub trait SimulatorReadWriter {
-    /// Reads data from the simulator into a model representing that state.
-    fn read(&mut self) -> SimulatorReadState;
-    /// Writes data from a model into the simulator.
-    fn write(&mut self, state: &SimulatorWriteState);
+    fn read(&mut self, name: &str) -> f64;
+    fn write(&mut self, name: &str, value: f64);
 }
 
 pub trait Aircraft: SimulatorElementVisitable {
@@ -39,54 +37,49 @@ impl<T: Aircraft, U: SimulatorReadWriter> Simulation<T, U> {
     }
 
     pub fn tick(&mut self, delta: Duration) {
-        let state = self.simulator_read_writer.read();
-        let mut visitor = SimulatorToModelVisitor::new(&state);
+        let mut reader = SimulatorReader::new(&mut self.simulator_read_writer);
+        let context = reader.get_context(delta);
+
+        let mut visitor = SimulatorToModelVisitor::new(&mut reader);
         self.aircraft.accept(&mut Box::new(&mut visitor));
 
-        self.aircraft.update(&state.to_context(delta));
+        self.aircraft.update(&context);
 
-        let mut visitor = ModelToSimulatorVisitor::new();
+        let mut writer = SimulatorWriter::new(&mut self.simulator_read_writer);
+        let mut visitor = ModelToSimulatorVisitor::new(&mut writer);
         self.aircraft.accept(&mut Box::new(&mut visitor));
-
-        self.simulator_read_writer.write(&visitor.get_state());
     }
 }
 
 /// Visits aircraft components in order to pass data coming
 /// from the simulator into the aircraft system simulation.
 struct SimulatorToModelVisitor<'a> {
-    state: &'a SimulatorReadState,
+    reader: &'a mut SimulatorReader<'a>,
 }
 impl<'a> SimulatorToModelVisitor<'a> {
-    pub fn new(state: &'a SimulatorReadState) -> Self {
-        SimulatorToModelVisitor { state }
+    pub fn new(reader: &'a mut SimulatorReader<'a>) -> Self {
+        SimulatorToModelVisitor { reader }
     }
 }
 impl SimulatorElementVisitor for SimulatorToModelVisitor<'_> {
     fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorElement>) {
-        visited.read(&self.state);
+        visited.read(&mut self.reader);
     }
 }
 
 /// Visits aircraft components in order to pass data from
 /// the aircraft system simulation to the simulator.
-pub struct ModelToSimulatorVisitor {
-    state: SimulatorWriteState,
+pub struct ModelToSimulatorVisitor<'a> {
+    writer: &'a mut SimulatorWriter<'a>,
 }
-impl ModelToSimulatorVisitor {
-    pub fn new() -> Self {
-        ModelToSimulatorVisitor {
-            state: Default::default(),
-        }
-    }
-
-    pub fn get_state(self) -> SimulatorWriteState {
-        self.state
+impl<'a> ModelToSimulatorVisitor<'a> {
+    pub fn new(writer: &'a mut SimulatorWriter<'a>) -> Self {
+        ModelToSimulatorVisitor { writer }
     }
 }
-impl SimulatorElementVisitor for ModelToSimulatorVisitor {
+impl<'a> SimulatorElementVisitor for ModelToSimulatorVisitor<'a> {
     fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorElement>) {
-        visited.write(&mut self.state);
+        visited.write(&mut self.writer);
     }
 }
 
@@ -107,10 +100,10 @@ pub fn from_bool(value: bool) -> f64 {
 /// Trait for an element within the aircraft system simulation.
 pub trait SimulatorElement {
     /// Reads data representing the current state of the simulator into the aircraft system simulation.
-    fn read(&mut self, _state: &SimulatorReadState) {}
+    fn read(&mut self, _state: &mut SimulatorReader) {}
 
     /// Writes data from the aircraft system simulation to a model which can be passed to the simulator.
-    fn write(&self, _state: &mut SimulatorWriteState) {}
+    fn write(&self, _state: &mut SimulatorWriter) {}
 
     /// Supplies the element with power when available.
     fn supply_power(&mut self, supply: &PowerSupply) {}
@@ -132,65 +125,42 @@ pub trait SimulatorElementVisitor {
     fn visit(&mut self, visited: &mut Box<&mut dyn SimulatorElement>);
 }
 
-pub struct SimulatorVariable {
-    name: String,
-    value: f64,
-}
-impl SimulatorVariable {
-    pub fn from_f64(name: &str, value: f64) -> Self {
-        Self {
-            name: name.to_owned(),
-            value,
-        }
-    }
-
-    pub fn from_bool(name: &str, value: bool) -> Self {
-        Self {
-            name: name.to_owned(),
-            value: from_bool(value),
-        }
-    }
-
-    pub fn get_name(&self) -> &str {
-        &self.name[..]
-    }
-
-    pub fn get_value(&self) -> f64 {
-        self.value
-    }
-}
-
 /// The data which is read from the simulator and can
 /// be passed into the aircraft system simulation.
-#[derive(Default)]
-pub struct SimulatorReadState {
-    pub ambient_temperature: ThermodynamicTemperature,
-    pub apu: SimulatorApuReadState,
-    pub electrical: SimulatorElectricalReadState,
-    pub fire: SimulatorFireReadState,
-    pub indicated_airspeed: Velocity,
-    pub indicated_altitude: Length,
-    pub left_inner_tank_fuel_quantity: Mass,
-    pub pneumatic: SimulatorPneumaticReadState,
-    pub unlimited_fuel: bool,
-    pub engine_n2: [Ratio; 2],
+pub struct SimulatorReader<'a> {
+    simulator_read_writer: &'a mut dyn SimulatorReadWriter,
 }
-impl SimulatorReadState {
+impl<'a> SimulatorReader<'a> {
     /// Creates a context based on the data that was read from the simulator.
-    pub fn to_context(&self, delta_time: Duration) -> UpdateContext {
+    pub fn get_context(&mut self, delta_time: Duration) -> UpdateContext {
         UpdateContext {
-            ambient_temperature: self.ambient_temperature,
-            indicated_airspeed: self.indicated_airspeed,
-            indicated_altitude: self.indicated_altitude,
+            ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(
+                self.get_f64("AMBIENT_TEMPERATURE"),
+            ),
+            indicated_airspeed: Velocity::new::<knot>(self.get_f64("INDICATED_AIRSPEED")),
+            indicated_altitude: Length::new::<foot>(self.get_f64("INDICATED_ALTITUDE")),
             delta: delta_time,
         }
+    }
+
+    pub fn new(simulator_read_writer: &'a mut dyn SimulatorReadWriter) -> Self {
+        Self {
+            simulator_read_writer,
+        }
+    }
+
+    pub fn get_f64(&mut self, name: &str) -> f64 {
+        self.simulator_read_writer.read(name)
+    }
+
+    pub fn get_bool(&mut self, name: &str) -> bool {
+        to_bool(self.get_f64(name))
     }
 }
 
 #[derive(Default)]
 pub struct SimulatorApuReadState {
     pub master_sw_pb_on: bool,
-    pub start_pb_on: bool,
 }
 
 #[derive(Default)]
@@ -205,74 +175,66 @@ pub struct SimulatorFireReadState {
 
 #[derive(Default)]
 pub struct SimulatorElectricalReadState {
-    pub ac_ess_feed_pb_normal: bool,
-    pub apu_generator_pb_on: bool,
-    pub battery_pb_auto: [bool; 2],
-    pub bus_tie_pb_auto: bool,
-    pub commercial_pb_on: bool,
-    pub galy_and_cab_pb_auto: bool,
-    pub engine_generator_pb_on: [bool; 2],
-    pub idg_pb_released: [bool; 2],
-    pub external_power_available: bool,
+    pub external_power_pb_available: bool,
     pub external_power_pb_on: bool,
 }
 
 /// The data which is written from the aircraft system simulation
 /// into the the simulator.
-#[derive(Default)]
-pub struct SimulatorWriteState {
-    pub variables: Vec<SimulatorVariable>,
-
-    pub apu: SimulatorApuWriteState,
+pub struct SimulatorWriter<'a> {
+    pub variables: Vec<(String, f64)>,
+    simulator_read_writer: Option<&'a mut dyn SimulatorReadWriter>,
 }
-impl SimulatorWriteState {
-    pub fn new() -> Self {
-        Self::default()
+impl<'a> SimulatorWriter<'a> {
+    pub fn new(simulator_read_writer: &'a mut dyn SimulatorReadWriter) -> Self {
+        Self {
+            variables: Default::default(),
+            simulator_read_writer: Some(simulator_read_writer),
+        }
     }
 
-    pub fn add(&mut self, simulator_variable: SimulatorVariable) {
-        self.variables.push(simulator_variable);
+    pub fn new_for_test() -> Self {
+        Self {
+            variables: Default::default(),
+            simulator_read_writer: None,
+        }
+    }
+
+    #[cfg(not(test))]
+    pub fn write_f64(&mut self, name: &str, value: f64) {
+        self.simulator_read_writer
+            .as_mut()
+            .unwrap()
+            .write(name, value);
+    }
+
+    #[cfg(not(test))]
+    pub fn write_bool(&mut self, name: &str, value: bool) {
+        self.simulator_read_writer
+            .as_mut()
+            .unwrap()
+            .write(name, from_bool(value))
     }
 
     #[cfg(test)]
+    pub fn write_f64(&mut self, name: &str, value: f64) {
+        self.variables.push((name.to_owned(), value));
+    }
+
+    #[cfg(test)]
+    pub fn write_bool(&mut self, name: &str, value: bool) {
+        self.variables.push((name.to_owned(), from_bool(value)));
+    }
+
     pub fn contains_f64(&self, name: &str, value: f64) -> bool {
-        self.variables
-            .iter()
-            .any(|x| x.get_name() == name && x.get_value() == value)
+        self.variables.iter().any(|x| x.0 == name && x.1 == value)
     }
 
-    #[cfg(test)]
     pub fn contains_bool(&self, name: &str, value: bool) -> bool {
         self.contains_f64(name, from_bool(value))
     }
 
-    #[cfg(test)]
     pub fn len_is(&self, length: usize) -> bool {
         self.variables.len() == length
     }
-
-    #[cfg(test)]
-    pub fn get(&self, name: &str) -> Option<f64> {
-        match self.variables.iter().find(|x| x.get_name() == name) {
-            Some(variable) => Some(variable.get_value()),
-            None => None,
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct SimulatorApuWriteState {
-    pub available: bool,
-    pub air_intake_flap_is_ecam_open: bool,
-    pub air_intake_flap_opened_for: Ratio,
-    pub bleed_air_valve_open: bool,
-    pub caution_egt: ThermodynamicTemperature,
-    pub egt: ThermodynamicTemperature,
-    pub inoperable: bool,
-    pub is_auto_shutdown: bool,
-    pub is_emergency_shutdown: bool,
-    pub low_fuel_pressure_fault: bool,
-    pub n: Ratio,
-    pub start_contactor_energized: bool,
-    pub warning_egt: ThermodynamicTemperature,
 }

@@ -3,7 +3,7 @@ use super::{
     Powerable, ProvideFrequency, ProvidePotential,
 };
 use crate::simulator::{
-    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
+    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriter,
 };
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
@@ -85,7 +85,7 @@ impl SimulatorElement for StaticInverter {
         // TODO
     }
 
-    fn write(&self, state: &mut SimulatorWriteState) {
+    fn write(&self, state: &mut SimulatorWriter) {
         self.writer.write_alternating(self, state);
     }
 }
@@ -132,7 +132,7 @@ mod static_inverter_tests {
     #[test]
     fn writes_its_state() {
         let static_inverter = static_inverter();
-        let mut state = SimulatorWriteState::new();
+        let mut state = SimulatorWriter::new_for_test();
 
         static_inverter.write(&mut state);
 

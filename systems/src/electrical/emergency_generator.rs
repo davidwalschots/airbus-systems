@@ -3,7 +3,7 @@ use super::{
     ProvideFrequency, ProvidePotential,
 };
 use crate::simulator::{
-    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriteState,
+    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriter,
 };
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
@@ -92,7 +92,7 @@ impl SimulatorElement for EmergencyGenerator {
         // TODO
     }
 
-    fn write(&self, state: &mut SimulatorWriteState) {
+    fn write(&self, state: &mut SimulatorWriter) {
         self.writer.write_alternating(self, state);
     }
 }
@@ -127,7 +127,7 @@ mod emergency_generator_tests {
     #[test]
     fn writes_its_state() {
         let bus = emergency_generator();
-        let mut state = SimulatorWriteState::new();
+        let mut state = SimulatorWriter::new_for_test();
 
         bus.write(&mut state);
 
