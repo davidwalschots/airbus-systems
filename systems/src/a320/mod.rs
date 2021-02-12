@@ -86,6 +86,7 @@ impl Aircraft for A320 {
             &self.hydraulic,
             &self.electrical_overhead,
         );
+        self.electrical_overhead.update_after_elec(&self.electrical);
 
         let power_supply = self.electrical.create_power_supply();
         let mut power_consumption_handler = PowerConsumptionHandler::new(&power_supply);

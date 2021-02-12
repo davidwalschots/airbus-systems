@@ -859,6 +859,11 @@ impl A320ElectricalOverheadPanel {
         }
     }
 
+    pub fn update_after_elec(&mut self, electrical: &A320Electrical) {
+        self.ac_ess_feed
+            .set_fault(electrical.ac_ess_bus().is_unpowered());
+    }
+
     fn generator_1_is_on(&self) -> bool {
         self.gen_1.is_on()
     }
@@ -897,6 +902,11 @@ impl A320ElectricalOverheadPanel {
 
     fn bat_2_is_auto(&self) -> bool {
         self.bat_2.is_auto()
+    }
+
+    #[cfg(test)]
+    fn ac_ess_feed_has_fault(&self) -> bool {
+        self.ac_ess_feed.has_fault()
     }
 }
 impl SimulatorElementVisitable for A320ElectricalOverheadPanel {
@@ -2261,6 +2271,20 @@ mod a320_electrical_circuit_tests {
         assert!(tester.dc_bus_2_tie_contactor_is_open());
     }
 
+    #[test]
+    fn when_ac_ess_bus_powered_ac_ess_feed_does_not_have_fault() {
+        let tester = tester_with().running_engines().run();
+
+        assert!(!tester.ac_ess_feed_has_fault());
+    }
+
+    #[test]
+    fn when_ac_ess_bus_is_unpowered_ac_ess_feed_has_fault() {
+        let tester = tester_with().airspeed(Velocity::new::<knot>(0.)).run();
+
+        assert!(tester.ac_ess_feed_has_fault());
+    }
+
     fn tester_with() -> ElectricalCircuitTester {
         tester()
     }
@@ -2495,6 +2519,10 @@ mod a320_electrical_circuit_tests {
             self.elec.direct_current.hot_bus_2.output()
         }
 
+        fn ac_ess_feed_has_fault(&self) -> bool {
+            self.overhead.ac_ess_feed_has_fault()
+        }
+
         fn create_power_supply(&self) -> PowerSupply {
             self.elec.create_power_supply()
         }
@@ -2533,6 +2561,7 @@ mod a320_electrical_circuit_tests {
                 &self.hyd,
                 &self.overhead,
             );
+            self.overhead.update_after_elec(&self.elec);
 
             self
         }
