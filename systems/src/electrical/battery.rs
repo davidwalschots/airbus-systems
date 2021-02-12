@@ -65,7 +65,7 @@ impl ProvideCurrent for Battery {
     fn get_current(&self) -> ElectricCurrent {
         // TODO: Replace with actual values once calculated.
         if self.output().is_powered() {
-            ElectricCurrent::new::<ampere>(150.)
+            ElectricCurrent::new::<ampere>(0.)
         } else {
             ElectricCurrent::new::<ampere>(0.)
         }
