@@ -1,5 +1,5 @@
 [package]
-name = "systems"
+name = "a320_systems_wasm"
 version = "0.1.0"
 authors = ["David Walschots <davidwalschots@users.noreply.github.com>"]
 edition = "2018"
@@ -13,5 +13,5 @@ test = false
 
 [dependencies]
 uom = "0.30.0"
-airbus-systems = { path = "../systems" }
+systems = { path = "../systems" }
 msfs = { git = "https://github.com/flybywiresim/msfs-rs", branch = "main" }
