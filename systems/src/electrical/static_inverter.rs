@@ -17,7 +17,6 @@ impl StaticInverter {
         }
     }
 
-    #[cfg(test)]
     pub fn input_potential(&self) -> Potential {
         self.input
     }

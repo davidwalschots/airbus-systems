@@ -23,7 +23,6 @@ impl Battery {
         )
     }
 
-    #[cfg(test)]
     pub fn empty(number: usize) -> Battery {
         Battery::new(number, ElectricCharge::new::<ampere_hour>(0.))
     }
@@ -41,7 +40,6 @@ impl Battery {
         self.charge >= ElectricCharge::new::<ampere_hour>(Battery::MAX_ELECTRIC_CHARGE_AMPERE_HOURS)
     }
 
-    #[cfg(test)]
     pub fn input_potential(&self) -> Potential {
         self.input
     }

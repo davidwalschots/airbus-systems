@@ -1,18 +1,11 @@
 [package]
-name = "a320_systems_wasm"
+name = "a320_systems"
 version = "0.1.0"
 authors = ["David Walschots <davidwalschots@users.noreply.github.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[lib]
-target = "wasm32-wasi"
-crate-type = ["cdylib"]
-test = false
-
 [dependencies]
 uom = "0.30.0"
-a320_systems = { path = "../a320_systems" }
 systems = { path = "../systems" }
-msfs = { git = "https://github.com/flybywiresim/msfs-rs", branch = "main" }

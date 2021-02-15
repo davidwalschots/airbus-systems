@@ -1,5 +1,6 @@
 use super::A320Hydraulic;
-use crate::{
+use std::time::Duration;
+use systems::{
     apu::{ApuGenerator, AuxiliaryPowerUnit},
     electrical::{
         combine_electric_sources, Battery, CombinedElectricSource, Contactor, ElectricalBus,
@@ -15,7 +16,6 @@ use crate::{
     shared::DelayedTrueLogicGate,
     simulator::{SimulatorElement, SimulatorElementVisitor, UpdateContext},
 };
-use std::time::Duration;
 use uom::si::{f64::*, velocity::knot};
 
 pub struct A320Electrical {
@@ -920,14 +920,10 @@ impl SimulatorElement for A320ElectricalOverheadPanel {
 
 #[cfg(test)]
 mod a320_electrical_circuit_tests {
-    use crate::{
-        apu::{
-            tests::{running_apu, stopped_apu},
-            Aps3200ApuGenerator,
-        },
+    use systems::{
+        apu::{Aps3200ApuGenerator, AuxiliaryPowerUnitFactory},
         electrical::Potential,
     };
-
     use uom::si::{
         length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
     };
@@ -2080,7 +2076,7 @@ mod a320_electrical_circuit_tests {
             ElectricalCircuitTester {
                 engine1: ElectricalCircuitTester::new_stopped_engine(),
                 engine2: ElectricalCircuitTester::new_stopped_engine(),
-                apu: stopped_apu(),
+                apu: AuxiliaryPowerUnitFactory::new_shutdown_aps3200(1),
                 ext_pwr: ElectricalCircuitTester::new_disconnected_external_power(),
                 hyd: A320Hydraulic::new(),
                 elec: A320Electrical::new(),
@@ -2105,7 +2101,7 @@ mod a320_electrical_circuit_tests {
         }
 
         fn running_apu(mut self) -> ElectricalCircuitTester {
-            self.apu = running_apu();
+            self.apu = AuxiliaryPowerUnitFactory::new_running_aps3200(1);
             self
         }
 

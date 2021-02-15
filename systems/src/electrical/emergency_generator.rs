@@ -24,7 +24,6 @@ impl EmergencyGenerator {
         self.is_blue_pressurised = is_blue_pressurised;
     }
 
-    #[cfg(test)]
     pub fn attempt_start(&mut self) {
         self.running = true;
     }

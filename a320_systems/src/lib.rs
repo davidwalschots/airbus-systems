@@ -1,8 +1,8 @@
 use self::{fuel::A320Fuel, pneumatic::A320PneumaticOverheadPanel};
-use crate::{
+use systems::{
     apu::{
-        Aps3200ApuGenerator, AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel,
-        AuxiliaryPowerUnitOverheadPanel, ShutdownAps3200Turbine,
+        Aps3200ApuGenerator, AuxiliaryPowerUnit, AuxiliaryPowerUnitFactory,
+        AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
     electrical::{ElectricalBusStateFactory, ExternalPowerSource, PowerConsumptionHandler},
     engine::Engine,
@@ -35,10 +35,7 @@ pub struct A320 {
 impl A320 {
     pub fn new() -> A320 {
         A320 {
-            apu: AuxiliaryPowerUnit::new(
-                Box::new(ShutdownAps3200Turbine::new()),
-                Aps3200ApuGenerator::new(1),
-            ),
+            apu: AuxiliaryPowerUnitFactory::new_shutdown_aps3200(1),
             apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
             apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
             pneumatic_overhead: A320PneumaticOverheadPanel::new(),

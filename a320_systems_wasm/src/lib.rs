@@ -1,12 +1,10 @@
+use a320_systems::A320;
 use msfs::{
     legacy::{AircraftVariable, NamedVariable},
     MSFSEvent,
 };
 use std::collections::HashMap;
-use systems::{
-    simulator::{Simulation, SimulatorReaderWriter},
-    A320,
-};
+use systems::simulator::{Simulation, SimulatorReaderWriter};
 
 #[msfs::gauge(name=systems)]
 async fn systems(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> {

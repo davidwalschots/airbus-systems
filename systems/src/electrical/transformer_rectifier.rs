@@ -21,12 +21,10 @@ impl TransformerRectifier {
         }
     }
 
-    #[cfg(test)]
     pub fn fail(&mut self) {
         self.failed = true;
     }
 
-    #[cfg(test)]
     pub fn input_potential(&self) -> Potential {
         self.input
     }

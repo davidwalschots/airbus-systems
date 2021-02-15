@@ -1,23 +1,68 @@
-//! This module models the APS3200 APU.
-//!
-//! > Not all characteristics have been verified as of yet. Meaning things such as
-//! > EGT increases, EGT warning level, etc. are there but might not reflect the
-//! > real APU fully. This involves further tweaking as we get more information.
+use std::time::Duration;
 
-use self::{air_intake_flap::AirIntakeFlap, electronic_control_box::ElectronicControlBox};
+use self::{
+    air_intake_flap::AirIntakeFlap, aps3200::ShutdownAps3200Turbine,
+    electronic_control_box::ElectronicControlBox,
+};
 use crate::{
     electrical::{Potential, PowerSource, ProvideFrequency, ProvidePotential},
     overhead::{FirePushButton, OnOffAvailablePushButton, OnOffFaultPushButton},
     pneumatic::{BleedAirValve, BleedAirValveState, Valve},
-    simulator::{SimulatorElement, SimulatorElementVisitor, SimulatorElementWriter, UpdateContext},
+    simulator::{
+        context_with, SimulatorElement, SimulatorElementVisitor, SimulatorElementWriter,
+        UpdateContext,
+    },
 };
 use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
 
 mod air_intake_flap;
 mod aps3200;
+pub use aps3200::Aps3200ApuGenerator;
 mod electronic_control_box;
 
-pub use aps3200::{Aps3200ApuGenerator, ShutdownAps3200Turbine};
+pub struct AuxiliaryPowerUnitFactory {}
+impl AuxiliaryPowerUnitFactory {
+    pub fn new_shutdown_aps3200(number: usize) -> AuxiliaryPowerUnit<Aps3200ApuGenerator> {
+        AuxiliaryPowerUnit::new(
+            Box::new(ShutdownAps3200Turbine::new()),
+            Aps3200ApuGenerator::new(number),
+        )
+    }
+
+    pub fn new_running_aps3200(number: usize) -> AuxiliaryPowerUnit<Aps3200ApuGenerator> {
+        let mut apu = AuxiliaryPowerUnit::new(
+            Box::new(ShutdownAps3200Turbine::new()),
+            Aps3200ApuGenerator::new(number),
+        );
+
+        AuxiliaryPowerUnitFactory::to_running(&mut apu);
+
+        apu
+    }
+
+    fn to_running<T: ApuGenerator>(apu: &mut AuxiliaryPowerUnit<T>) {
+        loop {
+            AuxiliaryPowerUnitFactory::run(apu);
+            if apu.is_available() {
+                break;
+            }
+        }
+    }
+
+    fn run<T: ApuGenerator>(apu: &mut AuxiliaryPowerUnit<T>) {
+        let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
+        overhead.master.set_on(true);
+        overhead.start.set_on(true);
+        apu.update(
+            &context_with().delta(Duration::from_secs(100)).build(),
+            &overhead,
+            &AuxiliaryPowerUnitFireOverheadPanel::new(),
+            true,
+            true,
+            true,
+        );
+    }
+}
 
 /// The APU start contactor is closed when the APU should start. This type exists because we
 /// don't have a full electrical implementation yet. Once we do, we will probably move this
@@ -441,10 +486,7 @@ pub mod tests {
     impl AuxiliaryPowerUnitTester {
         fn new() -> Self {
             AuxiliaryPowerUnitTester {
-                apu: AuxiliaryPowerUnit::new(
-                    Box::new(ShutdownAps3200Turbine::new()),
-                    Aps3200ApuGenerator::new(1),
-                ),
+                apu: AuxiliaryPowerUnitFactory::new_shutdown_aps3200(1),
                 apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
                 apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
                 apu_bleed: OnOffFaultPushButton::new_on("TEST"),

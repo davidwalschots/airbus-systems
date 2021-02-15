@@ -4,7 +4,7 @@ use std::time::Duration;
 use uom::si::{f64::*, length::foot, thermodynamic_temperature::degree_celsius, velocity::knot};
 
 mod update_context;
-pub use update_context::UpdateContext;
+pub use update_context::*;
 
 #[cfg(test)]
 mod test;
