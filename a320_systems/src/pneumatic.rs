@@ -1,7 +1,7 @@
 use systems::{
     overhead::OnOffFaultPushButton,
     pneumatic::BleedAirValveState,
-    simulator::{SimulatorElement, SimulatorElementVisitor},
+    simulation::{SimulationElement, SimulationElementVisitor},
 };
 
 pub struct A320PneumaticOverheadPanel {
@@ -28,8 +28,8 @@ impl A320PneumaticOverheadPanel {
         self.apu_bleed.has_fault()
     }
 }
-impl SimulatorElement for A320PneumaticOverheadPanel {
-    fn accept<T: SimulatorElementVisitor>(&mut self, visitor: &mut T) {
+impl SimulationElement for A320PneumaticOverheadPanel {
+    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
         self.apu_bleed.accept(visitor);
 
         visitor.visit(self);

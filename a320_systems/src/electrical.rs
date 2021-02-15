@@ -14,7 +14,7 @@ use systems::{
         OnOffAvailablePushButton, OnOffFaultPushButton,
     },
     shared::DelayedTrueLogicGate,
-    simulator::{SimulatorElement, SimulatorElementVisitor, UpdateContext},
+    simulation::{SimulationElement, SimulationElementVisitor, UpdateContext},
 };
 use uom::si::{f64::*, velocity::knot};
 
@@ -127,8 +127,8 @@ impl ElectricalBusStateFactory for A320Electrical {
         state
     }
 }
-impl SimulatorElement for A320Electrical {
-    fn accept<T: SimulatorElementVisitor>(&mut self, visitor: &mut T) {
+impl SimulationElement for A320Electrical {
+    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
         self.alternating_current.accept(visitor);
         self.direct_current.accept(visitor);
         visitor.visit(self);
@@ -343,8 +343,8 @@ impl AlternatingCurrentState for A320AlternatingCurrentElectrical {
         &self.tr_ess
     }
 }
-impl SimulatorElement for A320AlternatingCurrentElectrical {
-    fn accept<T: SimulatorElementVisitor>(&mut self, visitor: &mut T) {
+impl SimulationElement for A320AlternatingCurrentElectrical {
+    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
         self.emergency_gen.accept(visitor);
         self.main_power_sources.accept(visitor);
         self.ac_ess_feed_contactors.accept(visitor);
@@ -602,8 +602,8 @@ impl DirectCurrentState for A320DirectCurrentElectrical {
         &self.static_inverter
     }
 }
-impl SimulatorElement for A320DirectCurrentElectrical {
-    fn accept<T: SimulatorElementVisitor>(&mut self, visitor: &mut T) {
+impl SimulationElement for A320DirectCurrentElectrical {
+    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
         self.battery_1.accept(visitor);
         self.battery_2.accept(visitor);
         self.static_inverter.accept(visitor);
@@ -738,8 +738,8 @@ impl A320MainPowerSources {
         ])
     }
 }
-impl SimulatorElement for A320MainPowerSources {
-    fn accept<T: SimulatorElementVisitor>(&mut self, visitor: &mut T) {
+impl SimulationElement for A320MainPowerSources {
+    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
         self.engine_1_gen.accept(visitor);
         self.engine_2_gen.accept(visitor);
 
@@ -808,8 +808,8 @@ impl A320AcEssFeedContactors {
         self.electric_sources().output_potential().is_powered()
     }
 }
-impl SimulatorElement for A320AcEssFeedContactors {
-    fn accept<T: SimulatorElementVisitor>(&mut self, visitor: &mut T) {
+impl SimulationElement for A320AcEssFeedContactors {
+    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
         self.ac_ess_feed_contactor_1.accept(visitor);
         self.ac_ess_feed_contactor_2.accept(visitor);
 
@@ -899,8 +899,8 @@ impl A320ElectricalOverheadPanel {
         self.ac_ess_feed.has_fault()
     }
 }
-impl SimulatorElement for A320ElectricalOverheadPanel {
-    fn accept<T: SimulatorElementVisitor>(&mut self, visitor: &mut T) {
+impl SimulationElement for A320ElectricalOverheadPanel {
+    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
         self.bat_1.accept(visitor);
         self.bat_2.accept(visitor);
         self.idg_1.accept(visitor);

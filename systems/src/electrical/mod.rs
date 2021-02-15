@@ -16,16 +16,18 @@ pub use power_consumption::{
 pub use static_inverter::StaticInverter;
 pub use transformer_rectifier::TransformerRectifier;
 
-use crate::simulator::{SimulatorElement, SimulatorElementWriter};
+use crate::simulation::{SimulationElement, SimulatorWriter};
 use uom::si::{
     electric_current::ampere, electric_potential::volt, f64::*, frequency::hertz, ratio::percent,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-// TODO: Another PR should add the actual potential (volt) into this enum, as we will
-// need it for functionality such as: ECAM should indicate DC BAT BUS in amber when V < 25.
-// However, as currently there is no requirement for now this only indicates the source
-// of the potential, not the actual potential.
+/// # TODO
+///
+/// Another PR should add the actual potential (volt) into this enum, as we will
+/// need it for functionality such as: ECAM should indicate DC BAT BUS in amber when V < 25.
+/// However, as currently there is no requirement for now this only indicates the source
+/// of the potential, not the actual potential.
 pub enum Potential {
     None,
     EngineGenerator(usize),
@@ -113,8 +115,8 @@ impl PowerSource for Contactor {
         }
     }
 }
-impl SimulatorElement for Contactor {
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+impl SimulationElement for Contactor {
+    fn write(&self, writer: &mut SimulatorWriter) {
         writer.write_bool(&self.closed_id, self.is_closed());
     }
 }
@@ -224,8 +226,8 @@ impl PowerSource for ElectricalBus {
         self.input
     }
 }
-impl SimulatorElement for ElectricalBus {
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+impl SimulationElement for ElectricalBus {
+    fn write(&self, writer: &mut SimulatorWriter) {
         writer.write_bool(&self.bus_powered_id, self.is_powered());
     }
 }
@@ -257,7 +259,7 @@ impl ElectricalStateWriter {
     pub fn write_direct<T: ProvideCurrent + ProvidePotential>(
         &self,
         source: &T,
-        state: &mut SimulatorElementWriter,
+        state: &mut SimulatorWriter,
     ) {
         self.write_current(source, state);
         self.write_potential(source, state);
@@ -266,7 +268,7 @@ impl ElectricalStateWriter {
     pub fn write_alternating<T: ProvidePotential + ProvideFrequency>(
         &self,
         source: &T,
-        state: &mut SimulatorElementWriter,
+        state: &mut SimulatorWriter,
     ) {
         self.write_potential(source, state);
         self.write_frequency(source, state);
@@ -275,28 +277,28 @@ impl ElectricalStateWriter {
     pub fn write_alternating_with_load<T: ProvidePotential + ProvideFrequency + ProvideLoad>(
         &self,
         source: &T,
-        state: &mut SimulatorElementWriter,
+        state: &mut SimulatorWriter,
     ) {
         self.write_alternating(source, state);
         self.write_load(source, state);
     }
 
-    fn write_current<T: ProvideCurrent>(&self, source: &T, state: &mut SimulatorElementWriter) {
+    fn write_current<T: ProvideCurrent>(&self, source: &T, state: &mut SimulatorWriter) {
         state.write_f64(&self.current_id, source.current().get::<ampere>());
         state.write_bool(&self.current_normal_id, source.current_normal());
     }
 
-    fn write_potential<T: ProvidePotential>(&self, source: &T, state: &mut SimulatorElementWriter) {
+    fn write_potential<T: ProvidePotential>(&self, source: &T, state: &mut SimulatorWriter) {
         state.write_f64(&self.potential_id, source.potential().get::<volt>());
         state.write_bool(&self.potential_normal_id, source.potential_normal());
     }
 
-    fn write_frequency<T: ProvideFrequency>(&self, source: &T, state: &mut SimulatorElementWriter) {
+    fn write_frequency<T: ProvideFrequency>(&self, source: &T, state: &mut SimulatorWriter) {
         state.write_f64(&self.frequency_id, source.frequency().get::<hertz>());
         state.write_bool(&self.frequency_normal_id, source.frequency_normal());
     }
 
-    fn write_load<T: ProvideLoad>(&self, source: &T, state: &mut SimulatorElementWriter) {
+    fn write_load<T: ProvideLoad>(&self, source: &T, state: &mut SimulatorWriter) {
         state.write_f64(&self.load_id, source.load().get::<percent>());
         state.write_bool(&self.load_normal_id, source.load_normal());
     }
@@ -444,14 +446,15 @@ mod tests {
 
     #[cfg(test)]
     mod electrical_bus_tests {
+        use crate::simulation::test::TestReaderWriter;
+
         use super::*;
-        use crate::simulator::TestReaderWriter;
 
         #[test]
         fn writes_its_state() {
             let bus = electrical_bus();
             let mut test_writer = TestReaderWriter::new();
-            let mut writer = SimulatorElementWriter::new(&mut test_writer);
+            let mut writer = SimulatorWriter::new(&mut test_writer);
 
             bus.write(&mut writer);
 
@@ -546,8 +549,9 @@ mod tests {
 
     #[cfg(test)]
     mod contactor_tests {
+        use crate::simulation::test::TestReaderWriter;
+
         use super::*;
-        use crate::simulator::TestReaderWriter;
 
         #[test]
         fn contactor_starts_open() {
@@ -640,7 +644,7 @@ mod tests {
         fn writes_its_state() {
             let contactor = contactor();
             let mut test_writer = TestReaderWriter::new();
-            let mut writer = SimulatorElementWriter::new(&mut test_writer);
+            let mut writer = SimulatorWriter::new(&mut test_writer);
 
             contactor.write(&mut writer);
 
@@ -669,7 +673,7 @@ mod tests {
 
     #[cfg(test)]
     mod current_state_writer_tests {
-        use crate::simulator::TestReaderWriter;
+        use crate::simulation::test::TestReaderWriter;
 
         use super::*;
 
@@ -677,7 +681,7 @@ mod tests {
         fn writes_direct_current_state() {
             let writer = ElectricalStateWriter::new("BAT_2");
             let mut test_writer = TestReaderWriter::new();
-            let mut element_writer = SimulatorElementWriter::new(&mut test_writer);
+            let mut element_writer = SimulatorWriter::new(&mut test_writer);
 
             writer.write_direct(&StubElectricSource {}, &mut element_writer);
 
@@ -692,7 +696,7 @@ mod tests {
         fn writes_alternating_current_state() {
             let writer = ElectricalStateWriter::new("APU_GEN");
             let mut test_writer = TestReaderWriter::new();
-            let mut element_writer = SimulatorElementWriter::new(&mut test_writer);
+            let mut element_writer = SimulatorWriter::new(&mut test_writer);
 
             writer.write_alternating(&StubElectricSource {}, &mut element_writer);
 
@@ -707,7 +711,7 @@ mod tests {
         fn writes_alternating_current_with_load_state() {
             let writer = ElectricalStateWriter::new("APU_GEN");
             let mut test_writer = TestReaderWriter::new();
-            let mut element_writer = SimulatorElementWriter::new(&mut test_writer);
+            let mut element_writer = SimulatorWriter::new(&mut test_writer);
 
             writer.write_alternating_with_load(&StubElectricSource {}, &mut element_writer);
 

@@ -1,4 +1,4 @@
-use crate::simulator::{SimulatorElement, SimulatorElementReader, SimulatorElementWriter};
+use crate::simulation::{SimulationElement, SimulatorReader, SimulatorWriter};
 
 pub struct OnOffFaultPushButton {
     is_on_id: String,
@@ -53,13 +53,13 @@ impl OnOffFaultPushButton {
         self.is_on == false
     }
 }
-impl SimulatorElement for OnOffFaultPushButton {
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+impl SimulationElement for OnOffFaultPushButton {
+    fn write(&self, writer: &mut SimulatorWriter) {
         writer.write_bool(&self.is_on_id, self.is_on());
         writer.write_bool(&self.has_fault_id, self.has_fault());
     }
 
-    fn read(&mut self, reader: &mut SimulatorElementReader) {
+    fn read(&mut self, reader: &mut SimulatorReader) {
         self.set_on(reader.read_bool(&self.is_on_id));
         self.set_fault(reader.read_bool(&self.has_fault_id));
     }
@@ -118,13 +118,13 @@ impl OnOffAvailablePushButton {
         self.is_on == false
     }
 }
-impl SimulatorElement for OnOffAvailablePushButton {
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+impl SimulationElement for OnOffAvailablePushButton {
+    fn write(&self, writer: &mut SimulatorWriter) {
         writer.write_bool(&self.is_on_id, self.is_on());
         writer.write_bool(&self.is_available_id, self.is_available());
     }
 
-    fn read(&mut self, reader: &mut SimulatorElementReader) {
+    fn read(&mut self, reader: &mut SimulatorReader) {
         self.set_on(reader.read_bool(&self.is_on_id));
         self.set_available(reader.read_bool(&self.is_available_id));
     }
@@ -179,13 +179,13 @@ impl NormalAltnFaultPushButton {
         self.has_fault = value;
     }
 }
-impl SimulatorElement for NormalAltnFaultPushButton {
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+impl SimulationElement for NormalAltnFaultPushButton {
+    fn write(&self, writer: &mut SimulatorWriter) {
         writer.write_bool(&self.is_normal_id, self.is_normal());
         writer.write_bool(&self.has_fault_id, self.has_fault());
     }
 
-    fn read(&mut self, reader: &mut SimulatorElementReader) {
+    fn read(&mut self, reader: &mut SimulatorReader) {
         self.set_normal(reader.read_bool(&self.is_normal_id));
         self.set_fault(reader.read_bool(&self.has_fault_id));
     }
@@ -244,13 +244,13 @@ impl AutoOffFaultPushButton {
         self.has_fault = value;
     }
 }
-impl SimulatorElement for AutoOffFaultPushButton {
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+impl SimulationElement for AutoOffFaultPushButton {
+    fn write(&self, writer: &mut SimulatorWriter) {
         writer.write_bool(&self.is_auto_id, self.is_auto());
         writer.write_bool(&self.has_fault_id, self.has_fault());
     }
 
-    fn read(&mut self, reader: &mut SimulatorElementReader) {
+    fn read(&mut self, reader: &mut SimulatorReader) {
         self.set_auto(reader.read_bool(&self.is_auto_id));
         self.set_fault(reader.read_bool(&self.has_fault_id));
     }
@@ -297,13 +297,13 @@ impl FaultReleasePushButton {
         self.has_fault
     }
 }
-impl SimulatorElement for FaultReleasePushButton {
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+impl SimulationElement for FaultReleasePushButton {
+    fn write(&self, writer: &mut SimulatorWriter) {
         writer.write_bool(&self.is_released_id, self.is_released());
         writer.write_bool(&self.has_fault_id, self.has_fault());
     }
 
-    fn read(&mut self, reader: &mut SimulatorElementReader) {
+    fn read(&mut self, reader: &mut SimulatorReader) {
         self.set_released(reader.read_bool(&self.is_released_id));
         self.set_fault(reader.read_bool(&self.has_fault_id));
     }
@@ -329,19 +329,19 @@ impl FirePushButton {
         self.is_released
     }
 }
-impl SimulatorElement for FirePushButton {
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+impl SimulationElement for FirePushButton {
+    fn write(&self, writer: &mut SimulatorWriter) {
         writer.write_bool(&self.is_released_id, self.is_released());
     }
 
-    fn read(&mut self, reader: &mut SimulatorElementReader) {
+    fn read(&mut self, reader: &mut SimulatorReader) {
         self.set(reader.read_bool(&self.is_released_id));
     }
 }
 
 #[cfg(test)]
 mod on_off_fault_push_button_tests {
-    use crate::simulator::TestReaderWriter;
+    use crate::simulation::test::TestReaderWriter;
 
     use super::*;
 
@@ -359,7 +359,7 @@ mod on_off_fault_push_button_tests {
     fn writes_its_state() {
         let button = OnOffFaultPushButton::new_on("ELEC_GEN_1");
         let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorElementWriter::new(&mut test_writer);
+        let mut writer = SimulatorWriter::new(&mut test_writer);
 
         button.write(&mut writer);
 
@@ -371,7 +371,7 @@ mod on_off_fault_push_button_tests {
 
 #[cfg(test)]
 mod on_off_available_push_button_tests {
-    use crate::simulator::TestReaderWriter;
+    use crate::simulation::test::TestReaderWriter;
 
     use super::*;
 
@@ -389,7 +389,7 @@ mod on_off_available_push_button_tests {
     fn writes_its_state() {
         let button = OnOffAvailablePushButton::new_on("ELEC_EXT_PWR");
         let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorElementWriter::new(&mut test_writer);
+        let mut writer = SimulatorWriter::new(&mut test_writer);
 
         button.write(&mut writer);
 
@@ -401,7 +401,7 @@ mod on_off_available_push_button_tests {
 
 #[cfg(test)]
 mod normal_altn_fault_push_button_tests {
-    use crate::simulator::TestReaderWriter;
+    use crate::simulation::test::TestReaderWriter;
 
     use super::*;
 
@@ -419,7 +419,7 @@ mod normal_altn_fault_push_button_tests {
     fn writes_its_state() {
         let button = NormalAltnFaultPushButton::new_normal("ELEC_AC_ESS_FEED");
         let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorElementWriter::new(&mut test_writer);
+        let mut writer = SimulatorWriter::new(&mut test_writer);
 
         button.write(&mut writer);
 
@@ -431,7 +431,7 @@ mod normal_altn_fault_push_button_tests {
 
 #[cfg(test)]
 mod auto_off_fault_push_button_tests {
-    use crate::simulator::TestReaderWriter;
+    use crate::simulation::test::TestReaderWriter;
 
     use super::*;
 
@@ -449,7 +449,7 @@ mod auto_off_fault_push_button_tests {
     fn writes_its_state() {
         let button = AutoOffFaultPushButton::new_auto("ELEC_BUS_TIE");
         let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorElementWriter::new(&mut test_writer);
+        let mut writer = SimulatorWriter::new(&mut test_writer);
 
         button.write(&mut writer);
 
@@ -461,7 +461,7 @@ mod auto_off_fault_push_button_tests {
 
 #[cfg(test)]
 mod fault_release_push_button_tests {
-    use crate::simulator::TestReaderWriter;
+    use crate::simulation::test::TestReaderWriter;
 
     use super::*;
 
@@ -500,7 +500,7 @@ mod fault_release_push_button_tests {
     fn writes_its_state() {
         let button = FaultReleasePushButton::new_in("IDG_1");
         let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorElementWriter::new(&mut test_writer);
+        let mut writer = SimulatorWriter::new(&mut test_writer);
 
         button.write(&mut writer);
 
@@ -512,8 +512,9 @@ mod fault_release_push_button_tests {
 
 #[cfg(test)]
 mod fire_push_button_tests {
+    use crate::simulation::test::TestReaderWriter;
+
     use super::*;
-    use crate::simulator::TestReaderWriter;
 
     #[test]
     fn new_fire_push_button_is_not_released() {
@@ -543,7 +544,7 @@ mod fire_push_button_tests {
     fn writes_its_state() {
         let button = FirePushButton::new("APU");
         let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorElementWriter::new(&mut test_writer);
+        let mut writer = SimulatorWriter::new(&mut test_writer);
 
         button.write(&mut writer);
 

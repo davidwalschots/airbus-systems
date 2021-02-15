@@ -1,5 +1,5 @@
 use super::AirIntakeFlapController;
-use crate::{shared::random_number, simulator::UpdateContext};
+use crate::{shared::random_number, simulation::UpdateContext};
 use std::time::Duration;
 use uom::si::{f64::*, ratio::percent};
 
@@ -90,7 +90,7 @@ impl AirIntakeFlap {
 
 #[cfg(test)]
 mod air_intake_flap_tests {
-    use crate::simulator::context_with;
+    use crate::simulation::context_with;
 
     use super::*;
     use ntest::assert_about_eq;

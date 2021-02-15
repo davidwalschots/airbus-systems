@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::{ElectricalBus, ElectricalBusType, Potential, PowerSource};
-use crate::simulator::{SimulatorElement, SimulatorElementVisitor};
+use crate::simulation::{SimulationElement, SimulationElementVisitor};
 use uom::si::{f64::*, power::watt};
 
 pub struct SupplyPowerVisitor<'a> {
@@ -12,8 +12,8 @@ impl<'a> SupplyPowerVisitor<'a> {
         SupplyPowerVisitor { supply }
     }
 }
-impl<'a> SimulatorElementVisitor for SupplyPowerVisitor<'a> {
-    fn visit<T: SimulatorElement>(&mut self, visited: &mut T) {
+impl<'a> SimulationElementVisitor for SupplyPowerVisitor<'a> {
+    fn visit<T: SimulationElement>(&mut self, visited: &mut T) {
         visited.supply_power(&self.supply);
     }
 }
@@ -26,8 +26,8 @@ impl<'a, 'b> DeterminePowerConsumptionVisitor<'a, 'b> {
         DeterminePowerConsumptionVisitor { state }
     }
 }
-impl<'a, 'b> SimulatorElementVisitor for DeterminePowerConsumptionVisitor<'a, 'b> {
-    fn visit<T: SimulatorElement>(&mut self, visited: &mut T) {
+impl<'a, 'b> SimulationElementVisitor for DeterminePowerConsumptionVisitor<'a, 'b> {
+    fn visit<T: SimulationElement>(&mut self, visited: &mut T) {
         visited.determine_power_consumption(&mut self.state);
     }
 }
@@ -40,8 +40,8 @@ impl<'a> WritePowerConsumptionVisitor<'a> {
         WritePowerConsumptionVisitor { state }
     }
 }
-impl<'a> SimulatorElementVisitor for WritePowerConsumptionVisitor<'a> {
-    fn visit<T: SimulatorElement>(&mut self, visited: &mut T) {
+impl<'a> SimulationElementVisitor for WritePowerConsumptionVisitor<'a> {
+    fn visit<T: SimulationElement>(&mut self, visited: &mut T) {
         visited.write_power_consumption(&self.state);
     }
 }
@@ -161,7 +161,7 @@ impl PowerConsumption {
         }
     }
 }
-impl SimulatorElement for PowerConsumption {
+impl SimulationElement for PowerConsumption {
     fn supply_power(&mut self, supply: &PowerSupply) {
         self.try_powering(supply);
     }
@@ -186,17 +186,17 @@ impl<'a> PowerConsumptionHandler<'a> {
         }
     }
 
-    pub fn supply_power_to_elements<T: SimulatorElement>(&self, element: &mut T) {
+    pub fn supply_power_to_elements<T: SimulationElement>(&self, element: &mut T) {
         let mut visitor = SupplyPowerVisitor::new(&self.supply);
         element.accept(&mut visitor);
     }
 
-    pub fn determine_power_consumption<T: SimulatorElement>(&mut self, element: &mut T) {
+    pub fn determine_power_consumption<T: SimulationElement>(&mut self, element: &mut T) {
         let mut visitor = DeterminePowerConsumptionVisitor::new(&mut self.power_consumption_state);
         element.accept(&mut visitor);
     }
 
-    pub fn write_power_consumption<T: SimulatorElement>(&mut self, element: &mut T) {
+    pub fn write_power_consumption<T: SimulationElement>(&mut self, element: &mut T) {
         let mut visitor = WritePowerConsumptionVisitor::new(&self.power_consumption_state);
         element.accept(&mut visitor);
     }
@@ -222,7 +222,7 @@ mod tests {
             Potential::ApuGenerator
         }
     }
-    impl SimulatorElement for ApuStub {
+    impl SimulationElement for ApuStub {
         fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
             self.used_power = state.total_consumption_for(&Potential::ApuGenerator);
         }
@@ -381,8 +381,8 @@ mod tests {
                 }
             }
         }
-        impl SimulatorElement for AircraftStub {
-            fn accept<T: SimulatorElementVisitor>(&mut self, visitor: &mut T) {
+        impl SimulationElement for AircraftStub {
+            fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
                 self.door.accept(visitor);
                 self.light.accept(visitor);
                 self.screen.accept(visitor);
@@ -417,8 +417,8 @@ mod tests {
                 }
             }
         }
-        impl SimulatorElement for PowerConsumerStub {
-            fn accept<T: SimulatorElementVisitor>(&mut self, visitor: &mut T) {
+        impl SimulationElement for PowerConsumerStub {
+            fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
                 self.power_consumption.accept(visitor);
                 visitor.visit(self);
             }

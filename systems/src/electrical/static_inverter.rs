@@ -2,7 +2,7 @@ use super::{
     ElectricalStateWriter, Potential, PowerConsumptionState, PowerSource, Powerable,
     ProvideFrequency, ProvidePotential,
 };
-use crate::simulator::{SimulatorElement, SimulatorElementWriter};
+use crate::simulation::{SimulationElement, SimulatorWriter};
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
 pub struct StaticInverter {
@@ -69,19 +69,19 @@ impl ProvideFrequency for StaticInverter {
         }
     }
 }
-impl SimulatorElement for StaticInverter {
+impl SimulationElement for StaticInverter {
     fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
         // TODO
     }
 
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+    fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_alternating(self, writer);
     }
 }
 
 #[cfg(test)]
 mod static_inverter_tests {
-    use crate::simulator::TestReaderWriter;
+    use crate::simulation::test::TestReaderWriter;
 
     use super::*;
 
@@ -124,7 +124,7 @@ mod static_inverter_tests {
     fn writes_its_state() {
         let static_inverter = static_inverter();
         let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorElementWriter::new(&mut test_writer);
+        let mut writer = SimulatorWriter::new(&mut test_writer);
 
         static_inverter.write(&mut writer);
 

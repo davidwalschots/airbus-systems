@@ -8,4 +8,4 @@ pub mod hydraulic;
 pub mod overhead;
 pub mod pneumatic;
 pub mod shared;
-pub mod simulator;
+pub mod simulation;

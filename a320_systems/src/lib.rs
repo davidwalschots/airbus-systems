@@ -6,7 +6,7 @@ use systems::{
     },
     electrical::{ElectricalBusStateFactory, ExternalPowerSource, PowerConsumptionHandler},
     engine::Engine,
-    simulator::{Aircraft, SimulatorElement, SimulatorElementVisitor, UpdateContext},
+    simulation::{Aircraft, SimulationElement, SimulationElementVisitor, UpdateContext},
 };
 
 mod electrical;
@@ -95,8 +95,8 @@ impl Aircraft for A320 {
         power_consumption_handler.write_power_consumption(self);
     }
 }
-impl SimulatorElement for A320 {
-    fn accept<T: SimulatorElementVisitor>(&mut self, visitor: &mut T) {
+impl SimulationElement for A320 {
+    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
         self.apu.accept(visitor);
         self.apu_fire_overhead.accept(visitor);
         self.apu_overhead.accept(visitor);

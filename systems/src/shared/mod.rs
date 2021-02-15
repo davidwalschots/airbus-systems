@@ -1,4 +1,4 @@
-use crate::simulator::UpdateContext;
+use crate::simulation::UpdateContext;
 use std::time::Duration;
 
 mod random;
@@ -77,7 +77,7 @@ impl<T: Copy + Default> TimedRandom<T> {
 
 #[cfg(test)]
 mod delayed_true_logic_gate_tests {
-    use crate::simulator::context_with;
+    use crate::simulation::context_with;
 
     use super::*;
 
@@ -172,7 +172,7 @@ mod delayed_true_logic_gate_tests {
 
 #[cfg(test)]
 mod timed_random_tests {
-    use crate::simulator::context_with;
+    use crate::simulation::context_with;
 
     use super::TimedRandom;
     use std::time::Duration;

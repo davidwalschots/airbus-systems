@@ -2,7 +2,7 @@ use std::time::Duration;
 use uom::si::{f64::*, length::foot, thermodynamic_temperature::degree_celsius, velocity::knot};
 
 /// Provides data unowned by any system in the aircraft system simulation
-/// for the purpose of handling an update frame.
+/// for the purpose of handling a simulation tick.
 #[derive(Debug)]
 pub struct UpdateContext {
     pub delta: Duration,

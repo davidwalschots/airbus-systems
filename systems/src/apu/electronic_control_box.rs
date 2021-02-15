@@ -6,7 +6,7 @@ use super::{
 use crate::{
     electrical::PowerSource,
     pneumatic::{BleedAirValveController, Valve},
-    simulator::UpdateContext,
+    simulation::UpdateContext,
 };
 use std::time::Duration;
 use uom::si::{f64::*, length::foot, ratio::percent, thermodynamic_temperature::degree_celsius};

@@ -8,9 +8,8 @@ use crate::{
     electrical::{Potential, PowerSource, ProvideFrequency, ProvidePotential},
     overhead::{FirePushButton, OnOffAvailablePushButton, OnOffFaultPushButton},
     pneumatic::{BleedAirValve, BleedAirValveState, Valve},
-    simulator::{
-        context_with, SimulatorElement, SimulatorElementVisitor, SimulatorElementWriter,
-        UpdateContext,
+    simulation::{
+        context_with, SimulationElement, SimulationElementVisitor, SimulatorWriter, UpdateContext,
     },
 };
 use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
@@ -271,13 +270,13 @@ impl<T: ApuGenerator> PowerSource for AuxiliaryPowerUnit<T> {
         self.generator.output_potential()
     }
 }
-impl<T: ApuGenerator> SimulatorElement for AuxiliaryPowerUnit<T> {
-    fn accept<V: SimulatorElementVisitor>(&mut self, visitor: &mut V) {
+impl<T: ApuGenerator> SimulationElement for AuxiliaryPowerUnit<T> {
+    fn accept<V: SimulationElementVisitor>(&mut self, visitor: &mut V) {
         self.generator.accept(visitor);
         visitor.visit(self);
     }
 
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+    fn write(&self, writer: &mut SimulatorWriter) {
         writer.write_bool(
             "APU_FLAP_ECAM_OPEN",
             self.air_intake_flap_is_apu_ecam_open(),
@@ -338,7 +337,7 @@ pub enum TurbineState {
 }
 
 pub trait ApuGenerator:
-    PowerSource + SimulatorElement + ProvidePotential + ProvideFrequency
+    PowerSource + SimulationElement + ProvidePotential + ProvideFrequency
 {
     fn update(&mut self, context: &UpdateContext, n: Ratio, is_emergency_shutdown: bool);
 }
@@ -357,8 +356,8 @@ impl AuxiliaryPowerUnitFireOverheadPanel {
         self.apu_fire_button.is_released()
     }
 }
-impl SimulatorElement for AuxiliaryPowerUnitFireOverheadPanel {
-    fn accept<T: SimulatorElementVisitor>(&mut self, visitor: &mut T) {
+impl SimulationElement for AuxiliaryPowerUnitFireOverheadPanel {
+    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
         self.apu_fire_button.accept(visitor);
 
         visitor.visit(self);
@@ -408,8 +407,8 @@ impl AuxiliaryPowerUnitOverheadPanel {
         self.start.is_available()
     }
 }
-impl SimulatorElement for AuxiliaryPowerUnitOverheadPanel {
-    fn accept<T: SimulatorElementVisitor>(&mut self, visitor: &mut T) {
+impl SimulationElement for AuxiliaryPowerUnitOverheadPanel {
+    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
         self.master.accept(visitor);
         self.start.accept(visitor);
 
@@ -419,7 +418,7 @@ impl SimulatorElement for AuxiliaryPowerUnitOverheadPanel {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::simulator::context_with;
+    use crate::simulation::context_with;
 
     use super::*;
     use std::time::Duration;
@@ -761,11 +760,10 @@ pub mod tests {
 
     #[cfg(test)]
     mod apu_tests {
-        use ntest::{assert_about_eq, timeout};
-
-        use crate::simulator::TestReaderWriter;
+        use crate::simulation::test::TestReaderWriter;
 
         use super::*;
+        use ntest::{assert_about_eq, timeout};
 
         const APPROXIMATE_STARTUP_TIME: u64 = 49;
 
@@ -1625,7 +1623,7 @@ pub mod tests {
         fn writes_its_state() {
             let apu = tester().apu();
             let mut test_writer = TestReaderWriter::new();
-            let mut writer = SimulatorElementWriter::new(&mut test_writer);
+            let mut writer = SimulatorWriter::new(&mut test_writer);
 
             apu.write(&mut writer);
 

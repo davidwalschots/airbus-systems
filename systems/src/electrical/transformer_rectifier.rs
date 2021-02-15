@@ -2,7 +2,7 @@ use super::{
     ElectricalStateWriter, Potential, PowerConsumptionState, PowerSource, Powerable,
     ProvideCurrent, ProvidePotential,
 };
-use crate::simulator::{SimulatorElement, SimulatorElementWriter};
+use crate::simulation::{SimulationElement, SimulatorWriter};
 use uom::si::{electric_current::ampere, electric_potential::volt, f64::*};
 
 pub struct TransformerRectifier {
@@ -79,19 +79,19 @@ impl ProvidePotential for TransformerRectifier {
         }
     }
 }
-impl SimulatorElement for TransformerRectifier {
+impl SimulationElement for TransformerRectifier {
     fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
         // TODO
     }
 
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+    fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_direct(self, writer);
     }
 }
 
 #[cfg(test)]
 mod transformer_rectifier_tests {
-    use crate::simulator::TestReaderWriter;
+    use crate::simulation::test::TestReaderWriter;
 
     use super::*;
 
@@ -147,7 +147,7 @@ mod transformer_rectifier_tests {
     fn writes_its_state() {
         let transformer_rectifier = transformer_rectifier();
         let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorElementWriter::new(&mut test_writer);
+        let mut writer = SimulatorWriter::new(&mut test_writer);
 
         transformer_rectifier.write(&mut writer);
 

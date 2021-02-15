@@ -1,6 +1,6 @@
 use uom::si::{f64::*, ratio::percent};
 
-use crate::simulator::{SimulatorElement, SimulatorElementReader, UpdateContext};
+use crate::simulation::{SimulationElement, SimulatorReader, UpdateContext};
 
 pub struct Engine {
     n2_id: String,
@@ -16,8 +16,8 @@ impl Engine {
 
     pub fn update(&mut self, _: &UpdateContext) {}
 }
-impl SimulatorElement for Engine {
-    fn read(&mut self, reader: &mut SimulatorElementReader) {
+impl SimulationElement for Engine {
+    fn read(&mut self, reader: &mut SimulatorReader) {
         self.n2 = Ratio::new::<percent>(reader.read_f64(&self.n2_id));
     }
 }

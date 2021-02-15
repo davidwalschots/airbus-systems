@@ -5,7 +5,7 @@ use super::{
 use crate::{
     engine::Engine,
     overhead::FaultReleasePushButton,
-    simulator::{SimulatorElement, SimulatorElementWriter, UpdateContext},
+    simulation::{SimulationElement, SimulatorWriter, UpdateContext},
 };
 use std::cmp::min;
 use uom::si::{
@@ -94,13 +94,13 @@ impl ProvideLoad for EngineGenerator {
         true
     }
 }
-impl SimulatorElement for EngineGenerator {
+impl SimulationElement for EngineGenerator {
     fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
         let watts = state.total_consumption_for(&Potential::EngineGenerator(self.number));
         // TODO
     }
 
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+    fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_alternating_with_load(self, writer);
     }
 }
@@ -255,7 +255,7 @@ mod tests {
     #[cfg(test)]
     mod engine_generator_tests {
         use super::*;
-        use crate::simulator::{context_with, TestReaderWriter};
+        use crate::simulation::{context_with, test::TestReaderWriter};
         use std::time::Duration;
 
         #[test]
@@ -297,7 +297,7 @@ mod tests {
         fn writes_its_state() {
             let engine_gen = engine_generator();
             let mut test_writer = TestReaderWriter::new();
-            let mut writer = SimulatorElementWriter::new(&mut test_writer);
+            let mut writer = SimulatorWriter::new(&mut test_writer);
 
             engine_gen.write(&mut writer);
 
@@ -333,7 +333,7 @@ mod tests {
 
     #[cfg(test)]
     mod integrated_drive_generator_tests {
-        use crate::simulator::context_with;
+        use crate::simulation::context_with;
 
         use super::*;
         use std::time::Duration;

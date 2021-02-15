@@ -5,7 +5,7 @@ use crate::{
         ProvideLoad, ProvidePotential,
     },
     shared::{random_number, TimedRandom},
-    simulator::{SimulatorElement, SimulatorElementWriter, UpdateContext},
+    simulation::{SimulationElement, SimulatorWriter, UpdateContext},
 };
 use std::time::Duration;
 use uom::si::{
@@ -519,8 +519,8 @@ impl PowerSource for Aps3200ApuGenerator {
         self.output
     }
 }
-impl SimulatorElement for Aps3200ApuGenerator {
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+impl SimulationElement for Aps3200ApuGenerator {
+    fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_alternating_with_load(self, writer);
     }
 
@@ -536,7 +536,7 @@ mod apu_generator_tests {
 
     use crate::{
         apu::tests::{tester, tester_with},
-        simulator::{context, TestReaderWriter},
+        simulation::{context, test::TestReaderWriter},
     };
 
     use super::*;
@@ -667,7 +667,7 @@ mod apu_generator_tests {
     fn writes_its_state() {
         let apu_gen = apu_generator();
         let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorElementWriter::new(&mut test_writer);
+        let mut writer = SimulatorWriter::new(&mut test_writer);
 
         apu_gen.write(&mut writer);
 

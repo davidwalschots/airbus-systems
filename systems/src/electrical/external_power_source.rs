@@ -1,6 +1,4 @@
-use crate::simulator::{
-    SimulatorElement, SimulatorElementReader, SimulatorElementWriter, UpdateContext,
-};
+use crate::simulation::{SimulationElement, SimulatorReader, SimulatorWriter, UpdateContext};
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
 use super::{ElectricalStateWriter, Potential, PowerSource, ProvideFrequency, ProvidePotential};
@@ -66,19 +64,19 @@ impl ProvideFrequency for ExternalPowerSource {
         }
     }
 }
-impl SimulatorElement for ExternalPowerSource {
-    fn read(&mut self, reader: &mut SimulatorElementReader) {
+impl SimulationElement for ExternalPowerSource {
+    fn read(&mut self, reader: &mut SimulatorReader) {
         self.is_connected = reader.read_bool("EXTERNAL POWER AVAILABLE:1");
     }
 
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+    fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_alternating(self, writer);
     }
 }
 
 #[cfg(test)]
 mod external_power_source_tests {
-    use crate::simulator::TestReaderWriter;
+    use crate::simulation::test::TestReaderWriter;
 
     use super::*;
 
@@ -107,7 +105,7 @@ mod external_power_source_tests {
     fn writes_its_state() {
         let external_power = external_power_source();
         let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorElementWriter::new(&mut test_writer);
+        let mut writer = SimulatorWriter::new(&mut test_writer);
 
         external_power.write(&mut writer);
 

@@ -2,7 +2,7 @@ use super::{
     ElectricalStateWriter, Potential, PowerConsumptionState, PowerSource, Powerable,
     ProvideCurrent, ProvidePotential,
 };
-use crate::simulator::{SimulatorElement, SimulatorElementWriter};
+use crate::simulation::{SimulationElement, SimulatorWriter};
 use uom::si::{
     electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f64::*,
 };
@@ -92,19 +92,19 @@ impl ProvidePotential for Battery {
         }
     }
 }
-impl SimulatorElement for Battery {
+impl SimulationElement for Battery {
     fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
         // TODO: Charging and depleting battery when used.
     }
 
-    fn write(&self, writer: &mut SimulatorElementWriter) {
+    fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_direct(self, writer);
     }
 }
 
 #[cfg(test)]
 mod battery_tests {
-    use crate::simulator::TestReaderWriter;
+    use crate::simulation::test::TestReaderWriter;
 
     use super::*;
 
@@ -175,7 +175,7 @@ mod battery_tests {
     fn writes_its_state() {
         let bus = full_battery();
         let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorElementWriter::new(&mut test_writer);
+        let mut writer = SimulatorWriter::new(&mut test_writer);
 
         bus.write(&mut writer);
 

@@ -4,11 +4,11 @@ use msfs::{
     MSFSEvent,
 };
 use std::collections::HashMap;
-use systems::simulator::{Simulation, SimulatorReaderWriter};
+use systems::simulation::{Simulation, SimulatorReaderWriter};
 
 #[msfs::gauge(name=systems)]
 async fn systems(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> {
-    let mut simulation = Simulation::new(A320::new(), A320SimulatorReadWriter::new()?);
+    let mut simulation = Simulation::new(A320::new(), A320SimulatorReaderWriter::new()?);
 
     while let Some(event) = gauge.next_event().await {
         if let MSFSEvent::PreDraw(d) = event {
@@ -19,7 +19,7 @@ async fn systems(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-struct A320SimulatorReadWriter {
+struct A320SimulatorReaderWriter {
     dynamic_named_variables: HashMap<String, NamedVariable>,
 
     ambient_temperature: AircraftVariable,
@@ -35,9 +35,9 @@ struct A320SimulatorReadWriter {
     left_inner_tank_fuel_quantity: AircraftVariable,
     unlimited_fuel: AircraftVariable,
 }
-impl A320SimulatorReadWriter {
+impl A320SimulatorReaderWriter {
     fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(A320SimulatorReadWriter {
+        Ok(A320SimulatorReaderWriter {
             dynamic_named_variables: HashMap::new(),
             ambient_temperature: AircraftVariable::from("AMBIENT TEMPERATURE", "celsius", 0)?,
             apu_generator_pb_on: AircraftVariable::from("APU GENERATOR SWITCH", "Bool", 0)?,
@@ -70,7 +70,7 @@ impl A320SimulatorReadWriter {
         })
     }
 }
-impl SimulatorReaderWriter for A320SimulatorReadWriter {
+impl SimulatorReaderWriter for A320SimulatorReaderWriter {
     fn read(&mut self, name: &str) -> f64 {
         match name {
             "OVHD_ELEC_APU_GEN_PB_IS_ON" => self.apu_generator_pb_on.get(),
