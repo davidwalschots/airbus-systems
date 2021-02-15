@@ -28,11 +28,12 @@ struct A320SimulatorReaderWriter {
     external_power_pb_on: AircraftVariable,
     engine_generator_1_pb_on: AircraftVariable,
     engine_generator_2_pb_on: AircraftVariable,
-    engine_1_n2: AircraftVariable,
-    engine_2_n2: AircraftVariable,
-    indicated_airspeed: AircraftVariable,
+    engine_n2_rpm_1: AircraftVariable,
+    engine_n2_rpm_2: AircraftVariable,
+    airspeed_indicated: AircraftVariable,
     indicated_altitude: AircraftVariable,
-    left_inner_tank_fuel_quantity: AircraftVariable,
+    fuel_tank_left_main_quantity: AircraftVariable,
+    sim_on_ground: AircraftVariable,
     unlimited_fuel: AircraftVariable,
 }
 impl A320SimulatorReaderWriter {
@@ -57,15 +58,16 @@ impl A320SimulatorReaderWriter {
                 "Bool",
                 2,
             )?,
-            engine_1_n2: AircraftVariable::from("ENG N2 RPM", "Percent", 1)?,
-            engine_2_n2: AircraftVariable::from("ENG N2 RPM", "Percent", 2)?,
-            indicated_airspeed: AircraftVariable::from("AIRSPEED INDICATED", "Knots", 0)?,
+            engine_n2_rpm_1: AircraftVariable::from("ENG N2 RPM", "Percent", 1)?,
+            engine_n2_rpm_2: AircraftVariable::from("ENG N2 RPM", "Percent", 2)?,
+            airspeed_indicated: AircraftVariable::from("AIRSPEED INDICATED", "Knots", 0)?,
             indicated_altitude: AircraftVariable::from("INDICATED ALTITUDE", "Feet", 0)?,
-            left_inner_tank_fuel_quantity: AircraftVariable::from(
+            fuel_tank_left_main_quantity: AircraftVariable::from(
                 "FUEL TANK LEFT MAIN QUANTITY",
                 "Pounds",
                 0,
             )?,
+            sim_on_ground: AircraftVariable::from("SIM ON GROUND", "Bool", 0)?,
             unlimited_fuel: AircraftVariable::from("UNLIMITED FUEL", "Bool", 0)?,
         })
     }
@@ -80,12 +82,13 @@ impl SimulatorReaderWriter for A320SimulatorReaderWriter {
             "OVHD_ELEC_ENG_GEN_2_PB_IS_ON" => self.engine_generator_2_pb_on.get(),
             "AMBIENT TEMPERATURE" => self.ambient_temperature.get(),
             "EXTERNAL POWER AVAILABLE:1" => self.external_power_available.get(),
-            "ENG N2 RPM:1" => self.engine_1_n2.get(),
-            "ENG N2 RPM:2" => self.engine_2_n2.get(),
-            "FUEL TANK LEFT MAIN QUANTITY" => self.left_inner_tank_fuel_quantity.get(),
+            "ENG N2 RPM:1" => self.engine_n2_rpm_1.get(),
+            "ENG N2 RPM:2" => self.engine_n2_rpm_2.get(),
+            "FUEL TANK LEFT MAIN QUANTITY" => self.fuel_tank_left_main_quantity.get(),
             "UNLIMITED FUEL" => self.unlimited_fuel.get(),
-            "AIRSPEED INDICATED" => self.indicated_airspeed.get(),
+            "AIRSPEED INDICATED" => self.airspeed_indicated.get(),
             "INDICATED ALTITUDE" => self.indicated_altitude.get(),
+            "SIM ON GROUND" => self.sim_on_ground.get(),
             _ => {
                 lookup_named_variable(&mut self.dynamic_named_variables, "A32NX_", name).get_value()
             }

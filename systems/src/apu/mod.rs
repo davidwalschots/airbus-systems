@@ -502,12 +502,12 @@ pub mod tests {
         }
 
         fn master_on(mut self) -> Self {
-            self.apu_overhead.master.turn_on();
+            self.apu_overhead.master.push_on();
             self
         }
 
         fn master_off(mut self) -> Self {
-            self.apu_overhead.master.turn_off();
+            self.apu_overhead.master.push_off();
             self
         }
 
@@ -522,7 +522,7 @@ pub mod tests {
         }
 
         fn bleed_air_off(mut self) -> Self {
-            self.apu_bleed.turn_off();
+            self.apu_bleed.push_off();
             self
         }
 
@@ -602,12 +602,12 @@ pub mod tests {
         }
 
         fn running_apu_with_bleed_air(mut self) -> Self {
-            self.apu_bleed.turn_on();
+            self.apu_bleed.push_on();
             self.running_apu()
         }
 
         fn running_apu_without_bleed_air(mut self) -> Self {
-            self.apu_bleed.turn_off();
+            self.apu_bleed.push_off();
             self.running_apu()
         }
 

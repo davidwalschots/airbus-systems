@@ -66,7 +66,7 @@ pub mod tests {
     #[test]
     fn when_apu_bleed_on_and_valve_is_closed_fault_is_shown() {
         let mut overhead = overhead();
-        overhead.apu_bleed.turn_on();
+        overhead.apu_bleed.push_on();
 
         overhead.update_after_apu(&bleed_air_valve_state(false));
 
@@ -76,7 +76,7 @@ pub mod tests {
     #[test]
     fn when_apu_bleed_on_and_valve_is_open_fault_is_not_shown() {
         let mut overhead = overhead();
-        overhead.apu_bleed.turn_on();
+        overhead.apu_bleed.push_on();
 
         overhead.update_after_apu(&bleed_air_valve_state(true));
 
@@ -86,7 +86,7 @@ pub mod tests {
     #[test]
     fn when_apu_bleed_off_and_valve_is_open_fault_is_shown() {
         let mut overhead = overhead();
-        overhead.apu_bleed.turn_off();
+        overhead.apu_bleed.push_off();
 
         overhead.update_after_apu(&bleed_air_valve_state(true));
 
@@ -96,7 +96,7 @@ pub mod tests {
     #[test]
     fn when_apu_bleed_off_and_valve_is_closed_fault_is_not_shown() {
         let mut overhead = overhead();
-        overhead.apu_bleed.turn_off();
+        overhead.apu_bleed.push_off();
 
         overhead.update_after_apu(&bleed_air_valve_state(false));
 

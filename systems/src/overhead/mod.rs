@@ -33,11 +33,11 @@ impl OnOffFaultPushButton {
         self.has_fault = has_fault;
     }
 
-    pub fn turn_on(&mut self) {
+    pub fn push_on(&mut self) {
         self.is_on = true;
     }
 
-    pub fn turn_off(&mut self) {
+    pub fn push_off(&mut self) {
         self.is_on = false;
     }
 

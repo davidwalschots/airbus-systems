@@ -4,7 +4,6 @@ use uom::si::{f64::*, length::foot, thermodynamic_temperature::degree_celsius, v
 mod update_context;
 pub use update_context::*;
 
-#[cfg(test)]
 pub mod test;
 
 use crate::electrical::{PowerConsumptionState, PowerSupply};
@@ -247,6 +246,7 @@ impl<'a> SimulatorReader<'a> {
             ),
             indicated_airspeed: Velocity::new::<knot>(self.read_f64("AIRSPEED INDICATED")),
             indicated_altitude: Length::new::<foot>(self.read_f64("INDICATED ALTITUDE")),
+            is_on_ground: self.read_bool("SIM ON GROUND"),
             delta: delta_time,
         }
     }

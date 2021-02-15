@@ -1,6 +1,6 @@
 use super::{from_bool, SimulatorReaderWriter};
 
-pub(crate) struct TestReaderWriter {
+pub struct TestReaderWriter {
     variables: Vec<(String, f64)>,
 }
 impl TestReaderWriter {

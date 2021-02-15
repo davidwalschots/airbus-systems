@@ -9,6 +9,7 @@ pub struct UpdateContext {
     pub indicated_airspeed: Velocity,
     pub indicated_altitude: Length,
     pub ambient_temperature: ThermodynamicTemperature,
+    pub is_on_ground: bool,
 }
 impl UpdateContext {
     pub fn new(
@@ -16,13 +17,19 @@ impl UpdateContext {
         indicated_airspeed: Velocity,
         indicated_altitude: Length,
         ambient_temperature: ThermodynamicTemperature,
+        is_on_ground: bool,
     ) -> UpdateContext {
         UpdateContext {
             delta,
             indicated_airspeed,
             indicated_altitude,
             ambient_temperature,
+            is_on_ground,
         }
+    }
+
+    pub fn is_in_flight(&self) -> bool {
+        !self.is_on_ground
     }
 }
 
@@ -39,6 +46,7 @@ pub struct UpdateContextBuilder {
     indicated_airspeed: Velocity,
     indicated_altitude: Length,
     ambient_temperature: ThermodynamicTemperature,
+    is_on_ground: bool,
 }
 impl UpdateContextBuilder {
     fn new() -> UpdateContextBuilder {
@@ -47,6 +55,7 @@ impl UpdateContextBuilder {
             indicated_airspeed: Velocity::new::<knot>(250.),
             indicated_altitude: Length::new::<foot>(5000.),
             ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
+            is_on_ground: false,
         }
     }
 
@@ -56,6 +65,7 @@ impl UpdateContextBuilder {
             self.indicated_airspeed,
             self.indicated_altitude,
             self.ambient_temperature,
+            self.is_on_ground,
         )
     }
 
@@ -83,6 +93,11 @@ impl UpdateContextBuilder {
         ambient_temperature: ThermodynamicTemperature,
     ) -> UpdateContextBuilder {
         self.ambient_temperature = ambient_temperature;
+        self
+    }
+
+    pub fn is_on_ground(mut self, is_on_ground: bool) -> UpdateContextBuilder {
+        self.is_on_ground = is_on_ground;
         self
     }
 }

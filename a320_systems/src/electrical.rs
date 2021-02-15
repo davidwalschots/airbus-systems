@@ -14,19 +14,23 @@ use systems::{
         OnOffAvailablePushButton, OnOffFaultPushButton,
     },
     shared::DelayedTrueLogicGate,
-    simulation::{SimulationElement, SimulationElementVisitor, UpdateContext},
+    simulation::{SimulationElement, SimulationElementVisitor, SimulatorWriter, UpdateContext},
 };
 use uom::si::{f64::*, velocity::knot};
 
 pub struct A320Electrical {
     alternating_current: A320AlternatingCurrentElectrical,
     direct_current: A320DirectCurrentElectrical,
+    main_galley: MainGalley,
+    secondary_galley: SecondaryGalley,
 }
 impl A320Electrical {
     pub fn new() -> A320Electrical {
         A320Electrical {
             alternating_current: A320AlternatingCurrentElectrical::new(),
             direct_current: A320DirectCurrentElectrical::new(),
+            main_galley: MainGalley::new(),
+            secondary_galley: SecondaryGalley::new(),
         }
     }
 
@@ -51,6 +55,11 @@ impl A320Electrical {
 
         self.alternating_current
             .update_with_direct_current_state(context, &self.direct_current);
+
+        self.main_galley
+            .update(context, &self.alternating_current, overhead);
+        self.secondary_galley
+            .update(&self.alternating_current, overhead);
 
         self.debug_assert_invariants();
     }
@@ -103,6 +112,10 @@ impl A320Electrical {
         self.direct_current.hot_bus_2()
     }
 
+    fn galley_is_shed(&self) -> bool {
+        self.main_galley.is_shed() || self.secondary_galley.is_shed()
+    }
+
     fn debug_assert_invariants(&self) {
         self.alternating_current.debug_assert_invariants();
         self.direct_current.debug_assert_invariants();
@@ -133,6 +146,10 @@ impl SimulationElement for A320Electrical {
         self.direct_current.accept(visitor);
         visitor.visit(self);
     }
+
+    fn write(&self, writer: &mut SimulatorWriter) {
+        writer.write_bool("ELEC_GALLEY_IS_SHED", self.galley_is_shed())
+    }
 }
 
 trait AlternatingCurrentState {
@@ -146,6 +163,56 @@ trait AlternatingCurrentState {
     fn tr_1(&self) -> &TransformerRectifier;
     fn tr_2(&self) -> &TransformerRectifier;
     fn tr_ess(&self) -> &TransformerRectifier;
+}
+
+struct MainGalley {
+    is_shed: bool,
+}
+impl MainGalley {
+    fn new() -> Self {
+        Self { is_shed: false }
+    }
+
+    fn is_shed(&self) -> bool {
+        self.is_shed
+    }
+
+    fn update(
+        &mut self,
+        context: &UpdateContext,
+        alternating_current: &A320AlternatingCurrentElectrical,
+        overhead: &A320ElectricalOverheadPanel,
+    ) {
+        self.is_shed = alternating_current.main_sources_unpowered()
+            || alternating_current.main_sources_powered_by_single_engine_generator_only()
+            || (alternating_current.main_sources_powered_by_apu_generator_only()
+                && context.is_in_flight())
+            || overhead.commercial_is_off()
+            || overhead.galy_and_cab_is_off();
+    }
+}
+
+struct SecondaryGalley {
+    is_shed: bool,
+}
+impl SecondaryGalley {
+    fn new() -> Self {
+        Self { is_shed: false }
+    }
+
+    fn is_shed(&self) -> bool {
+        self.is_shed
+    }
+
+    fn update(
+        &mut self,
+        alternating_current: &A320AlternatingCurrentElectrical,
+        overhead: &A320ElectricalOverheadPanel,
+    ) {
+        self.is_shed = alternating_current.main_sources_unpowered()
+            || overhead.commercial_is_off()
+            || overhead.galy_and_cab_is_off();
+    }
 }
 
 struct A320AlternatingCurrentElectrical {
@@ -271,6 +338,19 @@ impl A320AlternatingCurrentElectrical {
             .close_when(ac_bus_or_emergency_gen_provides_power);
 
         self.ac_ess_shed_bus.powered_by(&self.ac_ess_shed_contactor);
+    }
+
+    fn main_sources_powered_by_single_engine_generator_only(&self) -> bool {
+        self.main_power_sources
+            .powered_by_single_engine_generator_only()
+    }
+
+    fn main_sources_powered_by_apu_generator_only(&self) -> bool {
+        self.main_power_sources.powered_by_apu_generator_only()
+    }
+
+    fn main_sources_unpowered(&self) -> bool {
+        self.main_power_sources.unpowered()
     }
 
     /// Determines if 15XE2 should be closed. 15XE2 is the contactor which connects
@@ -737,6 +817,26 @@ impl A320MainPowerSources {
             &self.bus_tie_2_contactor,
         ])
     }
+
+    fn powered_by_single_engine_generator_only(&self) -> bool {
+        (self.engine_1_gen_contactor.is_powered() ^ self.engine_2_gen_contactor.is_powered())
+            && self.apu_gen_contactor.is_unpowered()
+            && self.ext_pwr_contactor.is_unpowered()
+    }
+
+    fn powered_by_apu_generator_only(&self) -> bool {
+        self.engine_1_gen_contactor.is_unpowered()
+            && self.engine_2_gen_contactor.is_unpowered()
+            && self.ext_pwr_contactor.is_unpowered()
+            && self.apu_gen_contactor.is_powered()
+    }
+
+    fn unpowered(&self) -> bool {
+        self.engine_1_gen_contactor.is_unpowered()
+            && self.engine_2_gen_contactor.is_unpowered()
+            && self.ext_pwr_contactor.is_unpowered()
+            && self.apu_gen_contactor.is_unpowered()
+    }
 }
 impl SimulationElement for A320MainPowerSources {
     fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
@@ -894,6 +994,14 @@ impl A320ElectricalOverheadPanel {
         self.bat_2.is_auto()
     }
 
+    fn commercial_is_off(&self) -> bool {
+        self.commercial.is_off()
+    }
+
+    fn galy_and_cab_is_off(&self) -> bool {
+        self.galy_and_cab.is_off()
+    }
+
     #[cfg(test)]
     fn ac_ess_feed_has_fault(&self) -> bool {
         self.ac_ess_feed.has_fault()
@@ -919,10 +1027,29 @@ impl SimulationElement for A320ElectricalOverheadPanel {
 }
 
 #[cfg(test)]
+mod a320_electrical {
+    use crate::A320Electrical;
+    use systems::simulation::{test::TestReaderWriter, SimulationElement, SimulatorWriter};
+
+    #[test]
+    fn writes_its_state() {
+        let elec = A320Electrical::new();
+        let mut test_writer = TestReaderWriter::new();
+        let mut writer = SimulatorWriter::new(&mut test_writer);
+
+        elec.write(&mut writer);
+
+        assert!(test_writer.len_is(1));
+        assert!(test_writer.contains_bool("ELEC_GALLEY_IS_SHED", false));
+    }
+}
+
+#[cfg(test)]
 mod a320_electrical_circuit_tests {
     use systems::{
         apu::{Aps3200ApuGenerator, AuxiliaryPowerUnitFactory},
         electrical::Potential,
+        simulation::context_with,
     };
     use uom::si::{
         length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
@@ -2069,6 +2196,75 @@ mod a320_electrical_circuit_tests {
         assert!(tester.ac_ess_feed_has_fault());
     }
 
+    #[test]
+    fn when_single_engine_and_apu_galley_is_not_shed() {
+        let tester = tester_with().running_engine_1().and().running_apu().run();
+
+        assert!(!tester.galley_is_shed());
+    }
+
+    #[test]
+    fn when_single_engine_gen_galley_is_shed() {
+        let tester = tester_with().running_engine_1().run();
+
+        assert!(tester.galley_is_shed());
+    }
+
+    #[test]
+    fn when_on_ground_and_apu_gen_only_galley_is_not_shed() {
+        let tester = tester_with().running_apu().and().on_the_ground().run();
+
+        assert!(!tester.galley_is_shed());
+    }
+
+    #[test]
+    fn when_on_ground_and_ext_pwr_only_galley_is_not_shed() {
+        let tester = tester_with()
+            .connected_external_power()
+            .ext_pwr_on()
+            .and()
+            .on_the_ground()
+            .run();
+
+        assert!(!tester.galley_is_shed());
+    }
+
+    #[test]
+    fn when_in_flight_and_apu_gen_only_galley_is_shed() {
+        let tester = tester_with().running_apu().run();
+
+        assert!(tester.galley_is_shed());
+    }
+
+    #[test]
+    fn when_in_flight_and_emer_gen_only_galley_is_shed() {
+        let tester = tester_with().running_emergency_generator().run();
+
+        assert!(tester.galley_is_shed());
+    }
+
+    #[test]
+    fn when_commercial_pb_off_galley_is_shed() {
+        let tester = tester_with().running_engines().and().commercial_off().run();
+
+        assert!(tester.galley_is_shed());
+    }
+
+    #[test]
+    fn when_galy_and_cab_pb_off_galley_is_shed() {
+        let tester = tester_with()
+            .running_engines()
+            .and()
+            .galy_and_cab_off()
+            .run();
+
+        assert!(tester.galley_is_shed());
+    }
+
+    #[test]
+    #[ignore = "Generator overloading is not yet supported."]
+    fn when_aircraft_on_the_ground_and_apu_gen_is_overloaded_galley_is_shed() {}
+
     fn tester_with() -> ElectricalCircuitTester {
         tester()
     }
@@ -2086,7 +2282,7 @@ mod a320_electrical_circuit_tests {
         elec: A320Electrical,
         overhead: A320ElectricalOverheadPanel,
         airspeed: Velocity,
-        above_ground_level: Length,
+        altitude: Length,
     }
 
     impl ElectricalCircuitTester {
@@ -2100,7 +2296,7 @@ mod a320_electrical_circuit_tests {
                 elec: A320Electrical::new(),
                 overhead: A320ElectricalOverheadPanel::new(),
                 airspeed: Velocity::new::<knot>(250.),
-                above_ground_level: Length::new::<foot>(5000.),
+                altitude: Length::new::<foot>(5000.),
             }
         }
 
@@ -2144,7 +2340,7 @@ mod a320_electrical_circuit_tests {
         }
 
         fn on_the_ground(mut self) -> ElectricalCircuitTester {
-            self.above_ground_level = Length::new::<foot>(0.);
+            self.altitude = Length::new::<foot>(0.);
             self
         }
 
@@ -2172,17 +2368,17 @@ mod a320_electrical_circuit_tests {
         }
 
         fn gen_1_off(mut self) -> ElectricalCircuitTester {
-            self.overhead.gen_1.turn_off();
+            self.overhead.gen_1.push_off();
             self
         }
 
         fn gen_2_off(mut self) -> ElectricalCircuitTester {
-            self.overhead.gen_2.turn_off();
+            self.overhead.gen_2.push_off();
             self
         }
 
         fn apu_gen_off(mut self) -> ElectricalCircuitTester {
-            self.overhead.apu_gen.turn_off();
+            self.overhead.apu_gen.push_off();
             self
         }
 
@@ -2228,6 +2424,16 @@ mod a320_electrical_circuit_tests {
 
         fn bus_tie_off(mut self) -> ElectricalCircuitTester {
             self.overhead.bus_tie.push_off();
+            self
+        }
+
+        fn commercial_off(mut self) -> ElectricalCircuitTester {
+            self.overhead.commercial.push_off();
+            self
+        }
+
+        fn galy_and_cab_off(mut self) -> ElectricalCircuitTester {
+            self.overhead.galy_and_cab.push_off();
             self
         }
 
@@ -2317,6 +2523,10 @@ mod a320_electrical_circuit_tests {
             self.elec.create_power_supply()
         }
 
+        fn galley_is_shed(&self) -> bool {
+            self.elec.galley_is_shed()
+        }
+
         fn both_ac_ess_feed_contactors_open(&self) -> bool {
             self.elec
                 .alternating_current
@@ -2336,14 +2546,14 @@ mod a320_electrical_circuit_tests {
         }
 
         fn run(mut self) -> ElectricalCircuitTester {
-            let context = UpdateContext::new(
-                Duration::from_secs(1),
-                self.airspeed,
-                self.above_ground_level,
-                ThermodynamicTemperature::new::<degree_celsius>(0.),
-            );
+            let context_builder = context_with()
+                .delta(Duration::from_secs(1))
+                .indicated_airspeed(self.airspeed)
+                .indicated_altitude(self.altitude)
+                .is_on_ground(self.altitude < Length::new::<foot>(1.))
+                .ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(0.));
             self.elec.update(
-                &context,
+                &context_builder.build(),
                 &self.engine1,
                 &self.engine2,
                 &self.apu,
@@ -2359,14 +2569,14 @@ mod a320_electrical_circuit_tests {
         fn run_waiting_for(mut self, delta: Duration) -> ElectricalCircuitTester {
             // Firstly run without any time passing at all, such that if the DelayedTrueLogicGate reaches
             // the true state after waiting for the given time it will be reflected in its output.
-            let context = UpdateContext::new(
-                Duration::from_secs(0),
-                self.airspeed,
-                self.above_ground_level,
-                ThermodynamicTemperature::new::<degree_celsius>(0.),
-            );
+            let mut context_builder = context_with()
+                .delta(Duration::from_secs(0))
+                .indicated_airspeed(self.airspeed)
+                .indicated_altitude(self.altitude)
+                .is_on_ground(self.altitude < Length::new::<foot>(1.))
+                .ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(0.));
             self.elec.update(
-                &context,
+                &context_builder.build(),
                 &self.engine1,
                 &self.engine2,
                 &self.apu,
@@ -2375,14 +2585,9 @@ mod a320_electrical_circuit_tests {
                 &self.overhead,
             );
 
-            let context = UpdateContext::new(
-                delta,
-                self.airspeed,
-                self.above_ground_level,
-                ThermodynamicTemperature::new::<degree_celsius>(0.),
-            );
+            context_builder = context_builder.delta(delta);
             self.elec.update(
-                &context,
+                &context_builder.build(),
                 &self.engine1,
                 &self.engine2,
                 &self.apu,
