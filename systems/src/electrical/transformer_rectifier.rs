@@ -80,7 +80,7 @@ impl ProvidePotential for TransformerRectifier {
     }
 }
 impl SimulationElement for TransformerRectifier {
-    fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
+    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {
         // TODO
     }
 

@@ -80,7 +80,7 @@ impl ProvidePotential for EmergencyGenerator {
     }
 }
 impl SimulationElement for EmergencyGenerator {
-    fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
+    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {
         // TODO
     }
 

@@ -93,7 +93,7 @@ impl ProvidePotential for Battery {
     }
 }
 impl SimulationElement for Battery {
-    fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
+    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {
         // TODO: Charging and depleting battery when used.
     }
 

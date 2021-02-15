@@ -70,7 +70,7 @@ impl ProvideFrequency for StaticInverter {
     }
 }
 impl SimulationElement for StaticInverter {
-    fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
+    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {
         // TODO
     }
 

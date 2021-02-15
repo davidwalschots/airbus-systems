@@ -95,8 +95,7 @@ impl ProvideLoad for EngineGenerator {
     }
 }
 impl SimulationElement for EngineGenerator {
-    fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
-        let watts = state.total_consumption_for(&Potential::EngineGenerator(self.number));
+    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {
         // TODO
     }
 

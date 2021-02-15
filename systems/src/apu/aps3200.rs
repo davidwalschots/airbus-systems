@@ -524,7 +524,7 @@ impl SimulationElement for Aps3200ApuGenerator {
         self.writer.write_alternating_with_load(self, writer);
     }
 
-    fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
+    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {
         // TODO
     }
 }
