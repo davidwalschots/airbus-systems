@@ -5,7 +5,7 @@ use super::{
 use crate::{
     engine::Engine,
     overhead::FaultReleasePushButton,
-    simulation::{SimulationElement, SimulatorWriter, UpdateContext},
+    simulation::{SimulationElement, SimulationElementVisitor, SimulatorWriter, UpdateContext},
 };
 use std::cmp::min;
 use uom::si::{
@@ -23,7 +23,7 @@ impl EngineGenerator {
         EngineGenerator {
             writer: ElectricalStateWriter::new(&format!("ENG_GEN_{}", number)),
             number,
-            idg: IntegratedDriveGenerator::new(),
+            idg: IntegratedDriveGenerator::new(number),
         }
     }
 
@@ -95,6 +95,12 @@ impl ProvideLoad for EngineGenerator {
     }
 }
 impl SimulationElement for EngineGenerator {
+    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
+        self.idg.accept(visitor);
+
+        visitor.visit(self);
+    }
+
     fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {
         // TODO
     }
@@ -105,20 +111,26 @@ impl SimulationElement for EngineGenerator {
 }
 
 pub struct IntegratedDriveGenerator {
+    oil_outlet_temperature_id: String,
     oil_outlet_temperature: ThermodynamicTemperature,
-    time_above_threshold_in_milliseconds: u64,
+    is_connected_id: String,
     connected: bool,
+
+    time_above_threshold_in_milliseconds: u64,
 }
 impl IntegratedDriveGenerator {
     pub const ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD: f64 = 58.;
     pub const ENGINE_N2_POWER_DOWN_OUTPUT_THRESHOLD: f64 = 56.;
     const STABILIZATION_TIME_IN_MILLISECONDS: u64 = 500;
 
-    fn new() -> IntegratedDriveGenerator {
+    fn new(number: usize) -> IntegratedDriveGenerator {
         IntegratedDriveGenerator {
+            oil_outlet_temperature_id: format!("ENG_GEN_{}_IDG_OIL_OUTLET_TEMPERATURE", number),
             oil_outlet_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
-            time_above_threshold_in_milliseconds: 0,
+            is_connected_id: format!("ENG_GEN_{}_IDG_IS_CONNECTED", number),
             connected: true,
+
+            time_above_threshold_in_milliseconds: 0,
         }
     }
 
@@ -212,6 +224,15 @@ impl IntegratedDriveGenerator {
         // TODO improve this function with feedback @komp provides.
 
         ThermodynamicTemperature::new::<degree_celsius>(target_idg)
+    }
+}
+impl SimulationElement for IntegratedDriveGenerator {
+    fn write(&self, writer: &mut SimulatorWriter) {
+        writer.write_f64(
+            &self.oil_outlet_temperature_id,
+            self.oil_outlet_temperature.get::<degree_celsius>(),
+        );
+        writer.write_bool(&self.is_connected_id, self.connected);
     }
 }
 
@@ -332,13 +353,26 @@ mod tests {
 
     #[cfg(test)]
     mod integrated_drive_generator_tests {
-        use crate::simulation::context_with;
+        use crate::simulation::{context_with, test::TestReaderWriter};
 
         use super::*;
         use std::time::Duration;
 
         fn idg() -> IntegratedDriveGenerator {
-            IntegratedDriveGenerator::new()
+            IntegratedDriveGenerator::new(1)
+        }
+
+        #[test]
+        fn writes_its_state() {
+            let idg = idg();
+            let mut test_writer = TestReaderWriter::new();
+            let mut writer = SimulatorWriter::new(&mut test_writer);
+
+            idg.write(&mut writer);
+
+            assert!(test_writer.len_is(2));
+            assert!(test_writer.contains_f64("ENG_GEN_1_IDG_OIL_OUTLET_TEMPERATURE", 0.));
+            assert!(test_writer.contains_bool("ENG_GEN_1_IDG_IS_CONNECTED", true));
         }
 
         #[test]
