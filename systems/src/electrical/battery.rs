@@ -1,5 +1,5 @@
 use super::{
-    ElectricalStateWriter, Potential, PowerConsumptionState, PowerSource, Powerable,
+    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumptionState,
     ProvideCurrent, ProvidePotential,
 };
 use crate::simulation::{SimulationElement, SimulatorWriter};
@@ -44,8 +44,8 @@ impl Battery {
         self.input
     }
 }
-powerable!(Battery);
-impl PowerSource for Battery {
+potential_target!(Battery);
+impl PotentialSource for Battery {
     fn output_potential(&self) -> Potential {
         if self.input.is_unpowered() && self.charge > ElectricCharge::new::<ampere_hour>(0.) {
             Potential::Battery(self.number)
@@ -109,16 +109,16 @@ mod battery_tests {
     use super::*;
 
     struct Powerless {}
-    impl PowerSource for Powerless {
+    impl PotentialSource for Powerless {
         fn output_potential(&self) -> Potential {
             Potential::None
         }
     }
 
     struct StubApuGenerator {}
-    impl PowerSource for StubApuGenerator {
+    impl PotentialSource for StubApuGenerator {
         fn output_potential(&self) -> Potential {
-            Potential::ApuGenerator
+            Potential::ApuGenerator(1)
         }
     }
 

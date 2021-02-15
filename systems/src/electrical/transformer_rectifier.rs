@@ -1,5 +1,5 @@
 use super::{
-    ElectricalStateWriter, Potential, PowerConsumptionState, PowerSource, Powerable,
+    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumptionState,
     ProvideCurrent, ProvidePotential,
 };
 use crate::simulation::{SimulationElement, SimulatorWriter};
@@ -29,8 +29,8 @@ impl TransformerRectifier {
         self.input
     }
 }
-powerable!(TransformerRectifier);
-impl PowerSource for TransformerRectifier {
+potential_target!(TransformerRectifier);
+impl PotentialSource for TransformerRectifier {
     fn output_potential(&self) -> Potential {
         if self.failed {
             Potential::None
@@ -96,16 +96,16 @@ mod transformer_rectifier_tests {
     use super::*;
 
     struct Powerless {}
-    impl PowerSource for Powerless {
+    impl PotentialSource for Powerless {
         fn output_potential(&self) -> Potential {
             Potential::None
         }
     }
 
     struct StubApuGenerator {}
-    impl PowerSource for StubApuGenerator {
+    impl PotentialSource for StubApuGenerator {
         fn output_potential(&self) -> Potential {
-            Potential::ApuGenerator
+            Potential::ApuGenerator(1)
         }
     }
 

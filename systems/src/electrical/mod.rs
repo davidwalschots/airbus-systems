@@ -1,3 +1,5 @@
+//! Provides things one needs for the electrical system of an aircraft.
+
 mod battery;
 mod emergency_generator;
 mod engine_generator;
@@ -22,16 +24,24 @@ use uom::si::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// Within an electrical system, electric potential is made available by an origin.
+/// These origins are listed as part of this type. By knowing the origin of potential
+/// for all power consumers one can determine the amount of electric current provided
+/// by the origin to the whole aircraft.
+///
+/// Note that this type shouldn't be confused with uom's `ElectricPotential`, which provides
+/// the base unit (including volt) for defining the amount of potential.
+///
 /// # TODO
 ///
 /// Another PR should add the actual potential (volt) into this enum, as we will
 /// need it for functionality such as: ECAM should indicate DC BAT BUS in amber when V < 25.
-/// However, as currently there is no requirement for now this only indicates the source
+/// However, as currently there is no requirement for now this only indicates the origin
 /// of the potential, not the actual potential.
 pub enum Potential {
     None,
     EngineGenerator(usize),
-    ApuGenerator,
+    ApuGenerator(usize),
     External,
     EmergencyGenerator,
     Battery(usize),
@@ -40,44 +50,69 @@ pub enum Potential {
     StaticInverter,
 }
 impl Potential {
+    /// Indicates if the instance provides electric potential.
     pub fn is_powered(&self) -> bool {
         *self != Potential::None
     }
 
+    /// Indicates if the instance does not provide electric potential.
     pub fn is_unpowered(&self) -> bool {
         *self == Potential::None
     }
 }
 
-/// A source of electric energy. A source is not necessarily something
-/// that generates the electric energy. It can also be something that conducts
-/// it from another source.
-pub trait PowerSource {
+/// A source of electric potential. A source is not necessarily the
+/// origin of the potential. It can also be a conductor.
+pub trait PotentialSource {
     fn output_potential(&self) -> Potential;
 
+    /// Indicates if the instance provides electric potential.
     fn is_powered(&self) -> bool {
         self.output_potential().is_powered()
     }
 
+    /// Indicates if the instance does not provide electric potential.
     fn is_unpowered(&self) -> bool {
         self.output_potential().is_unpowered()
     }
 }
 
-pub trait Powerable {
-    /// Provides input power from the given source. When the source has
-    /// output, this element is powered by the source. When the source has no
-    /// output, this element is unpowered.
-    fn powered_by<T: PowerSource + ?Sized>(&mut self, source: &T);
+/// A target for electric potential.
+///
+/// # Examples
+///
+/// To implement this trait, use the `potential_target!` macro when working within
+/// the systems crate. When adding a new type outside of the crate, use the example
+/// below:
+/// ```rust
+/// # use systems::electrical::{Potential, PotentialSource, PotentialTarget};
+/// # struct MyType {
+/// #     input: Potential,
+/// # }
+/// impl PotentialTarget for MyType {
+///     fn powered_by<T: PotentialSource + ?Sized>(&mut self, source: &T) {
+///         self.input = source.output_potential();
+///     }
+///
+///     fn or_powered_by<T: PotentialSource + ?Sized>(&mut self, source: &T) {
+///         if self.input.is_unpowered() {
+///             self.powered_by(source);
+///         }
+///     }
+/// }
+/// ```
+pub trait PotentialTarget {
+    /// Powers the instance with the given source's potential. When the given source is unpowered
+    /// the instance also becomes unpowered.
+    fn powered_by<T: PotentialSource + ?Sized>(&mut self, source: &T);
 
-    /// Provides input power from the given source. When the element is already powered,
-    /// it will remain powered by the powered source passed to it at an earlier time.
-    /// When the element is not yet powered and the source has output, this element is powered by the source.
-    /// When the element is not yet powered and the source has no output, this element is unpowered.
-    fn or_powered_by<T: PowerSource + ?Sized>(&mut self, source: &T);
+    /// Powers the instance with the given source's potential. When the given source is unpowered
+    /// the instance keeps its existing potential if powered.
+    fn or_powered_by<T: PotentialSource + ?Sized>(&mut self, source: &T);
 }
 
-/// Represents a contactor in a electrical power circuit.
+/// Represents a contactor in an electrical power circuit.
+/// When closed a contactor conducts the potential towards other targets.
 #[derive(Debug)]
 pub struct Contactor {
     closed_id: String,
@@ -105,8 +140,8 @@ impl Contactor {
         self.closed
     }
 }
-powerable!(Contactor);
-impl PowerSource for Contactor {
+potential_target!(Contactor);
+impl PotentialSource for Contactor {
     fn output_potential(&self) -> Potential {
         if self.closed {
             self.input
@@ -121,20 +156,70 @@ impl SimulationElement for Contactor {
     }
 }
 
-pub fn combine_electric_sources<T: PowerSource>(sources: Vec<&T>) -> CombinedElectricSource {
-    CombinedElectricSource::new(sources)
+/// Combines multiple sources of potential, such that they can be passed
+/// to a target of potential as a single unit.
+///
+/// # Examples
+///
+/// This function is most useful when combining sources that are in one
+/// struct for use in another struct.
+/// ```rust
+/// # use systems::electrical::{Contactor, combine_potential_sources, ElectricalBus,
+/// #     ElectricalBusType, PotentialTarget, CombinedPotentialSource};
+/// struct MainPowerSources {
+///     engine_1_gen_contactor: Contactor,
+///     bus_tie_1_contactor: Contactor,
+/// }
+/// impl MainPowerSources {
+///     fn new() -> Self {
+///         Self {
+///             engine_1_gen_contactor: Contactor::new("9XU1"),
+///             bus_tie_1_contactor: Contactor::new("11XU1"),
+///         }
+///     }
+///
+///     fn ac_bus_1_electric_sources(&self) -> CombinedPotentialSource {
+///         combine_potential_sources(vec![
+///             &self.engine_1_gen_contactor,
+///             &self.bus_tie_1_contactor,
+///         ])
+///     }
+/// }
+///
+/// let mut ac_bus_1 = ElectricalBus::new(ElectricalBusType::AlternatingCurrent(1));
+/// let main_power_sources = MainPowerSources::new();
+///
+/// ac_bus_1.powered_by(&main_power_sources.ac_bus_1_electric_sources());
+/// ```
+/// When a potential target can be powered by multiple sources in the same struct, prefer using
+/// the `powered_by` and `or_powered_by` functions as follows:
+/// ```rust
+/// # use systems::electrical::{Contactor, ElectricalBus,
+/// #     ElectricalBusType, PotentialTarget};
+/// let mut ac_bus_1 = ElectricalBus::new(ElectricalBusType::AlternatingCurrent(1));
+/// let engine_1_gen_contactor = Contactor::new("9XU1");
+/// let bus_tie_1_contactor = Contactor::new("11XU1");
+///
+/// ac_bus_1.powered_by(&engine_1_gen_contactor);
+/// ac_bus_1.or_powered_by(&bus_tie_1_contactor);
+/// ```
+pub fn combine_potential_sources<T: PotentialSource>(sources: Vec<&T>) -> CombinedPotentialSource {
+    CombinedPotentialSource::new(sources)
 }
 
-pub struct CombinedElectricSource {
+/// Refer to [`combine_potential_sources`] for details.
+///
+/// [`combine_potential_sources`]: fn.combine_potential_sources.html
+pub struct CombinedPotentialSource {
     potential: Potential,
 }
-impl CombinedElectricSource {
-    fn new<T: PowerSource>(sources: Vec<&T>) -> Self {
+impl CombinedPotentialSource {
+    fn new<T: PotentialSource>(sources: Vec<&T>) -> Self {
         let x = sources
             .iter()
             .map(|x| x.output_potential())
             .find(|x| x.is_powered());
-        CombinedElectricSource {
+        CombinedPotentialSource {
             potential: match x {
                 Some(potential) => potential,
                 None => Potential::None,
@@ -142,12 +227,14 @@ impl CombinedElectricSource {
         }
     }
 }
-impl PowerSource for CombinedElectricSource {
+impl PotentialSource for CombinedPotentialSource {
     fn output_potential(&self) -> Potential {
         self.potential
     }
 }
 
+/// The common types of electrical buses within Airbus aircraft.
+/// These include types such as AC, DC, AC ESS, etc.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ElectricalBusType {
     AlternatingCurrent(u8),
@@ -161,7 +248,7 @@ pub enum ElectricalBusType {
     DirectCurrentHot(u8),
 }
 impl ElectricalBusType {
-    fn name(&self) -> String {
+    fn to_string(&self) -> String {
         match self {
             ElectricalBusType::AlternatingCurrent(number) => format!("AC_{}", number),
             ElectricalBusType::AlternatingCurrentEssential => String::from("AC_ESS"),
@@ -184,7 +271,7 @@ pub struct ElectricalBus {
 impl ElectricalBus {
     pub fn new(bus_type: ElectricalBusType) -> ElectricalBus {
         ElectricalBus {
-            bus_powered_id: format!("ELEC_{}_BUS_IS_POWERED", bus_type.name()),
+            bus_powered_id: format!("ELEC_{}_BUS_IS_POWERED", bus_type.to_string()),
             input: Potential::None,
             bus_type,
         }
@@ -220,8 +307,8 @@ impl ElectricalBus {
         }
     }
 }
-powerable!(ElectricalBus);
-impl PowerSource for ElectricalBus {
+potential_target!(ElectricalBus);
+impl PotentialSource for ElectricalBus {
     fn output_potential(&self) -> Potential {
         self.input
     }
@@ -330,16 +417,16 @@ mod tests {
 
     use super::*;
     struct Powerless {}
-    impl PowerSource for Powerless {
+    impl PotentialSource for Powerless {
         fn output_potential(&self) -> Potential {
             Potential::None
         }
     }
 
     struct StubApuGenerator {}
-    impl PowerSource for StubApuGenerator {
+    impl PotentialSource for StubApuGenerator {
         fn output_potential(&self) -> Potential {
-            Potential::ApuGenerator
+            Potential::ApuGenerator(1)
         }
     }
 
@@ -406,7 +493,7 @@ mod tests {
         }
 
         fn some_potential() -> Potential {
-            Potential::ApuGenerator
+            Potential::ApuGenerator(1)
         }
 
         fn none_potential() -> Potential {
@@ -420,27 +507,36 @@ mod tests {
 
         #[test]
         fn get_name_returns_name() {
-            assert_eq!(ElectricalBusType::AlternatingCurrent(2).name(), "AC_2");
+            assert_eq!(ElectricalBusType::AlternatingCurrent(2).to_string(), "AC_2");
             assert_eq!(
-                ElectricalBusType::AlternatingCurrentEssential.name(),
+                ElectricalBusType::AlternatingCurrentEssential.to_string(),
                 "AC_ESS"
             );
             assert_eq!(
-                ElectricalBusType::AlternatingCurrentEssentialShed.name(),
+                ElectricalBusType::AlternatingCurrentEssentialShed.to_string(),
                 "AC_ESS_SHED"
             );
             assert_eq!(
-                ElectricalBusType::AlternatingCurrentStaticInverter.name(),
+                ElectricalBusType::AlternatingCurrentStaticInverter.to_string(),
                 "AC_STAT_INV"
             );
-            assert_eq!(ElectricalBusType::DirectCurrent(2).name(), "DC_2");
-            assert_eq!(ElectricalBusType::DirectCurrentEssential.name(), "DC_ESS");
+            assert_eq!(ElectricalBusType::DirectCurrent(2).to_string(), "DC_2");
             assert_eq!(
-                ElectricalBusType::DirectCurrentEssentialShed.name(),
+                ElectricalBusType::DirectCurrentEssential.to_string(),
+                "DC_ESS"
+            );
+            assert_eq!(
+                ElectricalBusType::DirectCurrentEssentialShed.to_string(),
                 "DC_ESS_SHED"
             );
-            assert_eq!(ElectricalBusType::DirectCurrentBattery.name(), "DC_BAT");
-            assert_eq!(ElectricalBusType::DirectCurrentHot(2).name(), "DC_HOT_2");
+            assert_eq!(
+                ElectricalBusType::DirectCurrentBattery.to_string(),
+                "DC_BAT"
+            );
+            assert_eq!(
+                ElectricalBusType::DirectCurrentHot(2).to_string(),
+                "DC_HOT_2"
+            );
         }
     }
 
@@ -474,7 +570,7 @@ mod tests {
             }
         }
 
-        impl PowerSource for BatteryStub {
+        impl PotentialSource for BatteryStub {
             fn output_potential(&self) -> Potential {
                 self.potential
             }

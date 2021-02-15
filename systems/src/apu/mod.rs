@@ -5,7 +5,7 @@ use self::{
     electronic_control_box::ElectronicControlBox,
 };
 use crate::{
-    electrical::{Potential, PowerSource, ProvideFrequency, ProvidePotential},
+    electrical::{Potential, PotentialSource, ProvideFrequency, ProvidePotential},
     overhead::{FirePushButton, OnOffAvailablePushButton, OnOffFaultPushButton},
     pneumatic::{BleedAirValve, BleedAirValveState, Valve},
     simulation::{
@@ -78,7 +78,7 @@ impl ApuStartContactor {
         self.closed = controller.should_close_start_contactor();
     }
 }
-impl PowerSource for ApuStartContactor {
+impl PotentialSource for ApuStartContactor {
     fn output_potential(&self) -> Potential {
         if self.closed {
             Potential::Battery(10)
@@ -265,7 +265,7 @@ impl<T: ApuGenerator> AuxiliaryPowerUnit<T> {
         self.generator.frequency_normal()
     }
 }
-impl<T: ApuGenerator> PowerSource for AuxiliaryPowerUnit<T> {
+impl<T: ApuGenerator> PotentialSource for AuxiliaryPowerUnit<T> {
     fn output_potential(&self) -> Potential {
         self.generator.output_potential()
     }
@@ -337,7 +337,7 @@ pub enum TurbineState {
 }
 
 pub trait ApuGenerator:
-    PowerSource + SimulationElement + ProvidePotential + ProvideFrequency
+    PotentialSource + SimulationElement + ProvidePotential + ProvideFrequency
 {
     fn update(&mut self, context: &UpdateContext, n: Ratio, is_emergency_shutdown: bool);
 }

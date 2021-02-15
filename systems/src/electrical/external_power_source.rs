@@ -1,7 +1,9 @@
 use crate::simulation::{SimulationElement, SimulatorReader, SimulatorWriter, UpdateContext};
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
-use super::{ElectricalStateWriter, Potential, PowerSource, ProvideFrequency, ProvidePotential};
+use super::{
+    ElectricalStateWriter, Potential, PotentialSource, ProvideFrequency, ProvidePotential,
+};
 
 pub struct ExternalPowerSource {
     writer: ElectricalStateWriter,
@@ -17,7 +19,7 @@ impl ExternalPowerSource {
 
     pub fn update(&mut self, _: &UpdateContext) {}
 }
-impl PowerSource for ExternalPowerSource {
+impl PotentialSource for ExternalPowerSource {
     fn output_potential(&self) -> Potential {
         if self.is_connected {
             Potential::External

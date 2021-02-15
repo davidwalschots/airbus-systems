@@ -1,5 +1,5 @@
 use super::{
-    ElectricalStateWriter, Potential, PowerConsumptionState, PowerSource, Powerable,
+    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumptionState,
     ProvideFrequency, ProvidePotential,
 };
 use crate::simulation::{SimulationElement, SimulatorWriter};
@@ -21,8 +21,8 @@ impl StaticInverter {
         self.input
     }
 }
-powerable!(StaticInverter);
-impl PowerSource for StaticInverter {
+potential_target!(StaticInverter);
+impl PotentialSource for StaticInverter {
     fn output_potential(&self) -> Potential {
         if self.input.is_powered() {
             Potential::StaticInverter
@@ -86,16 +86,16 @@ mod static_inverter_tests {
     use super::*;
 
     struct Powerless {}
-    impl PowerSource for Powerless {
+    impl PotentialSource for Powerless {
         fn output_potential(&self) -> Potential {
             Potential::None
         }
     }
 
     struct Powered {}
-    impl PowerSource for Powered {
+    impl PotentialSource for Powered {
         fn output_potential(&self) -> Potential {
-            Potential::ApuGenerator
+            Potential::ApuGenerator(1)
         }
     }
 

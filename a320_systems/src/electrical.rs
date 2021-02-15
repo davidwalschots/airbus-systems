@@ -3,9 +3,9 @@ use std::time::Duration;
 use systems::{
     apu::{ApuGenerator, AuxiliaryPowerUnit},
     electrical::{
-        combine_electric_sources, Battery, CombinedElectricSource, Contactor, ElectricalBus,
+        combine_potential_sources, Battery, CombinedPotentialSource, Contactor, ElectricalBus,
         ElectricalBusStateFactory, ElectricalBusType, EmergencyGenerator, EngineGenerator,
-        ExternalPowerSource, PowerSource, PowerSupply, Powerable, StaticInverter,
+        ExternalPowerSource, PotentialSource, PotentialTarget, PowerSupply, StaticInverter,
         TransformerRectifier,
     },
     engine::Engine,
@@ -724,15 +724,15 @@ impl A320MainPowerSources {
             .or_powered_by(&self.bus_tie_1_contactor);
     }
 
-    fn ac_bus_1_electric_sources(&self) -> CombinedElectricSource {
-        combine_electric_sources(vec![
+    fn ac_bus_1_electric_sources(&self) -> CombinedPotentialSource {
+        combine_potential_sources(vec![
             &self.engine_1_gen_contactor,
             &self.bus_tie_1_contactor,
         ])
     }
 
-    fn ac_bus_2_electric_sources(&self) -> CombinedElectricSource {
-        combine_electric_sources(vec![
+    fn ac_bus_2_electric_sources(&self) -> CombinedPotentialSource {
+        combine_potential_sources(vec![
             &self.engine_2_gen_contactor,
             &self.bus_tie_2_contactor,
         ])
@@ -797,8 +797,8 @@ impl A320AcEssFeedContactors {
         self.ac_ess_feed_contactor_2.powered_by(ac_bus_2);
     }
 
-    fn electric_sources(&self) -> CombinedElectricSource {
-        combine_electric_sources(vec![
+    fn electric_sources(&self) -> CombinedPotentialSource {
+        combine_potential_sources(vec![
             &self.ac_ess_feed_contactor_1,
             &self.ac_ess_feed_contactor_2,
         ])
@@ -1145,20 +1145,26 @@ mod a320_electrical_circuit_tests {
     fn distribution_table_only_apu_gen_available() {
         let tester = tester_with().running_apu().run();
 
-        assert_eq!(tester.ac_bus_1_output_potential(), Potential::ApuGenerator);
-        assert_eq!(tester.ac_bus_2_output_potential(), Potential::ApuGenerator);
+        assert_eq!(
+            tester.ac_bus_1_output_potential(),
+            Potential::ApuGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_bus_2_output_potential(),
+            Potential::ApuGenerator(1)
+        );
         assert_eq!(
             tester.ac_ess_bus_output_potential(),
-            Potential::ApuGenerator
+            Potential::ApuGenerator(1)
         );
         assert_eq!(
             tester.ac_ess_shed_bus_output_potential(),
-            Potential::ApuGenerator
+            Potential::ApuGenerator(1)
         );
         assert_eq!(tester.static_inverter_input(), Potential::None);
         assert_eq!(tester.ac_stat_inv_bus_output_potential(), Potential::None);
-        assert_eq!(tester.tr_1_input(), Potential::ApuGenerator);
-        assert_eq!(tester.tr_2_input(), Potential::ApuGenerator);
+        assert_eq!(tester.tr_1_input(), Potential::ApuGenerator(1));
+        assert_eq!(tester.tr_2_input(), Potential::ApuGenerator(1));
         assert_eq!(tester.tr_ess_input(), Potential::None);
         assert_eq!(
             tester.dc_bus_1_output_potential(),
@@ -1582,22 +1588,34 @@ mod a320_electrical_circuit_tests {
     fn when_engine_1_and_apu_running_apu_powers_ac_bus_2() {
         let tester = tester_with().running_engine_1().and().running_apu().run();
 
-        assert_eq!(tester.ac_bus_2_output_potential(), Potential::ApuGenerator);
+        assert_eq!(
+            tester.ac_bus_2_output_potential(),
+            Potential::ApuGenerator(1)
+        );
     }
 
     #[test]
     fn when_engine_2_and_apu_running_apu_powers_ac_bus_1() {
         let tester = tester_with().running_engine_2().and().running_apu().run();
 
-        assert_eq!(tester.ac_bus_1_output_potential(), Potential::ApuGenerator);
+        assert_eq!(
+            tester.ac_bus_1_output_potential(),
+            Potential::ApuGenerator(1)
+        );
     }
 
     #[test]
     fn when_only_apu_running_apu_powers_ac_bus_1_and_2() {
         let tester = tester_with().running_apu().run();
 
-        assert_eq!(tester.ac_bus_1_output_potential(), Potential::ApuGenerator);
-        assert_eq!(tester.ac_bus_2_output_potential(), Potential::ApuGenerator);
+        assert_eq!(
+            tester.ac_bus_1_output_potential(),
+            Potential::ApuGenerator(1)
+        );
+        assert_eq!(
+            tester.ac_bus_2_output_potential(),
+            Potential::ApuGenerator(1)
+        );
     }
 
     #[test]

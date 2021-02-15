@@ -1,7 +1,7 @@
 use super::{ApuGenerator, Turbine, TurbineController, TurbineState};
 use crate::{
     electrical::{
-        ElectricalStateWriter, Potential, PowerConsumptionState, PowerSource, ProvideFrequency,
+        ElectricalStateWriter, Potential, PotentialSource, PowerConsumptionState, ProvideFrequency,
         ProvideLoad, ProvidePotential,
     },
     shared::{random_number, TimedRandom},
@@ -374,6 +374,7 @@ fn calculate_towards_target_egt(
 
 /// APS3200 APU Generator
 pub struct Aps3200ApuGenerator {
+    number: usize,
     writer: ElectricalStateWriter,
     output: Potential,
     random_voltage: TimedRandom<f64>,
@@ -386,6 +387,7 @@ impl Aps3200ApuGenerator {
 
     pub fn new(number: usize) -> Aps3200ApuGenerator {
         Aps3200ApuGenerator {
+            number: number,
             writer: ElectricalStateWriter::new(&format!("APU_GEN_{}", number)),
             output: Potential::None,
             random_voltage: TimedRandom::new(
@@ -461,7 +463,7 @@ impl ApuGenerator for Aps3200ApuGenerator {
         {
             Potential::None
         } else {
-            Potential::ApuGenerator
+            Potential::ApuGenerator(self.number)
         };
 
         self.current = if self.is_powered() {
@@ -514,7 +516,7 @@ impl ProvideLoad for Aps3200ApuGenerator {
         true
     }
 }
-impl PowerSource for Aps3200ApuGenerator {
+impl PotentialSource for Aps3200ApuGenerator {
     fn output_potential(&self) -> Potential {
         self.output
     }

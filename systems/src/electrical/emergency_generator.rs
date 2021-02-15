@@ -1,5 +1,5 @@
 use super::{
-    ElectricalStateWriter, Potential, PowerConsumptionState, PowerSource, ProvideFrequency,
+    ElectricalStateWriter, Potential, PotentialSource, PowerConsumptionState, ProvideFrequency,
     ProvidePotential,
 };
 use crate::simulation::{SimulationElement, SimulatorWriter};
@@ -32,7 +32,7 @@ impl EmergencyGenerator {
         self.is_blue_pressurised && self.running
     }
 }
-impl PowerSource for EmergencyGenerator {
+impl PotentialSource for EmergencyGenerator {
     fn output_potential(&self) -> Potential {
         if self.is_running() {
             Potential::EmergencyGenerator

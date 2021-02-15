@@ -1,5 +1,3 @@
-//! Provides all the necessary types for integrating the
-//! crate into a Microsoft Flight Simulator aircraft.
 use std::time::Duration;
 use uom::si::{f64::*, length::foot, thermodynamic_temperature::degree_celsius, velocity::knot};
 

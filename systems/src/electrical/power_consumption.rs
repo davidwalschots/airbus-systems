@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{ElectricalBus, ElectricalBusType, Potential, PowerSource};
+use super::{ElectricalBus, ElectricalBusType, Potential, PotentialSource};
 use crate::simulation::{SimulationElement, SimulationElementVisitor};
 use uom::si::{f64::*, power::watt};
 
@@ -205,7 +205,7 @@ impl<'a> PowerConsumptionHandler<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::electrical::{Potential, PowerSource};
+    use crate::electrical::{Potential, PotentialSource};
 
     struct ApuStub {
         used_power: Power,
@@ -217,20 +217,20 @@ mod tests {
             }
         }
     }
-    impl PowerSource for ApuStub {
+    impl PotentialSource for ApuStub {
         fn output_potential(&self) -> Potential {
-            Potential::ApuGenerator
+            Potential::ApuGenerator(1)
         }
     }
     impl SimulationElement for ApuStub {
         fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
-            self.used_power = state.total_consumption_for(&Potential::ApuGenerator);
+            self.used_power = state.total_consumption_for(&Potential::ApuGenerator(1));
         }
     }
 
     #[cfg(test)]
     mod power_supply_tests {
-        use crate::electrical::Powerable;
+        use crate::electrical::PotentialTarget;
 
         use super::*;
 
@@ -275,7 +275,7 @@ mod tests {
     #[cfg(test)]
     mod power_consumption_tests {
         use super::*;
-        use crate::electrical::Powerable;
+        use crate::electrical::PotentialTarget;
 
         fn powered_bus(bus_type: ElectricalBusType) -> ElectricalBus {
             let mut bus = ElectricalBus::new(bus_type);
@@ -352,7 +352,7 @@ mod tests {
 
     #[cfg(test)]
     mod power_consumption_handler_tests {
-        use crate::electrical::Powerable;
+        use crate::electrical::PotentialTarget;
 
         use super::*;
 

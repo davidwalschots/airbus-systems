@@ -1,5 +1,5 @@
 use super::{
-    ElectricalStateWriter, Potential, PowerConsumptionState, PowerSource, ProvideFrequency,
+    ElectricalStateWriter, Potential, PotentialSource, PowerConsumptionState, ProvideFrequency,
     ProvideLoad, ProvidePotential,
 };
 use crate::{
@@ -36,7 +36,7 @@ impl EngineGenerator {
         self.idg.update(context, engine, idg_push_button);
     }
 }
-impl PowerSource for EngineGenerator {
+impl PotentialSource for EngineGenerator {
     fn output_potential(&self) -> Potential {
         if self.idg.provides_stable_power_output() {
             Potential::EngineGenerator(self.number)
