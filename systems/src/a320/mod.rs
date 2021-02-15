@@ -1,16 +1,13 @@
 use self::{fuel::A320Fuel, pneumatic::A320PneumaticOverheadPanel};
 use crate::{
     apu::{
-        AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
+        Aps3200ApuGenerator, AuxiliaryPowerUnit, AuxiliaryPowerUnitFireOverheadPanel,
+        AuxiliaryPowerUnitOverheadPanel, ShutdownAps3200Turbine,
     },
     electrical::{ElectricalBusStateFactory, ExternalPowerSource, PowerConsumptionHandler},
     engine::Engine,
-    simulator::{
-        Aircraft, SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor,
-        UpdateContext,
-    },
+    simulator::{Aircraft, SimulatorElement, SimulatorElementVisitor, UpdateContext},
 };
-use uom::si::f64::*;
 
 mod electrical;
 pub use electrical::*;
@@ -23,7 +20,7 @@ mod fuel;
 mod pneumatic;
 
 pub struct A320 {
-    apu: AuxiliaryPowerUnit,
+    apu: AuxiliaryPowerUnit<Aps3200ApuGenerator>,
     apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel,
     apu_overhead: AuxiliaryPowerUnitOverheadPanel,
     pneumatic_overhead: A320PneumaticOverheadPanel,
@@ -38,7 +35,10 @@ pub struct A320 {
 impl A320 {
     pub fn new() -> A320 {
         A320 {
-            apu: AuxiliaryPowerUnit::new_aps3200(1),
+            apu: AuxiliaryPowerUnit::new(
+                Box::new(ShutdownAps3200Turbine::new()),
+                Aps3200ApuGenerator::new(1),
+            ),
             apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
             apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
             pneumatic_overhead: A320PneumaticOverheadPanel::new(),
@@ -90,16 +90,16 @@ impl Aircraft for A320 {
 
         let power_supply = self.electrical.create_power_supply();
         let mut power_consumption_handler = PowerConsumptionHandler::new(&power_supply);
-        power_consumption_handler.supply_power_to_elements(&mut Box::new(self));
+        power_consumption_handler.supply_power_to_elements(self);
 
         // Update everything that needs to know if it is powered here.
 
-        power_consumption_handler.determine_power_consumption(&mut Box::new(self));
-        power_consumption_handler.write_power_consumption(&mut Box::new(self));
+        power_consumption_handler.determine_power_consumption(self);
+        power_consumption_handler.write_power_consumption(self);
     }
 }
-impl SimulatorElementVisitable for A320 {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
+impl SimulatorElement for A320 {
+    fn accept<T: SimulatorElementVisitor>(&mut self, visitor: &mut T) {
         self.apu.accept(visitor);
         self.apu_fire_overhead.accept(visitor);
         self.apu_overhead.accept(visitor);
@@ -110,7 +110,6 @@ impl SimulatorElementVisitable for A320 {
         self.engine_2.accept(visitor);
         self.electrical.accept(visitor);
         self.ext_pwr.accept(visitor);
-        visitor.visit(&mut Box::new(self));
+        visitor.visit(self);
     }
 }
-impl SimulatorElement for A320 {}

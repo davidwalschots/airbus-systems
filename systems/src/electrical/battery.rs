@@ -1,10 +1,8 @@
 use super::{
-    Current, ElectricPowerSource, ElectricSource, ElectricalStateWriter, PowerConsumptionState,
-    Powerable, ProvideCurrent, ProvidePotential,
+    ElectricalStateWriter, Potential, PowerConsumptionState, PowerSource, Powerable,
+    ProvideCurrent, ProvidePotential,
 };
-use crate::simulator::{
-    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorWriter,
-};
+use crate::simulator::{SimulatorElement, SimulatorElementWriter};
 use uom::si::{
     electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f64::*,
 };
@@ -12,7 +10,7 @@ use uom::si::{
 pub struct Battery {
     writer: ElectricalStateWriter,
     number: usize,
-    input: Current,
+    input: Potential,
     charge: ElectricCharge,
 }
 impl Battery {
@@ -34,7 +32,7 @@ impl Battery {
         Self {
             writer: ElectricalStateWriter::new(&format!("BAT_{}", number)),
             number,
-            input: Current::none(),
+            input: Potential::None,
             charge,
         }
     }
@@ -42,38 +40,35 @@ impl Battery {
     pub fn is_full(&self) -> bool {
         self.charge >= ElectricCharge::new::<ampere_hour>(Battery::MAX_ELECTRIC_CHARGE_AMPERE_HOURS)
     }
-}
-impl Powerable for Battery {
-    fn set_input(&mut self, current: Current) {
-        self.input = current
-    }
 
-    fn get_input(&self) -> Current {
+    #[cfg(test)]
+    pub fn input_potential(&self) -> Potential {
         self.input
     }
 }
-impl ElectricSource for Battery {
-    fn output(&self) -> Current {
+powerable!(Battery);
+impl PowerSource for Battery {
+    fn output_potential(&self) -> Potential {
         if self.input.is_unpowered() && self.charge > ElectricCharge::new::<ampere_hour>(0.) {
-            Current::some(ElectricPowerSource::Battery(self.number))
+            Potential::Battery(self.number)
         } else {
-            Current::none()
+            Potential::None
         }
     }
 }
 impl ProvideCurrent for Battery {
-    fn get_current(&self) -> ElectricCurrent {
+    fn current(&self) -> ElectricCurrent {
         // TODO: Replace with actual values once calculated.
-        if self.output().is_powered() {
+        if self.output_potential().is_powered() {
             ElectricCurrent::new::<ampere>(0.)
         } else {
             ElectricCurrent::new::<ampere>(0.)
         }
     }
 
-    fn get_current_normal(&self) -> bool {
+    fn current_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output().is_powered() {
+        if self.output_potential().is_powered() {
             true
         } else {
             false
@@ -81,27 +76,22 @@ impl ProvideCurrent for Battery {
     }
 }
 impl ProvidePotential for Battery {
-    fn get_potential(&self) -> ElectricPotential {
+    fn potential(&self) -> ElectricPotential {
         // TODO: Replace with actual values once calculated.
-        if self.output().is_powered() {
+        if self.output_potential().is_powered() {
             ElectricPotential::new::<volt>(28.)
         } else {
             ElectricPotential::new::<volt>(0.)
         }
     }
 
-    fn get_potential_normal(&self) -> bool {
+    fn potential_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output().is_powered() {
+        if self.output_potential().is_powered() {
             true
         } else {
             false
         }
-    }
-}
-impl SimulatorElementVisitable for Battery {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
-        visitor.visit(&mut Box::new(self));
     }
 }
 impl SimulatorElement for Battery {
@@ -109,26 +99,28 @@ impl SimulatorElement for Battery {
         // TODO: Charging and depleting battery when used.
     }
 
-    fn write(&self, state: &mut SimulatorWriter) {
-        self.writer.write_direct(self, state);
+    fn write(&self, writer: &mut SimulatorElementWriter) {
+        self.writer.write_direct(self, writer);
     }
 }
 
 #[cfg(test)]
 mod battery_tests {
+    use crate::simulator::TestReaderWriter;
+
     use super::*;
 
     struct Powerless {}
-    impl ElectricSource for Powerless {
-        fn output(&self) -> Current {
-            Current::none()
+    impl PowerSource for Powerless {
+        fn output_potential(&self) -> Potential {
+            Potential::None
         }
     }
 
     struct StubApuGenerator {}
-    impl ElectricSource for StubApuGenerator {
-        fn output(&self) -> Current {
-            Current::some(ElectricPowerSource::ApuGenerator)
+    impl PowerSource for StubApuGenerator {
+        fn output_potential(&self) -> Potential {
+            Potential::ApuGenerator
         }
     }
 
@@ -184,15 +176,16 @@ mod battery_tests {
     #[test]
     fn writes_its_state() {
         let bus = full_battery();
-        let mut state = SimulatorWriter::new_for_test();
+        let mut test_writer = TestReaderWriter::new();
+        let mut writer = SimulatorElementWriter::new(&mut test_writer);
 
-        bus.write(&mut state);
+        bus.write(&mut writer);
 
-        assert!(state.len_is(4));
-        assert!(state.contains_f64("ELEC_BAT_1_CURRENT", 0.));
-        assert!(state.contains_bool("ELEC_BAT_1_CURRENT_NORMAL", true));
-        assert!(state.contains_f64("ELEC_BAT_1_POTENTIAL", 28.));
-        assert!(state.contains_bool("ELEC_BAT_1_POTENTIAL_NORMAL", true));
+        assert!(test_writer.len_is(4));
+        assert!(test_writer.contains_f64("ELEC_BAT_1_CURRENT", 0.));
+        assert!(test_writer.contains_bool("ELEC_BAT_1_CURRENT_NORMAL", true));
+        assert!(test_writer.contains_f64("ELEC_BAT_1_POTENTIAL", 28.));
+        assert!(test_writer.contains_bool("ELEC_BAT_1_POTENTIAL_NORMAL", true));
     }
 
     fn full_battery() -> Battery {

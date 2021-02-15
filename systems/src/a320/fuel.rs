@@ -1,6 +1,4 @@
-use crate::simulator::{
-    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReader,
-};
+use crate::simulator::{SimulatorElement, SimulatorElementReader};
 use uom::si::{
     f64::*,
     mass::{kilogram, pound},
@@ -24,15 +22,10 @@ impl A320Fuel {
         self.unlimited_fuel || self.left_inner_tank_fuel_quantity > Mass::new::<kilogram>(0.)
     }
 }
-impl SimulatorElementVisitable for A320Fuel {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
-        visitor.visit(&mut Box::new(self));
-    }
-}
 impl SimulatorElement for A320Fuel {
-    fn read(&mut self, state: &mut SimulatorReader) {
-        self.unlimited_fuel = state.get_bool("FUEL_UNLIMITED");
+    fn read(&mut self, reader: &mut SimulatorElementReader) {
+        self.unlimited_fuel = reader.read_bool("UNLIMITED FUEL");
         self.left_inner_tank_fuel_quantity =
-            Mass::new::<pound>(state.get_f64("FUEL_LEFT_INNER_TANK_QUANTITY"));
+            Mass::new::<pound>(reader.read_f64("FUEL TANK LEFT MAIN QUANTITY"));
     }
 }

@@ -1,13 +1,9 @@
 use crate::simulator::{
-    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReader,
-    SimulatorWriter, UpdateContext,
+    SimulatorElement, SimulatorElementReader, SimulatorElementWriter, UpdateContext,
 };
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
-use super::{
-    Current, ElectricPowerSource, ElectricSource, ElectricalStateWriter, ProvideFrequency,
-    ProvidePotential,
-};
+use super::{ElectricalStateWriter, Potential, PowerSource, ProvideFrequency, ProvidePotential};
 
 pub struct ExternalPowerSource {
     writer: ElectricalStateWriter,
@@ -23,28 +19,28 @@ impl ExternalPowerSource {
 
     pub fn update(&mut self, _: &UpdateContext) {}
 }
-impl ElectricSource for ExternalPowerSource {
-    fn output(&self) -> Current {
+impl PowerSource for ExternalPowerSource {
+    fn output_potential(&self) -> Potential {
         if self.is_connected {
-            Current::some(ElectricPowerSource::External)
+            Potential::External
         } else {
-            Current::none()
+            Potential::None
         }
     }
 }
 impl ProvidePotential for ExternalPowerSource {
-    fn get_potential(&self) -> ElectricPotential {
+    fn potential(&self) -> ElectricPotential {
         // TODO: Replace with actual values once calculated.
-        if self.output().is_powered() {
+        if self.output_potential().is_powered() {
             ElectricPotential::new::<volt>(115.)
         } else {
             ElectricPotential::new::<volt>(0.)
         }
     }
 
-    fn get_potential_normal(&self) -> bool {
+    fn potential_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output().is_powered() {
+        if self.output_potential().is_powered() {
             true
         } else {
             false
@@ -52,41 +48,38 @@ impl ProvidePotential for ExternalPowerSource {
     }
 }
 impl ProvideFrequency for ExternalPowerSource {
-    fn get_frequency(&self) -> Frequency {
+    fn frequency(&self) -> Frequency {
         // TODO: Replace with actual values once calculated.
-        if self.output().is_powered() {
+        if self.output_potential().is_powered() {
             Frequency::new::<hertz>(400.)
         } else {
             Frequency::new::<hertz>(0.)
         }
     }
 
-    fn get_frequency_normal(&self) -> bool {
+    fn frequency_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output().is_powered() {
+        if self.output_potential().is_powered() {
             true
         } else {
             false
         }
     }
 }
-impl SimulatorElementVisitable for ExternalPowerSource {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
-        visitor.visit(&mut Box::new(self));
-    }
-}
 impl SimulatorElement for ExternalPowerSource {
-    fn read(&mut self, state: &mut SimulatorReader) {
-        self.is_connected = state.get_bool("EXT_PWR_IS_AVAILABLE");
+    fn read(&mut self, reader: &mut SimulatorElementReader) {
+        self.is_connected = reader.read_bool("EXTERNAL POWER AVAILABLE:1");
     }
 
-    fn write(&self, state: &mut SimulatorWriter) {
-        self.writer.write_alternating(self, state);
+    fn write(&self, writer: &mut SimulatorElementWriter) {
+        self.writer.write_alternating(self, writer);
     }
 }
 
 #[cfg(test)]
 mod external_power_source_tests {
+    use crate::simulator::TestReaderWriter;
+
     use super::*;
 
     #[test]
@@ -113,15 +106,16 @@ mod external_power_source_tests {
     #[test]
     fn writes_its_state() {
         let external_power = external_power_source();
-        let mut state = SimulatorWriter::new_for_test();
+        let mut test_writer = TestReaderWriter::new();
+        let mut writer = SimulatorElementWriter::new(&mut test_writer);
 
-        external_power.write(&mut state);
+        external_power.write(&mut writer);
 
-        assert!(state.len_is(4));
-        assert!(state.contains_f64("ELEC_EXT_PWR_POTENTIAL", 0.));
-        assert!(state.contains_bool("ELEC_EXT_PWR_POTENTIAL_NORMAL", false));
-        assert!(state.contains_f64("ELEC_EXT_PWR_FREQUENCY", 0.));
-        assert!(state.contains_bool("ELEC_EXT_PWR_FREQUENCY_NORMAL", false));
+        assert!(test_writer.len_is(4));
+        assert!(test_writer.contains_f64("ELEC_EXT_PWR_POTENTIAL", 0.));
+        assert!(test_writer.contains_bool("ELEC_EXT_PWR_POTENTIAL_NORMAL", false));
+        assert!(test_writer.contains_f64("ELEC_EXT_PWR_FREQUENCY", 0.));
+        assert!(test_writer.contains_bool("ELEC_EXT_PWR_FREQUENCY_NORMAL", false));
     }
 
     fn external_power_source() -> ExternalPowerSource {

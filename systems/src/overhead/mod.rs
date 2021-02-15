@@ -1,7 +1,4 @@
-use crate::simulator::{
-    SimulatorElement, SimulatorElementVisitable, SimulatorElementVisitor, SimulatorReader,
-    SimulatorWriter,
-};
+use crate::simulator::{SimulatorElement, SimulatorElementReader, SimulatorElementWriter};
 
 pub struct OnOffFaultPushButton {
     is_on_id: String,
@@ -56,20 +53,15 @@ impl OnOffFaultPushButton {
         self.is_on == false
     }
 }
-impl SimulatorElementVisitable for OnOffFaultPushButton {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
-        visitor.visit(&mut Box::new(self));
-    }
-}
 impl SimulatorElement for OnOffFaultPushButton {
-    fn write(&self, state: &mut SimulatorWriter) {
-        state.write_bool(&self.is_on_id, self.is_on());
-        state.write_bool(&self.has_fault_id, self.has_fault());
+    fn write(&self, writer: &mut SimulatorElementWriter) {
+        writer.write_bool(&self.is_on_id, self.is_on());
+        writer.write_bool(&self.has_fault_id, self.has_fault());
     }
 
-    fn read(&mut self, state: &mut SimulatorReader) {
-        self.set_on(state.get_bool(&self.is_on_id));
-        self.set_fault(state.get_bool(&self.has_fault_id));
+    fn read(&mut self, reader: &mut SimulatorElementReader) {
+        self.set_on(reader.read_bool(&self.is_on_id));
+        self.set_fault(reader.read_bool(&self.has_fault_id));
     }
 }
 
@@ -126,20 +118,15 @@ impl OnOffAvailablePushButton {
         self.is_on == false
     }
 }
-impl SimulatorElementVisitable for OnOffAvailablePushButton {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
-        visitor.visit(&mut Box::new(self));
-    }
-}
 impl SimulatorElement for OnOffAvailablePushButton {
-    fn write(&self, state: &mut SimulatorWriter) {
-        state.write_bool(&self.is_on_id, self.is_on());
-        state.write_bool(&self.is_available_id, self.is_available());
+    fn write(&self, writer: &mut SimulatorElementWriter) {
+        writer.write_bool(&self.is_on_id, self.is_on());
+        writer.write_bool(&self.is_available_id, self.is_available());
     }
 
-    fn read(&mut self, state: &mut SimulatorReader) {
-        self.set_on(state.get_bool(&self.is_on_id));
-        self.set_available(state.get_bool(&self.is_available_id));
+    fn read(&mut self, reader: &mut SimulatorElementReader) {
+        self.set_on(reader.read_bool(&self.is_on_id));
+        self.set_available(reader.read_bool(&self.is_available_id));
     }
 }
 
@@ -192,20 +179,15 @@ impl NormalAltnFaultPushButton {
         self.has_fault = value;
     }
 }
-impl SimulatorElementVisitable for NormalAltnFaultPushButton {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
-        visitor.visit(&mut Box::new(self));
-    }
-}
 impl SimulatorElement for NormalAltnFaultPushButton {
-    fn write(&self, state: &mut SimulatorWriter) {
-        state.write_bool(&self.is_normal_id, self.is_normal());
-        state.write_bool(&self.has_fault_id, self.has_fault());
+    fn write(&self, writer: &mut SimulatorElementWriter) {
+        writer.write_bool(&self.is_normal_id, self.is_normal());
+        writer.write_bool(&self.has_fault_id, self.has_fault());
     }
 
-    fn read(&mut self, state: &mut SimulatorReader) {
-        self.set_normal(state.get_bool(&self.is_normal_id));
-        self.set_fault(state.get_bool(&self.has_fault_id));
+    fn read(&mut self, reader: &mut SimulatorElementReader) {
+        self.set_normal(reader.read_bool(&self.is_normal_id));
+        self.set_fault(reader.read_bool(&self.has_fault_id));
     }
 }
 
@@ -262,20 +244,15 @@ impl AutoOffFaultPushButton {
         self.has_fault = value;
     }
 }
-impl SimulatorElementVisitable for AutoOffFaultPushButton {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
-        visitor.visit(&mut Box::new(self));
-    }
-}
 impl SimulatorElement for AutoOffFaultPushButton {
-    fn write(&self, state: &mut SimulatorWriter) {
-        state.write_bool(&self.is_auto_id, self.is_auto());
-        state.write_bool(&self.has_fault_id, self.has_fault());
+    fn write(&self, writer: &mut SimulatorElementWriter) {
+        writer.write_bool(&self.is_auto_id, self.is_auto());
+        writer.write_bool(&self.has_fault_id, self.has_fault());
     }
 
-    fn read(&mut self, state: &mut SimulatorReader) {
-        self.set_auto(state.get_bool(&self.is_auto_id));
-        self.set_fault(state.get_bool(&self.has_fault_id));
+    fn read(&mut self, reader: &mut SimulatorElementReader) {
+        self.set_auto(reader.read_bool(&self.is_auto_id));
+        self.set_fault(reader.read_bool(&self.has_fault_id));
     }
 }
 
@@ -320,20 +297,15 @@ impl FaultReleasePushButton {
         self.has_fault
     }
 }
-impl SimulatorElementVisitable for FaultReleasePushButton {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
-        visitor.visit(&mut Box::new(self));
-    }
-}
 impl SimulatorElement for FaultReleasePushButton {
-    fn write(&self, state: &mut SimulatorWriter) {
-        state.write_bool(&self.is_released_id, self.is_released());
-        state.write_bool(&self.has_fault_id, self.has_fault());
+    fn write(&self, writer: &mut SimulatorElementWriter) {
+        writer.write_bool(&self.is_released_id, self.is_released());
+        writer.write_bool(&self.has_fault_id, self.has_fault());
     }
 
-    fn read(&mut self, state: &mut SimulatorReader) {
-        self.set_released(state.get_bool(&self.is_released_id));
-        self.set_fault(state.get_bool(&self.has_fault_id));
+    fn read(&mut self, reader: &mut SimulatorElementReader) {
+        self.set_released(reader.read_bool(&self.is_released_id));
+        self.set_fault(reader.read_bool(&self.has_fault_id));
     }
 }
 
@@ -357,23 +329,20 @@ impl FirePushButton {
         self.is_released
     }
 }
-impl SimulatorElementVisitable for FirePushButton {
-    fn accept(&mut self, visitor: &mut Box<&mut dyn SimulatorElementVisitor>) {
-        visitor.visit(&mut Box::new(self));
-    }
-}
 impl SimulatorElement for FirePushButton {
-    fn write(&self, state: &mut SimulatorWriter) {
-        state.write_bool(&self.is_released_id, self.is_released());
+    fn write(&self, writer: &mut SimulatorElementWriter) {
+        writer.write_bool(&self.is_released_id, self.is_released());
     }
 
-    fn read(&mut self, state: &mut SimulatorReader) {
-        self.set(state.get_bool(&self.is_released_id));
+    fn read(&mut self, reader: &mut SimulatorElementReader) {
+        self.set(reader.read_bool(&self.is_released_id));
     }
 }
 
 #[cfg(test)]
 mod on_off_fault_push_button_tests {
+    use crate::simulator::TestReaderWriter;
+
     use super::*;
 
     #[test]
@@ -389,18 +358,21 @@ mod on_off_fault_push_button_tests {
     #[test]
     fn writes_its_state() {
         let button = OnOffFaultPushButton::new_on("ELEC_GEN_1");
-        let mut state = SimulatorWriter::new_for_test();
+        let mut test_writer = TestReaderWriter::new();
+        let mut writer = SimulatorElementWriter::new(&mut test_writer);
 
-        button.write(&mut state);
+        button.write(&mut writer);
 
-        assert!(state.len_is(2));
-        assert!(state.contains_bool("OVHD_ELEC_GEN_1_PB_IS_ON", true));
-        assert!(state.contains_bool("OVHD_ELEC_GEN_1_PB_HAS_FAULT", false));
+        assert!(test_writer.len_is(2));
+        assert!(test_writer.contains_bool("OVHD_ELEC_GEN_1_PB_IS_ON", true));
+        assert!(test_writer.contains_bool("OVHD_ELEC_GEN_1_PB_HAS_FAULT", false));
     }
 }
 
 #[cfg(test)]
 mod on_off_available_push_button_tests {
+    use crate::simulator::TestReaderWriter;
+
     use super::*;
 
     #[test]
@@ -416,18 +388,21 @@ mod on_off_available_push_button_tests {
     #[test]
     fn writes_its_state() {
         let button = OnOffAvailablePushButton::new_on("ELEC_EXT_PWR");
-        let mut state = SimulatorWriter::new_for_test();
+        let mut test_writer = TestReaderWriter::new();
+        let mut writer = SimulatorElementWriter::new(&mut test_writer);
 
-        button.write(&mut state);
+        button.write(&mut writer);
 
-        assert!(state.len_is(2));
-        assert!(state.contains_bool("OVHD_ELEC_EXT_PWR_PB_IS_ON", true));
-        assert!(state.contains_bool("OVHD_ELEC_EXT_PWR_PB_IS_AVAILABLE", false));
+        assert!(test_writer.len_is(2));
+        assert!(test_writer.contains_bool("OVHD_ELEC_EXT_PWR_PB_IS_ON", true));
+        assert!(test_writer.contains_bool("OVHD_ELEC_EXT_PWR_PB_IS_AVAILABLE", false));
     }
 }
 
 #[cfg(test)]
 mod normal_altn_fault_push_button_tests {
+    use crate::simulator::TestReaderWriter;
+
     use super::*;
 
     #[test]
@@ -443,18 +418,21 @@ mod normal_altn_fault_push_button_tests {
     #[test]
     fn writes_its_state() {
         let button = NormalAltnFaultPushButton::new_normal("ELEC_AC_ESS_FEED");
-        let mut state = SimulatorWriter::new_for_test();
+        let mut test_writer = TestReaderWriter::new();
+        let mut writer = SimulatorElementWriter::new(&mut test_writer);
 
-        button.write(&mut state);
+        button.write(&mut writer);
 
-        assert!(state.len_is(2));
-        assert!(state.contains_bool("OVHD_ELEC_AC_ESS_FEED_PB_IS_NORMAL", true));
-        assert!(state.contains_bool("OVHD_ELEC_AC_ESS_FEED_PB_HAS_FAULT", false));
+        assert!(test_writer.len_is(2));
+        assert!(test_writer.contains_bool("OVHD_ELEC_AC_ESS_FEED_PB_IS_NORMAL", true));
+        assert!(test_writer.contains_bool("OVHD_ELEC_AC_ESS_FEED_PB_HAS_FAULT", false));
     }
 }
 
 #[cfg(test)]
 mod auto_off_fault_push_button_tests {
+    use crate::simulator::TestReaderWriter;
+
     use super::*;
 
     #[test]
@@ -470,18 +448,21 @@ mod auto_off_fault_push_button_tests {
     #[test]
     fn writes_its_state() {
         let button = AutoOffFaultPushButton::new_auto("ELEC_BUS_TIE");
-        let mut state = SimulatorWriter::new_for_test();
+        let mut test_writer = TestReaderWriter::new();
+        let mut writer = SimulatorElementWriter::new(&mut test_writer);
 
-        button.write(&mut state);
+        button.write(&mut writer);
 
-        assert!(state.len_is(2));
-        assert!(state.contains_bool("OVHD_ELEC_BUS_TIE_PB_IS_AUTO", true));
-        assert!(state.contains_bool("OVHD_ELEC_BUS_TIE_PB_HAS_FAULT", false));
+        assert!(test_writer.len_is(2));
+        assert!(test_writer.contains_bool("OVHD_ELEC_BUS_TIE_PB_IS_AUTO", true));
+        assert!(test_writer.contains_bool("OVHD_ELEC_BUS_TIE_PB_HAS_FAULT", false));
     }
 }
 
 #[cfg(test)]
 mod fault_release_push_button_tests {
+    use crate::simulator::TestReaderWriter;
+
     use super::*;
 
     #[test]
@@ -518,19 +499,21 @@ mod fault_release_push_button_tests {
     #[test]
     fn writes_its_state() {
         let button = FaultReleasePushButton::new_in("IDG_1");
-        let mut state = SimulatorWriter::new_for_test();
+        let mut test_writer = TestReaderWriter::new();
+        let mut writer = SimulatorElementWriter::new(&mut test_writer);
 
-        button.write(&mut state);
+        button.write(&mut writer);
 
-        assert!(state.len_is(2));
-        assert!(state.contains_bool("OVHD_IDG_1_PB_IS_RELEASED", false));
-        assert!(state.contains_bool("OVHD_IDG_1_PB_HAS_FAULT", false));
+        assert!(test_writer.len_is(2));
+        assert!(test_writer.contains_bool("OVHD_IDG_1_PB_IS_RELEASED", false));
+        assert!(test_writer.contains_bool("OVHD_IDG_1_PB_HAS_FAULT", false));
     }
 }
 
 #[cfg(test)]
 mod fire_push_button_tests {
     use super::*;
+    use crate::simulator::TestReaderWriter;
 
     #[test]
     fn new_fire_push_button_is_not_released() {
@@ -559,11 +542,12 @@ mod fire_push_button_tests {
     #[test]
     fn writes_its_state() {
         let button = FirePushButton::new("APU");
-        let mut state = SimulatorWriter::new_for_test();
+        let mut test_writer = TestReaderWriter::new();
+        let mut writer = SimulatorElementWriter::new(&mut test_writer);
 
-        button.write(&mut state);
+        button.write(&mut writer);
 
-        assert!(state.len_is(1));
-        assert!(state.contains_bool("FIRE_BUTTON_APU", false));
+        assert!(test_writer.len_is(1));
+        assert!(test_writer.contains_bool("FIRE_BUTTON_APU", false));
     }
 }

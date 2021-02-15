@@ -1,5 +1,5 @@
 use airbus_systems::{
-    simulator::{Simulation, SimulatorReadWriter},
+    simulator::{Simulation, SimulatorReaderWriter},
     A320,
 };
 use msfs::{
@@ -13,11 +13,8 @@ async fn systems(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error
     let mut simulation = Simulation::new(A320::new(), A320SimulatorReadWriter::new()?);
 
     while let Some(event) = gauge.next_event().await {
-        match event {
-            MSFSEvent::PreDraw(d) => {
-                simulation.tick(d.delta_time());
-            }
-            _ => {}
+        if let MSFSEvent::PreDraw(d) = event {
+            simulation.tick(d.delta_time());
         }
     }
 
@@ -75,7 +72,7 @@ impl A320SimulatorReadWriter {
         })
     }
 }
-impl SimulatorReadWriter for A320SimulatorReadWriter {
+impl SimulatorReaderWriter for A320SimulatorReadWriter {
     fn read(&mut self, name: &str) -> f64 {
         match name {
             "OVHD_ELEC_APU_GEN_PB_IS_ON" => self.apu_generator_pb_on.get(),
@@ -83,14 +80,14 @@ impl SimulatorReadWriter for A320SimulatorReadWriter {
             "OVHD_ELEC_EXT_PWR_PB_IS_ON" => self.external_power_pb_on.get(),
             "OVHD_ELEC_ENG_GEN_1_PB_IS_ON" => self.engine_generator_1_pb_on.get(),
             "OVHD_ELEC_ENG_GEN_2_PB_IS_ON" => self.engine_generator_2_pb_on.get(),
-            "AMBIENT_TEMPERATURE" => self.ambient_temperature.get(),
-            "EXT_PWR_IS_AVAILABLE" => self.external_power_available.get(),
-            "ENG_1_N2" => self.engine_1_n2.get(),
-            "ENG_2_N2" => self.engine_2_n2.get(),
-            "FUEL_LEFT_INNER_TANK_QUANTITY" => self.left_inner_tank_fuel_quantity.get(),
-            "FUEL_UNLIMITED" => self.unlimited_fuel.get(),
-            "INDICATED_AIRSPEED" => self.indicated_airspeed.get(),
-            "INDICATED_ALTITUDE" => self.indicated_altitude.get(),
+            "AMBIENT TEMPERATURE" => self.ambient_temperature.get(),
+            "EXTERNAL POWER AVAILABLE:1" => self.external_power_available.get(),
+            "ENG N2 RPM:1" => self.engine_1_n2.get(),
+            "ENG N2 RPM:2" => self.engine_2_n2.get(),
+            "FUEL TANK LEFT MAIN QUANTITY" => self.left_inner_tank_fuel_quantity.get(),
+            "UNLIMITED FUEL" => self.unlimited_fuel.get(),
+            "AIRSPEED INDICATED" => self.indicated_airspeed.get(),
+            "INDICATED ALTITUDE" => self.indicated_altitude.get(),
             _ => {
                 lookup_named_variable(&mut self.dynamic_named_variables, "A32NX_", name).get_value()
             }
