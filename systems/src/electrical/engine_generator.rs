@@ -125,9 +125,12 @@ impl IntegratedDriveGenerator {
 
     fn new(number: usize) -> IntegratedDriveGenerator {
         IntegratedDriveGenerator {
-            oil_outlet_temperature_id: format!("ENG_GEN_{}_IDG_OIL_OUTLET_TEMPERATURE", number),
+            oil_outlet_temperature_id: format!(
+                "ELEC_ENG_GEN_{}_IDG_OIL_OUTLET_TEMPERATURE",
+                number
+            ),
             oil_outlet_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
-            is_connected_id: format!("ENG_GEN_{}_IDG_IS_CONNECTED", number),
+            is_connected_id: format!("ELEC_ENG_GEN_{}_IDG_IS_CONNECTED", number),
             connected: true,
 
             time_above_threshold_in_milliseconds: 0,
@@ -371,8 +374,8 @@ mod tests {
             idg.write(&mut writer);
 
             assert!(test_writer.len_is(2));
-            assert!(test_writer.contains_f64("ENG_GEN_1_IDG_OIL_OUTLET_TEMPERATURE", 0.));
-            assert!(test_writer.contains_bool("ENG_GEN_1_IDG_IS_CONNECTED", true));
+            assert!(test_writer.contains_f64("ELEC_ENG_GEN_1_IDG_OIL_OUTLET_TEMPERATURE", 0.));
+            assert!(test_writer.contains_bool("ELEC_ENG_GEN_1_IDG_IS_CONNECTED", true));
         }
 
         #[test]
