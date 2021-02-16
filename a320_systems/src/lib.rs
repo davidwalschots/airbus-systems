@@ -87,6 +87,7 @@ impl Aircraft for A320 {
         power_consumption_handler.supply_power_to_elements(self);
 
         // Update everything that needs to know if it is powered here.
+        self.hydraulic.update(context);
 
         power_consumption_handler.determine_power_consumption(self);
         power_consumption_handler.write_power_consumption(self);

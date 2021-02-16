@@ -2,10 +2,18 @@ mod alternating_current;
 mod direct_current;
 mod galley;
 
+use self::{
+    alternating_current::A320AlternatingCurrentElectrical,
+    direct_current::A320DirectCurrentElectrical,
+    galley::{MainGalley, SecondaryGalley},
+};
+use super::hydraulic::A320Hydraulic;
+#[cfg(test)]
+use systems::electrical::Potential;
 use systems::{
     apu::{ApuGenerator, AuxiliaryPowerUnit},
     electrical::{
-        ElectricalBus, ElectricalBusStateFactory, ExternalPowerSource, Potential, PotentialSource,
+        ElectricalBus, ElectricalBusStateFactory, ExternalPowerSource, PotentialSource,
         PowerSupply, StaticInverter, TransformerRectifier,
     },
     engine::Engine,
@@ -14,14 +22,6 @@ use systems::{
         OnOffAvailablePushButton, OnOffFaultPushButton,
     },
     simulation::{SimulationElement, SimulationElementVisitor, SimulatorWriter, UpdateContext},
-};
-
-use crate::hydraulic::A320Hydraulic;
-
-use self::{
-    alternating_current::A320AlternatingCurrentElectrical,
-    direct_current::A320DirectCurrentElectrical,
-    galley::{MainGalley, SecondaryGalley},
 };
 
 pub(crate) struct A320Electrical {

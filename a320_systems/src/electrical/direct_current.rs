@@ -1,13 +1,14 @@
+use super::{A320ElectricalOverheadPanel, AlternatingCurrentState, DirectCurrentState};
+#[cfg(test)]
+use systems::electrical::Potential;
 use systems::{
     electrical::{
-        Battery, Contactor, ElectricalBus, ElectricalBusType, Potential, PotentialSource,
-        PotentialTarget, StaticInverter,
+        Battery, Contactor, ElectricalBus, ElectricalBusType, PotentialSource, PotentialTarget,
+        StaticInverter,
     },
     simulation::{SimulationElement, SimulationElementVisitor, UpdateContext},
 };
 use uom::si::{f64::*, velocity::knot};
-
-use super::{A320ElectricalOverheadPanel, AlternatingCurrentState, DirectCurrentState};
 
 pub(super) struct A320DirectCurrentElectrical {
     dc_bus_1: ElectricalBus,
