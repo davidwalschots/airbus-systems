@@ -5,6 +5,7 @@ use super::{
 use crate::{
     engine::Engine,
     overhead::FaultReleasePushButton,
+    shared::calculate_towards_target_temperature,
     simulation::{SimulationElement, SimulationElementVisitor, SimulatorWriter, UpdateContext},
 };
 use std::cmp::min;
@@ -194,21 +195,16 @@ impl IntegratedDriveGenerator {
         const IDG_HEATING_COEFFICIENT: f64 = 1.4;
         const IDG_COOLING_COEFFICIENT: f64 = 0.4;
 
-        let target_temperature = target.get::<degree_celsius>();
-        let mut temperature = self.oil_outlet_temperature.get::<degree_celsius>();
-        temperature += if temperature < target_temperature {
-            IDG_HEATING_COEFFICIENT * context.delta.as_secs_f64()
-        } else {
-            -(IDG_COOLING_COEFFICIENT * context.delta.as_secs_f64())
-        };
-
-        temperature = clamp(
-            temperature,
-            context.ambient_temperature.get::<degree_celsius>(),
-            target.get::<degree_celsius>(),
+        self.oil_outlet_temperature = calculate_towards_target_temperature(
+            self.oil_outlet_temperature,
+            target,
+            if self.oil_outlet_temperature < target {
+                IDG_HEATING_COEFFICIENT
+            } else {
+                IDG_COOLING_COEFFICIENT
+            },
+            context.delta,
         );
-
-        self.oil_outlet_temperature = ThermodynamicTemperature::new::<degree_celsius>(temperature);
     }
 
     fn get_target_temperature(

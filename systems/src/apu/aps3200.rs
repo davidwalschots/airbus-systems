@@ -4,7 +4,7 @@ use crate::{
         ElectricalStateWriter, Potential, PotentialSource, PowerConsumptionState, ProvideFrequency,
         ProvideLoad, ProvidePotential,
     },
-    shared::{random_number, TimedRandom},
+    shared::{calculate_towards_target_temperature, random_number, TimedRandom},
     simulation::{SimulationElement, SimulatorWriter, UpdateContext},
 };
 use std::time::Duration;
@@ -247,7 +247,7 @@ impl Running {
             target_temperature += self.apu_gen_in_use_delta_temperature;
         }
 
-        calculate_towards_target_egt(self.egt, target_temperature, 0.4, context.delta)
+        calculate_towards_target_temperature(self.egt, target_temperature, 0.4, context.delta)
     }
 }
 impl Turbine for Running {
@@ -343,33 +343,12 @@ fn calculate_towards_ambient_egt(
     context: &UpdateContext,
 ) -> ThermodynamicTemperature {
     const APU_AMBIENT_COEFFICIENT: f64 = 2.;
-    calculate_towards_target_egt(
+    calculate_towards_target_temperature(
         current_egt,
         context.ambient_temperature,
         APU_AMBIENT_COEFFICIENT,
         context.delta,
     )
-}
-
-fn calculate_towards_target_egt(
-    current: ThermodynamicTemperature,
-    target: ThermodynamicTemperature,
-    coefficient: f64,
-    delta: Duration,
-) -> ThermodynamicTemperature {
-    if current == target {
-        current
-    } else if current > target {
-        ThermodynamicTemperature::new::<degree_celsius>(
-            (current.get::<degree_celsius>() - (coefficient * delta.as_secs_f64()))
-                .max(target.get::<degree_celsius>()),
-        )
-    } else {
-        ThermodynamicTemperature::new::<degree_celsius>(
-            (current.get::<degree_celsius>() + (coefficient * delta.as_secs_f64()))
-                .min(target.get::<degree_celsius>()),
-        )
-    }
 }
 
 /// APS3200 APU Generator

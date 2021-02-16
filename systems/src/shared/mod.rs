@@ -1,5 +1,6 @@
 use crate::simulation::UpdateContext;
 use std::time::Duration;
+use uom::si::{f64::*, thermodynamic_temperature::degree_celsius};
 
 mod random;
 pub use random::*;
@@ -72,6 +73,29 @@ impl<T: Copy + Default> TimedRandom<T> {
             .get(self.current_value_index)
             .cloned()
             .unwrap_or_default()
+    }
+}
+
+/// Given a current and target temperature, takes a coefficient and delta to
+/// determine the new temperature after a certain duration has passed.
+pub(crate) fn calculate_towards_target_temperature(
+    current: ThermodynamicTemperature,
+    target: ThermodynamicTemperature,
+    coefficient: f64,
+    delta: Duration,
+) -> ThermodynamicTemperature {
+    if current == target {
+        current
+    } else if current > target {
+        ThermodynamicTemperature::new::<degree_celsius>(
+            (current.get::<degree_celsius>() - (coefficient * delta.as_secs_f64()))
+                .max(target.get::<degree_celsius>()),
+        )
+    } else {
+        ThermodynamicTemperature::new::<degree_celsius>(
+            (current.get::<degree_celsius>() + (coefficient * delta.as_secs_f64()))
+                .min(target.get::<degree_celsius>()),
+        )
     }
 }
 
@@ -208,5 +232,73 @@ mod timed_random_tests {
         tr.update(&context_with().delta(Duration::from_millis(999)).build());
 
         assert_eq!(tr.current_value(), value);
+    }
+}
+
+#[cfg(test)]
+mod calculate_towards_target_temperature_tests {
+    use ntest::assert_about_eq;
+
+    use super::*;
+
+    #[test]
+    fn when_current_equals_target_returns_current() {
+        let temperature = ThermodynamicTemperature::new::<degree_celsius>(10.);
+        let result = calculate_towards_target_temperature(
+            temperature,
+            temperature,
+            1.,
+            Duration::from_secs(1),
+        );
+
+        assert_eq!(result, temperature);
+    }
+
+    #[test]
+    fn when_current_less_than_target_moves_towards_target() {
+        let result = calculate_towards_target_temperature(
+            ThermodynamicTemperature::new::<degree_celsius>(10.),
+            ThermodynamicTemperature::new::<degree_celsius>(15.),
+            1.,
+            Duration::from_secs(1),
+        );
+
+        assert_about_eq!(result.get::<degree_celsius>(), 11.);
+    }
+
+    #[test]
+    fn when_current_slightly_less_than_target_does_not_overshoot_target() {
+        let result = calculate_towards_target_temperature(
+            ThermodynamicTemperature::new::<degree_celsius>(14.9),
+            ThermodynamicTemperature::new::<degree_celsius>(15.),
+            1.,
+            Duration::from_secs(1),
+        );
+
+        assert_about_eq!(result.get::<degree_celsius>(), 15.);
+    }
+
+    #[test]
+    fn when_current_more_than_target_moves_towards_target() {
+        let result = calculate_towards_target_temperature(
+            ThermodynamicTemperature::new::<degree_celsius>(15.),
+            ThermodynamicTemperature::new::<degree_celsius>(10.),
+            1.,
+            Duration::from_secs(1),
+        );
+
+        assert_about_eq!(result.get::<degree_celsius>(), 14.);
+    }
+
+    #[test]
+    fn when_current_slightly_more_than_target_does_not_undershoot_target() {
+        let result = calculate_towards_target_temperature(
+            ThermodynamicTemperature::new::<degree_celsius>(10.1),
+            ThermodynamicTemperature::new::<degree_celsius>(10.),
+            1.,
+            Duration::from_secs(1),
+        );
+
+        assert_about_eq!(result.get::<degree_celsius>(), 10.);
     }
 }
