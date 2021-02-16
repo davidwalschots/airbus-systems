@@ -5,8 +5,8 @@ use systems::{
     electrical::{
         combine_potential_sources, Battery, CombinedPotentialSource, Contactor, ElectricalBus,
         ElectricalBusStateFactory, ElectricalBusType, EmergencyGenerator, EngineGenerator,
-        ExternalPowerSource, PotentialSource, PotentialTarget, PowerSupply, StaticInverter,
-        TransformerRectifier,
+        ExternalPowerSource, Potential, PotentialSource, PotentialTarget, PowerSupply,
+        StaticInverter, TransformerRectifier,
     },
     engine::Engine,
     overhead::{
@@ -183,9 +183,9 @@ impl MainGalley {
         alternating_current: &A320AlternatingCurrentElectrical,
         overhead: &A320ElectricalOverheadPanel,
     ) {
-        self.is_shed = alternating_current.main_sources_unpowered()
-            || alternating_current.main_sources_powered_by_single_engine_generator_only()
-            || (alternating_current.main_sources_powered_by_apu_generator_only()
+        self.is_shed = alternating_current.main_ac_buses_unpowered()
+            || alternating_current.main_ac_buses_powered_by_single_engine_generator_only()
+            || (alternating_current.main_ac_buses_powered_by_apu_generator_only()
                 && context.is_in_flight())
             || overhead.commercial_is_off()
             || overhead.galy_and_cab_is_off();
@@ -209,7 +209,7 @@ impl SecondaryGalley {
         alternating_current: &A320AlternatingCurrentElectrical,
         overhead: &A320ElectricalOverheadPanel,
     ) {
-        self.is_shed = alternating_current.main_sources_unpowered()
+        self.is_shed = alternating_current.main_ac_buses_unpowered()
             || overhead.commercial_is_off()
             || overhead.galy_and_cab_is_off();
     }
@@ -340,17 +340,40 @@ impl A320AlternatingCurrentElectrical {
         self.ac_ess_shed_bus.powered_by(&self.ac_ess_shed_contactor);
     }
 
-    fn main_sources_powered_by_single_engine_generator_only(&self) -> bool {
-        self.main_power_sources
-            .powered_by_single_engine_generator_only()
+    /// Whether or not AC BUS 1 and AC BUS 2 are powered by a single engine
+    /// generator exclusively. Also returns true when one of the buses is
+    /// unpowered and the other bus is powered by an engine generator.
+    fn main_ac_buses_powered_by_single_engine_generator_only(&self) -> bool {
+        match (
+            self.ac_bus_1.output_potential(),
+            self.ac_bus_2.output_potential(),
+        ) {
+            (Potential::None, Potential::EngineGenerator(_)) => true,
+            (Potential::EngineGenerator(_), Potential::None) => true,
+            (Potential::EngineGenerator(1), Potential::EngineGenerator(1)) => true,
+            (Potential::EngineGenerator(2), Potential::EngineGenerator(2)) => true,
+            _ => false,
+        }
     }
 
-    fn main_sources_powered_by_apu_generator_only(&self) -> bool {
-        self.main_power_sources.powered_by_apu_generator_only()
+    /// Whether or not AC BUS 1 and AC BUS 2 are powered by the APU generator
+    /// exclusively. Also returns true when one of the buses is unpowered and
+    /// the other bus is powered by the APU generator.
+    fn main_ac_buses_powered_by_apu_generator_only(&self) -> bool {
+        match (
+            self.ac_bus_1.output_potential(),
+            self.ac_bus_2.output_potential(),
+        ) {
+            (Potential::None, Potential::ApuGenerator(1)) => true,
+            (Potential::ApuGenerator(1), Potential::None) => true,
+            (Potential::ApuGenerator(1), Potential::ApuGenerator(1)) => true,
+            _ => false,
+        }
     }
 
-    fn main_sources_unpowered(&self) -> bool {
-        self.main_power_sources.unpowered()
+    /// Whether or not both AC BUS 1 and AC BUS 2 are unpowered.
+    fn main_ac_buses_unpowered(&self) -> bool {
+        self.ac_bus_1.is_unpowered() && self.ac_bus_2.is_unpowered()
     }
 
     /// Determines if 15XE2 should be closed. 15XE2 is the contactor which connects
@@ -400,7 +423,7 @@ impl AlternatingCurrentState for A320AlternatingCurrentElectrical {
     }
 
     fn ac_1_and_2_and_emergency_gen_unpowered(&self) -> bool {
-        self.ac_bus_1_and_2_unpowered() && self.emergency_gen.is_unpowered()
+        self.main_ac_buses_unpowered() && self.emergency_gen.is_unpowered()
     }
 
     fn ac_1_and_2_and_emergency_gen_unpowered_and_velocity_equal_to_or_greater_than_50_knots(
@@ -816,26 +839,6 @@ impl A320MainPowerSources {
             &self.engine_2_gen_contactor,
             &self.bus_tie_2_contactor,
         ])
-    }
-
-    fn powered_by_single_engine_generator_only(&self) -> bool {
-        (self.engine_1_gen_contactor.is_powered() ^ self.engine_2_gen_contactor.is_powered())
-            && self.apu_gen_contactor.is_unpowered()
-            && self.ext_pwr_contactor.is_unpowered()
-    }
-
-    fn powered_by_apu_generator_only(&self) -> bool {
-        self.engine_1_gen_contactor.is_unpowered()
-            && self.engine_2_gen_contactor.is_unpowered()
-            && self.ext_pwr_contactor.is_unpowered()
-            && self.apu_gen_contactor.is_powered()
-    }
-
-    fn unpowered(&self) -> bool {
-        self.engine_1_gen_contactor.is_unpowered()
-            && self.engine_2_gen_contactor.is_unpowered()
-            && self.ext_pwr_contactor.is_unpowered()
-            && self.apu_gen_contactor.is_unpowered()
     }
 }
 impl SimulationElement for A320MainPowerSources {
@@ -2208,6 +2211,10 @@ mod a320_electrical_circuit_tests {
         let tester = tester_with().running_engine_1().run();
 
         assert!(tester.galley_is_shed());
+
+        let tester = tester_with().running_engine_2().run();
+
+        assert!(tester.galley_is_shed());
     }
 
     #[test]
@@ -2215,6 +2222,31 @@ mod a320_electrical_circuit_tests {
         let tester = tester_with().running_apu().and().on_the_ground().run();
 
         assert!(!tester.galley_is_shed());
+    }
+
+    #[test]
+    fn when_single_engine_gen_with_bus_tie_off_but_apu_running_galley_is_shed() {
+        let tester = tester_with()
+            .running_engine_1()
+            .running_apu()
+            .and()
+            .bus_tie_off()
+            .run();
+
+        assert!(tester.galley_is_shed());
+    }
+
+    #[test]
+    fn when_single_engine_gen_with_bus_tie_off_and_ext_pwr_on_galley_is_shed() {
+        let tester = tester_with()
+            .running_engine_1()
+            .connected_external_power()
+            .ext_pwr_on()
+            .and()
+            .bus_tie_off()
+            .run();
+
+        assert!(tester.galley_is_shed());
     }
 
     #[test]
