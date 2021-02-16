@@ -1,5 +1,4 @@
 use std::time::Duration;
-use uom::si::{f64::*, length::foot, thermodynamic_temperature::degree_celsius, velocity::knot};
 
 mod update_context;
 pub use update_context::*;
@@ -188,7 +187,7 @@ impl<T: Aircraft, U: SimulatorReaderWriter> Simulation<T, U> {
     /// as the amount of time that has passed since the previous run.
     pub fn tick(&mut self, delta: Duration) {
         let mut reader = SimulatorReader::new(&mut self.simulator_read_writer);
-        let context = reader.to_context(delta);
+        let context = UpdateContext::from_reader(&mut reader, delta);
 
         let mut visitor = SimulatorToSimulationVisitor::new(&mut reader);
         self.aircraft.accept(&mut visitor);
@@ -238,19 +237,6 @@ pub struct SimulatorReader<'a> {
     simulator_read_writer: &'a mut dyn SimulatorReaderWriter,
 }
 impl<'a> SimulatorReader<'a> {
-    /// Creates a context based on the data that was read from the simulator.
-    pub(self) fn to_context(&mut self, delta_time: Duration) -> UpdateContext {
-        UpdateContext {
-            ambient_temperature: ThermodynamicTemperature::new::<degree_celsius>(
-                self.read_f64("AMBIENT TEMPERATURE"),
-            ),
-            indicated_airspeed: Velocity::new::<knot>(self.read_f64("AIRSPEED INDICATED")),
-            indicated_altitude: Length::new::<foot>(self.read_f64("INDICATED ALTITUDE")),
-            is_on_ground: self.read_bool("SIM ON GROUND"),
-            delta: delta_time,
-        }
-    }
-
     pub fn new(simulator_read_writer: &'a mut dyn SimulatorReaderWriter) -> Self {
         Self {
             simulator_read_writer,
@@ -301,7 +287,7 @@ pub struct SimulatorWriter<'a> {
 impl<'a> SimulatorWriter<'a> {
     pub fn new(simulator_read_writer: &'a mut dyn SimulatorReaderWriter) -> Self {
         Self {
-            simulator_read_writer: simulator_read_writer,
+            simulator_read_writer,
         }
     }
 

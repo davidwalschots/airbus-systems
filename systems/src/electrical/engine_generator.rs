@@ -58,11 +58,7 @@ impl ProvidePotential for EngineGenerator {
 
     fn potential_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            true
-        } else {
-            false
-        }
+        self.output_potential().is_powered()
     }
 }
 impl ProvideFrequency for EngineGenerator {
@@ -77,11 +73,7 @@ impl ProvideFrequency for EngineGenerator {
 
     fn frequency_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            true
-        } else {
-            false
-        }
+        self.output_potential().is_powered()
     }
 }
 impl ProvideLoad for EngineGenerator {

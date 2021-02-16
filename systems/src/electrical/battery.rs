@@ -57,20 +57,12 @@ impl PotentialSource for Battery {
 impl ProvideCurrent for Battery {
     fn current(&self) -> ElectricCurrent {
         // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            ElectricCurrent::new::<ampere>(0.)
-        } else {
-            ElectricCurrent::new::<ampere>(0.)
-        }
+        ElectricCurrent::new::<ampere>(0.)
     }
 
     fn current_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            true
-        } else {
-            false
-        }
+        self.output_potential().is_powered()
     }
 }
 impl ProvidePotential for Battery {
@@ -85,11 +77,7 @@ impl ProvidePotential for Battery {
 
     fn potential_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            true
-        } else {
-            false
-        }
+        self.output_potential().is_powered()
     }
 }
 impl SimulationElement for Battery {

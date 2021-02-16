@@ -46,11 +46,11 @@ impl OnOffFaultPushButton {
     }
 
     pub fn is_on(&self) -> bool {
-        self.is_on == true
+        self.is_on
     }
 
     pub fn is_off(&self) -> bool {
-        self.is_on == false
+        !self.is_on
     }
 }
 impl SimulationElement for OnOffFaultPushButton {
@@ -111,11 +111,11 @@ impl OnOffAvailablePushButton {
     }
 
     pub fn is_on(&self) -> bool {
-        self.is_on == true
+        self.is_on
     }
 
     pub fn is_off(&self) -> bool {
-        self.is_on == false
+        !self.is_on
     }
 }
 impl SimulationElement for OnOffAvailablePushButton {
@@ -160,11 +160,11 @@ impl NormalAltnFaultPushButton {
     }
 
     pub fn is_normal(&self) -> bool {
-        self.is_normal == true
+        self.is_normal
     }
 
     pub fn is_altn(&self) -> bool {
-        self.is_normal == false
+        !self.is_normal
     }
 
     pub fn set_normal(&mut self, value: bool) {
@@ -225,11 +225,11 @@ impl AutoOffFaultPushButton {
     }
 
     pub fn is_auto(&self) -> bool {
-        self.is_auto == true
+        self.is_auto
     }
 
     pub fn is_off(&self) -> bool {
-        self.is_auto == false
+        !self.is_auto
     }
 
     pub fn set_auto(&mut self, value: bool) {

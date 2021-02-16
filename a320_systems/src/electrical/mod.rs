@@ -40,6 +40,7 @@ impl A320Electrical {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update<T: ApuGenerator>(
         &mut self,
         context: &UpdateContext,
@@ -1875,7 +1876,7 @@ mod a320_electrical_circuit_tests {
                 .delta(Duration::from_secs(1))
                 .indicated_airspeed(self.airspeed)
                 .indicated_altitude(self.altitude)
-                .is_on_ground(self.altitude < Length::new::<foot>(1.))
+                .on_ground(self.altitude < Length::new::<foot>(1.))
                 .ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(0.));
             self.elec.update(
                 &context_builder.build(),
@@ -1898,7 +1899,7 @@ mod a320_electrical_circuit_tests {
                 .delta(Duration::from_secs(0))
                 .indicated_airspeed(self.airspeed)
                 .indicated_altitude(self.altitude)
-                .is_on_ground(self.altitude < Length::new::<foot>(1.))
+                .on_ground(self.altitude < Length::new::<foot>(1.))
                 .ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(0.));
             self.elec.update(
                 &context_builder.build(),
@@ -1950,9 +1951,7 @@ mod a320_electrical_circuit_tests {
         }
 
         fn new_disconnected_external_power() -> ExternalPowerSource {
-            let ext_pwr = ExternalPowerSource::new();
-
-            ext_pwr
+            ExternalPowerSource::new()
         }
 
         fn new_connected_external_power() -> ExternalPowerSource {

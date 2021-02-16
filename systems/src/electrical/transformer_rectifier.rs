@@ -53,11 +53,7 @@ impl ProvideCurrent for TransformerRectifier {
 
     fn current_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            true
-        } else {
-            false
-        }
+        self.output_potential().is_powered()
     }
 }
 impl ProvidePotential for TransformerRectifier {
@@ -72,11 +68,7 @@ impl ProvidePotential for TransformerRectifier {
 
     fn potential_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            true
-        } else {
-            false
-        }
+        self.output_potential().is_powered()
     }
 }
 impl SimulationElement for TransformerRectifier {

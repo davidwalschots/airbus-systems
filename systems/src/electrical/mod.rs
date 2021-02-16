@@ -7,6 +7,8 @@ mod external_power_source;
 mod power_consumption;
 mod static_inverter;
 mod transformer_rectifier;
+use std::fmt::Display;
+
 pub use battery::Battery;
 pub use emergency_generator::EmergencyGenerator;
 pub use engine_generator::EngineGenerator;
@@ -247,18 +249,18 @@ pub enum ElectricalBusType {
     DirectCurrentBattery,
     DirectCurrentHot(u8),
 }
-impl ElectricalBusType {
-    fn to_string(&self) -> String {
+impl Display for ElectricalBusType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ElectricalBusType::AlternatingCurrent(number) => format!("AC_{}", number),
-            ElectricalBusType::AlternatingCurrentEssential => String::from("AC_ESS"),
-            ElectricalBusType::AlternatingCurrentEssentialShed => String::from("AC_ESS_SHED"),
-            ElectricalBusType::AlternatingCurrentStaticInverter => String::from("AC_STAT_INV"),
-            ElectricalBusType::DirectCurrent(number) => format!("DC_{}", number),
-            ElectricalBusType::DirectCurrentEssential => String::from("DC_ESS"),
-            ElectricalBusType::DirectCurrentEssentialShed => String::from("DC_ESS_SHED"),
-            ElectricalBusType::DirectCurrentBattery => String::from("DC_BAT"),
-            ElectricalBusType::DirectCurrentHot(number) => format!("DC_HOT_{}", number),
+            ElectricalBusType::AlternatingCurrent(number) => write!(f, "AC_{}", number),
+            ElectricalBusType::AlternatingCurrentEssential => write!(f, "AC_ESS"),
+            ElectricalBusType::AlternatingCurrentEssentialShed => write!(f, "AC_ESS_SHED"),
+            ElectricalBusType::AlternatingCurrentStaticInverter => write!(f, "AC_STAT_INV"),
+            ElectricalBusType::DirectCurrent(number) => write!(f, "DC_{}", number),
+            ElectricalBusType::DirectCurrentEssential => write!(f, "DC_ESS"),
+            ElectricalBusType::DirectCurrentEssentialShed => write!(f, "DC_ESS_SHED"),
+            ElectricalBusType::DirectCurrentBattery => write!(f, "DC_BAT"),
+            ElectricalBusType::DirectCurrentHot(number) => write!(f, "DC_HOT_{}", number),
         }
     }
 }
@@ -564,9 +566,7 @@ mod tests {
 
         impl BatteryStub {
             fn new(potential: Potential) -> BatteryStub {
-                BatteryStub {
-                    potential: potential,
-                }
+                BatteryStub { potential }
             }
         }
 

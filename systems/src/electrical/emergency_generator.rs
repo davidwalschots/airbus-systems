@@ -53,11 +53,7 @@ impl ProvideFrequency for EmergencyGenerator {
 
     fn frequency_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            true
-        } else {
-            false
-        }
+        self.output_potential().is_powered()
     }
 }
 impl ProvidePotential for EmergencyGenerator {
@@ -72,11 +68,7 @@ impl ProvidePotential for EmergencyGenerator {
 
     fn potential_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            true
-        } else {
-            false
-        }
+        self.output_potential().is_powered()
     }
 }
 impl SimulationElement for EmergencyGenerator {
@@ -86,6 +78,11 @@ impl SimulationElement for EmergencyGenerator {
 
     fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_alternating(self, writer);
+    }
+}
+impl Default for EmergencyGenerator {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -40,11 +40,7 @@ impl ProvidePotential for ExternalPowerSource {
 
     fn potential_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            true
-        } else {
-            false
-        }
+        self.output_potential().is_powered()
     }
 }
 impl ProvideFrequency for ExternalPowerSource {
@@ -59,11 +55,7 @@ impl ProvideFrequency for ExternalPowerSource {
 
     fn frequency_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            true
-        } else {
-            false
-        }
+        self.output_potential().is_powered()
     }
 }
 impl SimulationElement for ExternalPowerSource {
@@ -73,6 +65,11 @@ impl SimulationElement for ExternalPowerSource {
 
     fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_alternating(self, writer);
+    }
+}
+impl Default for ExternalPowerSource {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

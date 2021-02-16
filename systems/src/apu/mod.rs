@@ -34,12 +34,12 @@ impl AuxiliaryPowerUnitFactory {
             Aps3200ApuGenerator::new(number),
         );
 
-        AuxiliaryPowerUnitFactory::to_running(&mut apu);
+        AuxiliaryPowerUnitFactory::start_running(&mut apu);
 
         apu
     }
 
-    fn to_running<T: ApuGenerator>(apu: &mut AuxiliaryPowerUnit<T>) {
+    fn start_running<T: ApuGenerator>(apu: &mut AuxiliaryPowerUnit<T>) {
         loop {
             AuxiliaryPowerUnitFactory::run(apu);
             if apu.is_available() {
@@ -363,6 +363,11 @@ impl SimulationElement for AuxiliaryPowerUnitFireOverheadPanel {
         visitor.visit(self);
     }
 }
+impl Default for AuxiliaryPowerUnitFireOverheadPanel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 pub struct AuxiliaryPowerUnitOverheadPanel {
     pub master: OnOffFaultPushButton,
@@ -413,6 +418,11 @@ impl SimulationElement for AuxiliaryPowerUnitOverheadPanel {
         self.start.accept(visitor);
 
         visitor.visit(self);
+    }
+}
+impl Default for AuxiliaryPowerUnitOverheadPanel {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

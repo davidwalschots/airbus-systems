@@ -33,11 +33,7 @@ impl DelayedTrueLogicGate {
     }
 
     pub fn output(&self) -> bool {
-        if self.expression_result && self.delay <= self.true_duration {
-            true
-        } else {
-            false
-        }
+        self.expression_result && self.delay <= self.true_duration
     }
 }
 

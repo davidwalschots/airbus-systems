@@ -109,6 +109,11 @@ impl PowerSupply {
         }
     }
 }
+impl Default for PowerSupply {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 pub trait ElectricalBusStateFactory {
     fn create_power_supply(&self) -> PowerSupply;
@@ -167,9 +172,8 @@ impl SimulationElement for PowerConsumption {
     }
 
     fn determine_power_consumption(&mut self, state: &mut PowerConsumptionState) {
-        match self.get_demand() {
-            Some((bus_type, power)) => state.add(&bus_type, power),
-            None => {}
+        if let Some((bus_type, power)) = self.get_demand() {
+            state.add(&bus_type, power)
         }
     }
 }
@@ -181,7 +185,7 @@ pub struct PowerConsumptionHandler<'a> {
 impl<'a> PowerConsumptionHandler<'a> {
     pub fn new(supply: &'a PowerSupply) -> Self {
         PowerConsumptionHandler {
-            supply: supply,
+            supply,
             power_consumption_state: PowerConsumptionState::new(&supply),
         }
     }
@@ -412,9 +416,7 @@ mod tests {
         impl PowerConsumerStub {
             fn new(mut power_consumption: PowerConsumption, power: Power) -> Self {
                 power_consumption.demand(power);
-                PowerConsumerStub {
-                    power_consumption: power_consumption,
-                }
+                PowerConsumerStub { power_consumption }
             }
         }
         impl SimulationElement for PowerConsumerStub {

@@ -43,11 +43,7 @@ impl ProvidePotential for StaticInverter {
 
     fn potential_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            true
-        } else {
-            false
-        }
+        self.output_potential().is_powered()
     }
 }
 impl ProvideFrequency for StaticInverter {
@@ -62,11 +58,7 @@ impl ProvideFrequency for StaticInverter {
 
     fn frequency_normal(&self) -> bool {
         // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            true
-        } else {
-            false
-        }
+        self.output_potential().is_powered()
     }
 }
 impl SimulationElement for StaticInverter {
@@ -76,6 +68,11 @@ impl SimulationElement for StaticInverter {
 
     fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_alternating(self, writer);
+    }
+}
+impl Default for StaticInverter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

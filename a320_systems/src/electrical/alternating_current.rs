@@ -55,6 +55,7 @@ impl A320AlternatingCurrentElectrical {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update<T: ApuGenerator>(
         &mut self,
         context: &UpdateContext,
@@ -144,31 +145,31 @@ impl A320AlternatingCurrentElectrical {
     /// generator exclusively. Also returns true when one of the buses is
     /// unpowered and the other bus is powered by an engine generator.
     pub fn main_ac_buses_powered_by_single_engine_generator_only(&self) -> bool {
-        match (
-            self.ac_bus_1.output_potential(),
-            self.ac_bus_2.output_potential(),
-        ) {
-            (Potential::None, Potential::EngineGenerator(_)) => true,
-            (Potential::EngineGenerator(_), Potential::None) => true,
-            (Potential::EngineGenerator(1), Potential::EngineGenerator(1)) => true,
-            (Potential::EngineGenerator(2), Potential::EngineGenerator(2)) => true,
-            _ => false,
-        }
+        matches!(
+            (
+                self.ac_bus_1.output_potential(),
+                self.ac_bus_2.output_potential(),
+            ),
+            (Potential::None, Potential::EngineGenerator(_))
+                | (Potential::EngineGenerator(_), Potential::None)
+                | (Potential::EngineGenerator(1), Potential::EngineGenerator(1))
+                | (Potential::EngineGenerator(2), Potential::EngineGenerator(2))
+        )
     }
 
     /// Whether or not AC BUS 1 and AC BUS 2 are powered by the APU generator
     /// exclusively. Also returns true when one of the buses is unpowered and
     /// the other bus is powered by the APU generator.
     pub fn main_ac_buses_powered_by_apu_generator_only(&self) -> bool {
-        match (
-            self.ac_bus_1.output_potential(),
-            self.ac_bus_2.output_potential(),
-        ) {
-            (Potential::None, Potential::ApuGenerator(1)) => true,
-            (Potential::ApuGenerator(1), Potential::None) => true,
-            (Potential::ApuGenerator(1), Potential::ApuGenerator(1)) => true,
-            _ => false,
-        }
+        matches!(
+            (
+                self.ac_bus_1.output_potential(),
+                self.ac_bus_2.output_potential(),
+            ),
+            (Potential::None, Potential::ApuGenerator(1))
+                | (Potential::ApuGenerator(1), Potential::None)
+                | (Potential::ApuGenerator(1), Potential::ApuGenerator(1))
+        )
     }
 
     /// Whether or not both AC BUS 1 and AC BUS 2 are unpowered.

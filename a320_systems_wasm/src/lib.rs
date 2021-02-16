@@ -1,3 +1,4 @@
+#![cfg(any(target_arch = "wasm32", doc))]
 use a320_systems::A320;
 use msfs::{
     legacy::{AircraftVariable, NamedVariable},

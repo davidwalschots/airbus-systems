@@ -366,7 +366,7 @@ impl Aps3200ApuGenerator {
 
     pub fn new(number: usize) -> Aps3200ApuGenerator {
         Aps3200ApuGenerator {
-            number: number,
+            number,
             writer: ElectricalStateWriter::new(&format!("APU_GEN_{}", number)),
             output: Potential::None,
             random_voltage: TimedRandom::new(
