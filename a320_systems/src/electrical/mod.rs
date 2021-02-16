@@ -1,24 +1,30 @@
-use super::A320Hydraulic;
-use std::time::Duration;
+mod alternating_current;
+mod direct_current;
+mod galley;
+
 use systems::{
     apu::{ApuGenerator, AuxiliaryPowerUnit},
     electrical::{
-        combine_potential_sources, Battery, CombinedPotentialSource, Contactor, ElectricalBus,
-        ElectricalBusStateFactory, ElectricalBusType, EmergencyGenerator, EngineGenerator,
-        ExternalPowerSource, Potential, PotentialSource, PotentialTarget, PowerSupply,
-        StaticInverter, TransformerRectifier,
+        ElectricalBus, ElectricalBusStateFactory, ExternalPowerSource, Potential, PotentialSource,
+        PowerSupply, StaticInverter, TransformerRectifier,
     },
     engine::Engine,
     overhead::{
         AutoOffFaultPushButton, FaultReleasePushButton, NormalAltnFaultPushButton,
         OnOffAvailablePushButton, OnOffFaultPushButton,
     },
-    shared::DelayedTrueLogicGate,
     simulation::{SimulationElement, SimulationElementVisitor, SimulatorWriter, UpdateContext},
 };
-use uom::si::{f64::*, velocity::knot};
 
-pub struct A320Electrical {
+use crate::hydraulic::A320Hydraulic;
+
+use self::{
+    alternating_current::A320AlternatingCurrentElectrical,
+    direct_current::A320DirectCurrentElectrical,
+    galley::{MainGalley, SecondaryGalley},
+};
+
+pub(crate) struct A320Electrical {
     alternating_current: A320AlternatingCurrentElectrical,
     direct_current: A320DirectCurrentElectrical,
     main_galley: MainGalley,
@@ -120,6 +126,56 @@ impl A320Electrical {
         self.alternating_current.debug_assert_invariants();
         self.direct_current.debug_assert_invariants();
     }
+
+    #[cfg(test)]
+    fn fail_tr_1(&mut self) {
+        self.alternating_current.fail_tr_1();
+    }
+
+    #[cfg(test)]
+    fn fail_tr_2(&mut self) {
+        self.alternating_current.fail_tr_2();
+    }
+
+    #[cfg(test)]
+    fn attempt_emergency_gen_start(&mut self) {
+        self.alternating_current.attempt_emergency_gen_start();
+    }
+
+    #[cfg(test)]
+    fn tr_1(&self) -> &TransformerRectifier {
+        self.alternating_current.tr_1()
+    }
+
+    #[cfg(test)]
+    fn tr_2(&self) -> &TransformerRectifier {
+        self.alternating_current.tr_2()
+    }
+
+    #[cfg(test)]
+    fn tr_ess(&self) -> &TransformerRectifier {
+        self.alternating_current.tr_ess()
+    }
+
+    #[cfg(test)]
+    fn battery_1_input_potential(&self) -> Potential {
+        self.direct_current.battery_1_input_potential()
+    }
+
+    #[cfg(test)]
+    fn battery_2_input_potential(&self) -> Potential {
+        self.direct_current.battery_2_input_potential()
+    }
+
+    #[cfg(test)]
+    pub fn empty_battery_1(&mut self) {
+        self.direct_current.empty_battery_1();
+    }
+
+    #[cfg(test)]
+    pub fn empty_battery_2(&mut self) {
+        self.direct_current.empty_battery_2();
+    }
 }
 impl ElectricalBusStateFactory for A320Electrical {
     fn create_power_supply(&self) -> PowerSupply {
@@ -152,6 +208,10 @@ impl SimulationElement for A320Electrical {
     }
 }
 
+trait DirectCurrentState {
+    fn static_inverter(&self) -> &StaticInverter;
+}
+
 trait AlternatingCurrentState {
     fn ac_bus_1_and_2_unpowered(&self) -> bool;
     fn tr_1_and_2_available(&self) -> bool;
@@ -165,762 +225,7 @@ trait AlternatingCurrentState {
     fn tr_ess(&self) -> &TransformerRectifier;
 }
 
-struct MainGalley {
-    is_shed: bool,
-}
-impl MainGalley {
-    fn new() -> Self {
-        Self { is_shed: false }
-    }
-
-    fn is_shed(&self) -> bool {
-        self.is_shed
-    }
-
-    fn update(
-        &mut self,
-        context: &UpdateContext,
-        alternating_current: &A320AlternatingCurrentElectrical,
-        overhead: &A320ElectricalOverheadPanel,
-    ) {
-        self.is_shed = alternating_current.main_ac_buses_unpowered()
-            || alternating_current.main_ac_buses_powered_by_single_engine_generator_only()
-            || (alternating_current.main_ac_buses_powered_by_apu_generator_only()
-                && context.is_in_flight())
-            || overhead.commercial_is_off()
-            || overhead.galy_and_cab_is_off();
-    }
-}
-
-struct SecondaryGalley {
-    is_shed: bool,
-}
-impl SecondaryGalley {
-    fn new() -> Self {
-        Self { is_shed: false }
-    }
-
-    fn is_shed(&self) -> bool {
-        self.is_shed
-    }
-
-    fn update(
-        &mut self,
-        alternating_current: &A320AlternatingCurrentElectrical,
-        overhead: &A320ElectricalOverheadPanel,
-    ) {
-        self.is_shed = alternating_current.main_ac_buses_unpowered()
-            || overhead.commercial_is_off()
-            || overhead.galy_and_cab_is_off();
-    }
-}
-
-struct A320AlternatingCurrentElectrical {
-    main_power_sources: A320MainPowerSources,
-    ac_ess_feed_contactors: A320AcEssFeedContactors,
-    ac_bus_1: ElectricalBus,
-    ac_bus_2: ElectricalBus,
-    ac_ess_bus: ElectricalBus,
-    ac_ess_shed_bus: ElectricalBus,
-    ac_ess_shed_contactor: Contactor,
-    tr_1: TransformerRectifier,
-    tr_2: TransformerRectifier,
-    tr_ess: TransformerRectifier,
-    ac_ess_to_tr_ess_contactor: Contactor,
-    emergency_gen: EmergencyGenerator,
-    emergency_gen_contactor: Contactor,
-    static_inv_to_ac_ess_bus_contactor: Contactor,
-    ac_stat_inv_bus: ElectricalBus,
-}
-impl A320AlternatingCurrentElectrical {
-    fn new() -> Self {
-        A320AlternatingCurrentElectrical {
-            main_power_sources: A320MainPowerSources::new(),
-            ac_ess_feed_contactors: A320AcEssFeedContactors::new(),
-            ac_bus_1: ElectricalBus::new(ElectricalBusType::AlternatingCurrent(1)),
-            ac_bus_2: ElectricalBus::new(ElectricalBusType::AlternatingCurrent(2)),
-            ac_ess_bus: ElectricalBus::new(ElectricalBusType::AlternatingCurrentEssential),
-            ac_ess_shed_bus: ElectricalBus::new(ElectricalBusType::AlternatingCurrentEssentialShed),
-            ac_ess_shed_contactor: Contactor::new("8XH"),
-            tr_1: TransformerRectifier::new(1),
-            tr_2: TransformerRectifier::new(2),
-            tr_ess: TransformerRectifier::new(3),
-            ac_ess_to_tr_ess_contactor: Contactor::new("15XE1"),
-            emergency_gen: EmergencyGenerator::new(),
-            emergency_gen_contactor: Contactor::new("2XE"),
-            static_inv_to_ac_ess_bus_contactor: Contactor::new("15XE2"),
-            ac_stat_inv_bus: ElectricalBus::new(
-                ElectricalBusType::AlternatingCurrentStaticInverter,
-            ),
-        }
-    }
-
-    fn update<T: ApuGenerator>(
-        &mut self,
-        context: &UpdateContext,
-        engine1: &Engine,
-        engine2: &Engine,
-        apu: &AuxiliaryPowerUnit<T>,
-        ext_pwr: &ExternalPowerSource,
-        hydraulic: &A320Hydraulic,
-        overhead: &A320ElectricalOverheadPanel,
-    ) {
-        self.emergency_gen.update(
-            // ON GROUND BAT ONLY SPEED <= 100 kts scenario. We'll probably need to move this logic into
-            // the ram air turbine, emergency generator and hydraulic implementation.
-            hydraulic.is_blue_pressurised()
-                && context.indicated_airspeed > Velocity::new::<knot>(100.),
-        );
-
-        self.main_power_sources
-            .update(context, engine1, engine2, apu, ext_pwr, overhead);
-
-        self.ac_bus_1
-            .powered_by(&self.main_power_sources.ac_bus_1_electric_sources());
-        self.ac_bus_2
-            .powered_by(&self.main_power_sources.ac_bus_2_electric_sources());
-
-        self.tr_1.powered_by(&self.ac_bus_1);
-        self.tr_2.powered_by(&self.ac_bus_2);
-
-        self.ac_ess_feed_contactors
-            .update(context, &self.ac_bus_1, &self.ac_bus_2, overhead);
-
-        self.ac_ess_bus
-            .powered_by(&self.ac_ess_feed_contactors.electric_sources());
-
-        self.emergency_gen_contactor.close_when(
-            self.ac_bus_1.is_unpowered()
-                && self.ac_bus_2.is_unpowered()
-                && self.emergency_gen.is_powered(),
-        );
-        self.emergency_gen_contactor.powered_by(&self.emergency_gen);
-
-        self.ac_ess_to_tr_ess_contactor.powered_by(&self.ac_ess_bus);
-        self.ac_ess_to_tr_ess_contactor
-            .or_powered_by(&self.emergency_gen_contactor);
-
-        self.ac_ess_to_tr_ess_contactor.close_when(
-            (!self.tr_1_and_2_available() && self.ac_ess_feed_contactors.provides_power())
-                || self.emergency_gen_contactor.is_powered(),
-        );
-
-        self.ac_ess_bus
-            .or_powered_by(&self.ac_ess_to_tr_ess_contactor);
-
-        self.ac_ess_shed_contactor.powered_by(&self.ac_ess_bus);
-
-        self.tr_ess.powered_by(&self.ac_ess_to_tr_ess_contactor);
-        self.tr_ess.or_powered_by(&self.emergency_gen_contactor);
-
-        self.update_shedding();
-    }
-
-    fn update_with_direct_current_state<T: DirectCurrentState>(
-        &mut self,
-        context: &UpdateContext,
-        dc_state: &T,
-    ) {
-        self.ac_stat_inv_bus.powered_by(dc_state.static_inverter());
-        self.static_inv_to_ac_ess_bus_contactor
-            .close_when(self.should_close_15xe2_contactor(context));
-        self.static_inv_to_ac_ess_bus_contactor
-            .powered_by(dc_state.static_inverter());
-        self.ac_ess_bus
-            .or_powered_by(&self.static_inv_to_ac_ess_bus_contactor);
-    }
-
-    fn update_shedding(&mut self) {
-        let ac_bus_or_emergency_gen_provides_power = self.ac_bus_1.is_powered()
-            || self.ac_bus_2.is_powered()
-            || self.emergency_gen.is_powered();
-        self.ac_ess_shed_contactor
-            .close_when(ac_bus_or_emergency_gen_provides_power);
-
-        self.ac_ess_shed_bus.powered_by(&self.ac_ess_shed_contactor);
-    }
-
-    /// Whether or not AC BUS 1 and AC BUS 2 are powered by a single engine
-    /// generator exclusively. Also returns true when one of the buses is
-    /// unpowered and the other bus is powered by an engine generator.
-    fn main_ac_buses_powered_by_single_engine_generator_only(&self) -> bool {
-        match (
-            self.ac_bus_1.output_potential(),
-            self.ac_bus_2.output_potential(),
-        ) {
-            (Potential::None, Potential::EngineGenerator(_)) => true,
-            (Potential::EngineGenerator(_), Potential::None) => true,
-            (Potential::EngineGenerator(1), Potential::EngineGenerator(1)) => true,
-            (Potential::EngineGenerator(2), Potential::EngineGenerator(2)) => true,
-            _ => false,
-        }
-    }
-
-    /// Whether or not AC BUS 1 and AC BUS 2 are powered by the APU generator
-    /// exclusively. Also returns true when one of the buses is unpowered and
-    /// the other bus is powered by the APU generator.
-    fn main_ac_buses_powered_by_apu_generator_only(&self) -> bool {
-        match (
-            self.ac_bus_1.output_potential(),
-            self.ac_bus_2.output_potential(),
-        ) {
-            (Potential::None, Potential::ApuGenerator(1)) => true,
-            (Potential::ApuGenerator(1), Potential::None) => true,
-            (Potential::ApuGenerator(1), Potential::ApuGenerator(1)) => true,
-            _ => false,
-        }
-    }
-
-    /// Whether or not both AC BUS 1 and AC BUS 2 are unpowered.
-    fn main_ac_buses_unpowered(&self) -> bool {
-        self.ac_bus_1.is_unpowered() && self.ac_bus_2.is_unpowered()
-    }
-
-    /// Determines if 15XE2 should be closed. 15XE2 is the contactor which connects
-    /// the static inverter to the AC ESS BUS.
-    fn should_close_15xe2_contactor(&self, context: &UpdateContext) -> bool {
-        self.ac_1_and_2_and_emergency_gen_unpowered_and_velocity_equal_to_or_greater_than_50_knots(
-            context,
-        )
-    }
-
-    fn debug_assert_invariants(&self) {
-        debug_assert!(self.static_inverter_or_emergency_gen_powers_ac_ess_bus());
-    }
-
-    fn static_inverter_or_emergency_gen_powers_ac_ess_bus(&self) -> bool {
-        !(self.static_inv_to_ac_ess_bus_contactor.is_closed()
-            && self.ac_ess_to_tr_ess_contactor.is_closed())
-    }
-
-    fn ac_bus_1(&self) -> &ElectricalBus {
-        &self.ac_bus_1
-    }
-
-    fn ac_bus_2(&self) -> &ElectricalBus {
-        &self.ac_bus_2
-    }
-
-    fn ac_ess_bus(&self) -> &ElectricalBus {
-        &self.ac_ess_bus
-    }
-
-    fn ac_ess_shed_bus(&self) -> &ElectricalBus {
-        &self.ac_ess_shed_bus
-    }
-
-    fn ac_stat_inv_bus(&self) -> &ElectricalBus {
-        &self.ac_stat_inv_bus
-    }
-}
-impl AlternatingCurrentState for A320AlternatingCurrentElectrical {
-    fn ac_bus_1_and_2_unpowered(&self) -> bool {
-        self.ac_bus_1.is_unpowered() && self.ac_bus_2.is_unpowered()
-    }
-
-    fn tr_1_and_2_available(&self) -> bool {
-        self.tr_1.is_powered() && self.tr_2.is_powered()
-    }
-
-    fn ac_1_and_2_and_emergency_gen_unpowered(&self) -> bool {
-        self.main_ac_buses_unpowered() && self.emergency_gen.is_unpowered()
-    }
-
-    fn ac_1_and_2_and_emergency_gen_unpowered_and_velocity_equal_to_or_greater_than_50_knots(
-        &self,
-        context: &UpdateContext,
-    ) -> bool {
-        self.ac_1_and_2_and_emergency_gen_unpowered()
-            && context.indicated_airspeed >= Velocity::new::<knot>(50.)
-    }
-
-    fn tr_1(&self) -> &TransformerRectifier {
-        &self.tr_1
-    }
-
-    fn tr_2(&self) -> &TransformerRectifier {
-        &self.tr_2
-    }
-
-    fn tr_ess(&self) -> &TransformerRectifier {
-        &self.tr_ess
-    }
-}
-impl SimulationElement for A320AlternatingCurrentElectrical {
-    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
-        self.emergency_gen.accept(visitor);
-        self.main_power_sources.accept(visitor);
-        self.ac_ess_feed_contactors.accept(visitor);
-        self.tr_1.accept(visitor);
-        self.tr_2.accept(visitor);
-        self.tr_ess.accept(visitor);
-
-        self.ac_ess_shed_contactor.accept(visitor);
-        self.ac_ess_to_tr_ess_contactor.accept(visitor);
-        self.emergency_gen_contactor.accept(visitor);
-        self.static_inv_to_ac_ess_bus_contactor.accept(visitor);
-
-        self.ac_bus_1.accept(visitor);
-        self.ac_bus_2.accept(visitor);
-        self.ac_ess_bus.accept(visitor);
-        self.ac_ess_shed_bus.accept(visitor);
-        self.ac_stat_inv_bus.accept(visitor);
-
-        visitor.visit(self);
-    }
-}
-
-trait DirectCurrentState {
-    fn static_inverter(&self) -> &StaticInverter;
-}
-
-struct A320DirectCurrentElectrical {
-    dc_bus_1: ElectricalBus,
-    dc_bus_2: ElectricalBus,
-    dc_bus_1_tie_contactor: Contactor,
-    dc_bus_2_tie_contactor: Contactor,
-    dc_bat_bus: ElectricalBus,
-    dc_ess_bus: ElectricalBus,
-    dc_bat_bus_to_dc_ess_bus_contactor: Contactor,
-    dc_ess_shed_bus: ElectricalBus,
-    dc_ess_shed_contactor: Contactor,
-    battery_1: Battery,
-    battery_1_contactor: Contactor,
-    battery_2: Battery,
-    battery_2_contactor: Contactor,
-    battery_2_to_dc_ess_bus_contactor: Contactor,
-    battery_1_to_static_inv_contactor: Contactor,
-    static_inverter: StaticInverter,
-    hot_bus_1: ElectricalBus,
-    hot_bus_2: ElectricalBus,
-    tr_1_contactor: Contactor,
-    tr_2_contactor: Contactor,
-    tr_ess_contactor: Contactor,
-}
-impl A320DirectCurrentElectrical {
-    fn new() -> Self {
-        A320DirectCurrentElectrical {
-            dc_bus_1: ElectricalBus::new(ElectricalBusType::DirectCurrent(1)),
-            dc_bus_1_tie_contactor: Contactor::new("1PC1"),
-            dc_bus_2: ElectricalBus::new(ElectricalBusType::DirectCurrent(2)),
-            dc_bus_2_tie_contactor: Contactor::new("1PC2"),
-            dc_bat_bus: ElectricalBus::new(ElectricalBusType::DirectCurrentBattery),
-            dc_ess_bus: ElectricalBus::new(ElectricalBusType::DirectCurrentEssential),
-            dc_bat_bus_to_dc_ess_bus_contactor: Contactor::new("4PC"),
-            dc_ess_shed_bus: ElectricalBus::new(ElectricalBusType::DirectCurrentEssentialShed),
-            dc_ess_shed_contactor: Contactor::new("8PH"),
-            battery_1: Battery::full(10),
-            battery_1_contactor: Contactor::new("6PB1"),
-            battery_2: Battery::full(11),
-            battery_2_contactor: Contactor::new("6PB2"),
-            battery_2_to_dc_ess_bus_contactor: Contactor::new("2XB2"),
-            battery_1_to_static_inv_contactor: Contactor::new("2XB1"),
-            static_inverter: StaticInverter::new(),
-            hot_bus_1: ElectricalBus::new(ElectricalBusType::DirectCurrentHot(1)),
-            hot_bus_2: ElectricalBus::new(ElectricalBusType::DirectCurrentHot(2)),
-            tr_1_contactor: Contactor::new("5PU1"),
-            tr_2_contactor: Contactor::new("5PU2"),
-            tr_ess_contactor: Contactor::new("3PE"),
-        }
-    }
-
-    fn update_with_alternating_current_state<T: AlternatingCurrentState>(
-        &mut self,
-        context: &UpdateContext,
-        overhead: &A320ElectricalOverheadPanel,
-        ac_state: &T,
-    ) {
-        self.tr_1_contactor.close_when(ac_state.tr_1().is_powered());
-        self.tr_1_contactor.powered_by(ac_state.tr_1());
-
-        self.tr_2_contactor.close_when(ac_state.tr_2().is_powered());
-        self.tr_2_contactor.powered_by(ac_state.tr_2());
-
-        self.tr_ess_contactor
-            .close_when(!ac_state.tr_1_and_2_available() && ac_state.tr_ess().is_powered());
-        self.tr_ess_contactor.powered_by(ac_state.tr_ess());
-
-        self.dc_bus_1.powered_by(&self.tr_1_contactor);
-        self.dc_bus_2.powered_by(&self.tr_2_contactor);
-
-        self.dc_bus_1_tie_contactor.powered_by(&self.dc_bus_1);
-        self.dc_bus_2_tie_contactor.powered_by(&self.dc_bus_2);
-
-        self.dc_bus_1_tie_contactor
-            .close_when(self.dc_bus_1.is_powered() || self.dc_bus_2.is_powered());
-        self.dc_bus_2_tie_contactor.close_when(
-            (!self.dc_bus_1.is_powered() && self.dc_bus_2.is_powered())
-                || (!self.dc_bus_2.is_powered() && self.dc_bus_1.is_powered()),
-        );
-
-        self.dc_bat_bus.powered_by(&self.dc_bus_1_tie_contactor);
-        self.dc_bat_bus.or_powered_by(&self.dc_bus_2_tie_contactor);
-
-        self.dc_bus_1_tie_contactor.or_powered_by(&self.dc_bat_bus);
-        self.dc_bus_2_tie_contactor.or_powered_by(&self.dc_bat_bus);
-        self.dc_bus_1.or_powered_by(&self.dc_bus_1_tie_contactor);
-        self.dc_bus_2.or_powered_by(&self.dc_bus_2_tie_contactor);
-
-        self.battery_1_contactor.powered_by(&self.dc_bat_bus);
-        self.battery_2_contactor.powered_by(&self.dc_bat_bus);
-
-        let airspeed_below_100_knots = context.indicated_airspeed < Velocity::new::<knot>(100.);
-        let batteries_should_supply_bat_bus =
-            ac_state.ac_bus_1_and_2_unpowered() && airspeed_below_100_knots;
-        self.battery_1_contactor.close_when(
-            overhead.bat_1_is_auto()
-                && (!self.battery_1.is_full() || batteries_should_supply_bat_bus),
-        );
-        self.battery_2_contactor.close_when(
-            overhead.bat_2_is_auto()
-                && (!self.battery_2.is_full() || batteries_should_supply_bat_bus),
-        );
-
-        self.battery_1.powered_by(&self.battery_1_contactor);
-        self.battery_2.powered_by(&self.battery_2_contactor);
-
-        self.battery_1_contactor.or_powered_by(&self.battery_1);
-        self.battery_2_contactor.or_powered_by(&self.battery_2);
-
-        self.dc_bat_bus
-            .or_powered_by_both_batteries(&self.battery_1_contactor, &self.battery_2_contactor);
-
-        self.hot_bus_1.powered_by(&self.battery_1_contactor);
-        self.hot_bus_1.or_powered_by(&self.battery_1);
-        self.hot_bus_2.powered_by(&self.battery_2_contactor);
-        self.hot_bus_2.or_powered_by(&self.battery_2);
-
-        self.dc_bat_bus_to_dc_ess_bus_contactor
-            .powered_by(&self.dc_bat_bus);
-        self.dc_bat_bus_to_dc_ess_bus_contactor
-            .close_when(ac_state.tr_1_and_2_available());
-        self.battery_2_to_dc_ess_bus_contactor
-            .powered_by(&self.battery_2);
-
-        let should_close_2xb_contactor = self.should_close_2xb_contactors(context, ac_state);
-        self.battery_2_to_dc_ess_bus_contactor
-            .close_when(should_close_2xb_contactor);
-
-        self.battery_1_to_static_inv_contactor
-            .close_when(should_close_2xb_contactor);
-
-        self.battery_1_to_static_inv_contactor
-            .powered_by(&self.battery_1);
-
-        self.static_inverter
-            .powered_by(&self.battery_1_to_static_inv_contactor);
-
-        self.dc_ess_bus
-            .powered_by(&self.dc_bat_bus_to_dc_ess_bus_contactor);
-        self.dc_ess_bus.or_powered_by(&self.tr_ess_contactor);
-        self.dc_ess_bus
-            .or_powered_by(&self.battery_2_to_dc_ess_bus_contactor);
-
-        self.dc_ess_shed_contactor.powered_by(&self.dc_ess_bus);
-        self.dc_ess_shed_contactor
-            .close_when(self.battery_2_to_dc_ess_bus_contactor.is_open());
-        self.dc_ess_shed_bus.powered_by(&self.dc_ess_shed_contactor);
-    }
-
-    /// Determines if the 2XB contactors should be closed. 2XB are the two contactors
-    /// which connect BAT2 to DC ESS BUS; and BAT 1 to the static inverter.
-    fn should_close_2xb_contactors<T: AlternatingCurrentState>(
-        &self,
-        context: &UpdateContext,
-        ac_state: &T,
-    ) -> bool {
-        (self.battery_contactors_closed_and_speed_less_than_50_knots(context)
-            && ac_state.ac_1_and_2_and_emergency_gen_unpowered())
-            || ac_state.ac_1_and_2_and_emergency_gen_unpowered_and_velocity_equal_to_or_greater_than_50_knots(context)
-    }
-
-    fn battery_contactors_closed_and_speed_less_than_50_knots(
-        &self,
-        context: &UpdateContext,
-    ) -> bool {
-        context.indicated_airspeed < Velocity::new::<knot>(50.)
-            && self.battery_1_contactor.is_closed()
-            && self.battery_2_contactor.is_closed()
-    }
-
-    fn debug_assert_invariants(&self) {
-        debug_assert!(self.battery_never_powers_dc_ess_shed());
-        debug_assert!(self.max_one_source_powers_dc_ess_bus());
-        debug_assert!(
-            self.batteries_power_both_static_inv_and_dc_ess_bus_at_the_same_time_or_not_at_all()
-        );
-    }
-
-    fn battery_never_powers_dc_ess_shed(&self) -> bool {
-        !(self.battery_2_to_dc_ess_bus_contactor.is_closed()
-            && self.dc_ess_shed_contactor.is_closed())
-    }
-
-    fn max_one_source_powers_dc_ess_bus(&self) -> bool {
-        (!self.battery_2_to_dc_ess_bus_contactor.is_closed()
-            && !self.dc_bat_bus_to_dc_ess_bus_contactor.is_closed()
-            && !self.tr_ess_contactor.is_closed())
-            || (self.battery_2_to_dc_ess_bus_contactor.is_closed()
-                ^ self.dc_bat_bus_to_dc_ess_bus_contactor.is_closed()
-                ^ self.tr_ess_contactor.is_closed())
-    }
-
-    fn batteries_power_both_static_inv_and_dc_ess_bus_at_the_same_time_or_not_at_all(
-        &self,
-    ) -> bool {
-        self.battery_1_to_static_inv_contactor.is_closed()
-            == self.battery_2_to_dc_ess_bus_contactor.is_closed()
-    }
-
-    fn dc_bus_1(&self) -> &ElectricalBus {
-        &self.dc_bus_1
-    }
-
-    fn dc_bus_2(&self) -> &ElectricalBus {
-        &self.dc_bus_2
-    }
-
-    fn dc_ess_bus(&self) -> &ElectricalBus {
-        &self.dc_ess_bus
-    }
-
-    fn dc_ess_shed_bus(&self) -> &ElectricalBus {
-        &self.dc_ess_shed_bus
-    }
-
-    fn dc_bat_bus(&self) -> &ElectricalBus {
-        &self.dc_bat_bus
-    }
-
-    fn hot_bus_1(&self) -> &ElectricalBus {
-        &self.hot_bus_1
-    }
-
-    fn hot_bus_2(&self) -> &ElectricalBus {
-        &self.hot_bus_2
-    }
-}
-impl DirectCurrentState for A320DirectCurrentElectrical {
-    fn static_inverter(&self) -> &StaticInverter {
-        &self.static_inverter
-    }
-}
-impl SimulationElement for A320DirectCurrentElectrical {
-    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
-        self.battery_1.accept(visitor);
-        self.battery_2.accept(visitor);
-        self.static_inverter.accept(visitor);
-
-        self.dc_bus_1_tie_contactor.accept(visitor);
-        self.dc_bus_2_tie_contactor.accept(visitor);
-        self.dc_bat_bus_to_dc_ess_bus_contactor.accept(visitor);
-        self.dc_ess_shed_contactor.accept(visitor);
-        self.battery_1_contactor.accept(visitor);
-        self.battery_2_contactor.accept(visitor);
-        self.battery_2_to_dc_ess_bus_contactor.accept(visitor);
-        self.battery_1_to_static_inv_contactor.accept(visitor);
-        self.tr_1_contactor.accept(visitor);
-        self.tr_2_contactor.accept(visitor);
-        self.tr_ess_contactor.accept(visitor);
-
-        self.dc_bus_1.accept(visitor);
-        self.dc_bus_2.accept(visitor);
-        self.dc_bat_bus.accept(visitor);
-        self.dc_ess_bus.accept(visitor);
-        self.dc_ess_shed_bus.accept(visitor);
-        self.hot_bus_1.accept(visitor);
-        self.hot_bus_2.accept(visitor);
-
-        visitor.visit(self);
-    }
-}
-
-struct A320MainPowerSources {
-    engine_1_gen: EngineGenerator,
-    engine_1_gen_contactor: Contactor,
-    engine_2_gen: EngineGenerator,
-    engine_2_gen_contactor: Contactor,
-    bus_tie_1_contactor: Contactor,
-    bus_tie_2_contactor: Contactor,
-    apu_gen_contactor: Contactor,
-    ext_pwr_contactor: Contactor,
-}
-impl A320MainPowerSources {
-    fn new() -> Self {
-        A320MainPowerSources {
-            engine_1_gen: EngineGenerator::new(1),
-            engine_1_gen_contactor: Contactor::new("9XU1"),
-            engine_2_gen: EngineGenerator::new(2),
-            engine_2_gen_contactor: Contactor::new("9XU2"),
-            bus_tie_1_contactor: Contactor::new("11XU1"),
-            bus_tie_2_contactor: Contactor::new("11XU2"),
-            apu_gen_contactor: Contactor::new("3XS"),
-            ext_pwr_contactor: Contactor::new("3XG"),
-        }
-    }
-
-    fn update<T: ApuGenerator>(
-        &mut self,
-        context: &UpdateContext,
-        engine1: &Engine,
-        engine2: &Engine,
-        apu: &AuxiliaryPowerUnit<T>,
-        ext_pwr: &ExternalPowerSource,
-        overhead: &A320ElectricalOverheadPanel,
-    ) {
-        self.engine_1_gen.update(context, engine1, &overhead.idg_1);
-        self.engine_2_gen.update(context, engine2, &overhead.idg_2);
-
-        let gen_1_provides_power = overhead.generator_1_is_on() && self.engine_1_gen.is_powered();
-        let gen_2_provides_power = overhead.generator_2_is_on() && self.engine_2_gen.is_powered();
-        let no_engine_gen_provides_power = !gen_1_provides_power && !gen_2_provides_power;
-        let only_one_engine_gen_is_powered = gen_1_provides_power ^ gen_2_provides_power;
-        let both_engine_gens_provide_power =
-            !(no_engine_gen_provides_power || only_one_engine_gen_is_powered);
-        let ext_pwr_provides_power = overhead.external_power_is_on()
-            && ext_pwr.is_powered()
-            && !both_engine_gens_provide_power;
-        let apu_gen_provides_power = overhead.apu_generator_is_on()
-            && apu.is_powered()
-            && !ext_pwr_provides_power
-            && !both_engine_gens_provide_power;
-
-        self.engine_1_gen_contactor.close_when(gen_1_provides_power);
-        self.engine_2_gen_contactor.close_when(gen_2_provides_power);
-        self.apu_gen_contactor.close_when(apu_gen_provides_power);
-        self.ext_pwr_contactor.close_when(ext_pwr_provides_power);
-
-        let apu_or_ext_pwr_provides_power = ext_pwr_provides_power || apu_gen_provides_power;
-        self.bus_tie_1_contactor.close_when(
-            overhead.bus_tie_is_auto()
-                && ((only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
-                    || (apu_or_ext_pwr_provides_power && !gen_1_provides_power)),
-        );
-        self.bus_tie_2_contactor.close_when(
-            overhead.bus_tie_is_auto()
-                && ((only_one_engine_gen_is_powered && !apu_or_ext_pwr_provides_power)
-                    || (apu_or_ext_pwr_provides_power && !gen_2_provides_power)),
-        );
-
-        self.apu_gen_contactor.powered_by(apu);
-        self.ext_pwr_contactor.powered_by(ext_pwr);
-
-        self.engine_1_gen_contactor.powered_by(&self.engine_1_gen);
-        self.bus_tie_1_contactor
-            .powered_by(&self.engine_1_gen_contactor);
-        self.bus_tie_1_contactor
-            .or_powered_by(&self.apu_gen_contactor);
-        self.bus_tie_1_contactor
-            .or_powered_by(&self.ext_pwr_contactor);
-
-        self.engine_2_gen_contactor.powered_by(&self.engine_2_gen);
-        self.bus_tie_2_contactor
-            .powered_by(&self.engine_2_gen_contactor);
-        self.bus_tie_2_contactor
-            .or_powered_by(&self.apu_gen_contactor);
-        self.bus_tie_2_contactor
-            .or_powered_by(&self.ext_pwr_contactor);
-
-        self.bus_tie_1_contactor
-            .or_powered_by(&self.bus_tie_2_contactor);
-        self.bus_tie_2_contactor
-            .or_powered_by(&self.bus_tie_1_contactor);
-    }
-
-    fn ac_bus_1_electric_sources(&self) -> CombinedPotentialSource {
-        combine_potential_sources(vec![
-            &self.engine_1_gen_contactor,
-            &self.bus_tie_1_contactor,
-        ])
-    }
-
-    fn ac_bus_2_electric_sources(&self) -> CombinedPotentialSource {
-        combine_potential_sources(vec![
-            &self.engine_2_gen_contactor,
-            &self.bus_tie_2_contactor,
-        ])
-    }
-}
-impl SimulationElement for A320MainPowerSources {
-    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
-        self.engine_1_gen.accept(visitor);
-        self.engine_2_gen.accept(visitor);
-
-        self.engine_1_gen_contactor.accept(visitor);
-        self.engine_2_gen_contactor.accept(visitor);
-        self.bus_tie_1_contactor.accept(visitor);
-        self.bus_tie_2_contactor.accept(visitor);
-        self.apu_gen_contactor.accept(visitor);
-        self.ext_pwr_contactor.accept(visitor);
-
-        visitor.visit(self);
-    }
-}
-
-struct A320AcEssFeedContactors {
-    ac_ess_feed_contactor_1: Contactor,
-    ac_ess_feed_contactor_2: Contactor,
-    ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate,
-}
-impl A320AcEssFeedContactors {
-    const AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS: Duration = Duration::from_secs(3);
-
-    fn new() -> Self {
-        A320AcEssFeedContactors {
-            ac_ess_feed_contactor_1: Contactor::new("3XC1"),
-            ac_ess_feed_contactor_2: Contactor::new("3XC2"),
-            ac_ess_feed_contactor_delay_logic_gate: DelayedTrueLogicGate::new(
-                A320AcEssFeedContactors::AC_ESS_FEED_TO_AC_BUS_2_DELAY_IN_SECONDS,
-            ),
-        }
-    }
-
-    fn update(
-        &mut self,
-        context: &UpdateContext,
-        ac_bus_1: &ElectricalBus,
-        ac_bus_2: &ElectricalBus,
-        overhead: &A320ElectricalOverheadPanel,
-    ) {
-        self.ac_ess_feed_contactor_delay_logic_gate
-            .update(context, ac_bus_1.is_unpowered());
-
-        self.ac_ess_feed_contactor_1.close_when(
-            ac_bus_1.is_powered()
-                && (!self.ac_ess_feed_contactor_delay_logic_gate.output()
-                    && overhead.ac_ess_feed_is_normal()),
-        );
-        self.ac_ess_feed_contactor_2.close_when(
-            ac_bus_2.is_powered()
-                && (self.ac_ess_feed_contactor_delay_logic_gate.output()
-                    || overhead.ac_ess_feed_is_altn()),
-        );
-
-        self.ac_ess_feed_contactor_1.powered_by(ac_bus_1);
-        self.ac_ess_feed_contactor_2.powered_by(ac_bus_2);
-    }
-
-    fn electric_sources(&self) -> CombinedPotentialSource {
-        combine_potential_sources(vec![
-            &self.ac_ess_feed_contactor_1,
-            &self.ac_ess_feed_contactor_2,
-        ])
-    }
-
-    fn provides_power(&self) -> bool {
-        self.electric_sources().output_potential().is_powered()
-    }
-}
-impl SimulationElement for A320AcEssFeedContactors {
-    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
-        self.ac_ess_feed_contactor_1.accept(visitor);
-        self.ac_ess_feed_contactor_2.accept(visitor);
-
-        visitor.visit(self);
-    }
-}
-
-pub struct A320ElectricalOverheadPanel {
+pub(super) struct A320ElectricalOverheadPanel {
     bat_1: AutoOffFaultPushButton,
     bat_2: AutoOffFaultPushButton,
     idg_1: FaultReleasePushButton,
@@ -1031,7 +336,7 @@ impl SimulationElement for A320ElectricalOverheadPanel {
 
 #[cfg(test)]
 mod a320_electrical {
-    use crate::A320Electrical;
+    use super::*;
     use systems::simulation::{test::TestReaderWriter, SimulationElement, SimulatorWriter};
 
     #[test]
@@ -1049,16 +354,18 @@ mod a320_electrical {
 
 #[cfg(test)]
 mod a320_electrical_circuit_tests {
+    use std::time::Duration;
+    use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
+
+    use super::alternating_current::A320AcEssFeedContactors;
+    use super::*;
     use systems::{
         apu::{Aps3200ApuGenerator, AuxiliaryPowerUnitFactory},
-        electrical::Potential,
+        electrical::{ElectricalBusType, ExternalPowerSource, Potential},
+        engine::Engine,
         simulation::context_with,
     };
-    use uom::si::{
-        length::foot, ratio::percent, thermodynamic_temperature::degree_celsius, velocity::knot,
-    };
-
-    use super::*;
+    use uom::si::{length::foot, velocity::knot};
 
     #[test]
     fn everything_off_batteries_empty() {
@@ -2357,12 +1664,12 @@ mod a320_electrical_circuit_tests {
         }
 
         fn empty_battery_1(mut self) -> ElectricalCircuitTester {
-            self.elec.direct_current.battery_1 = Battery::empty(1);
+            self.elec.empty_battery_1();
             self
         }
 
         fn empty_battery_2(mut self) -> ElectricalCircuitTester {
-            self.elec.direct_current.battery_2 = Battery::empty(2);
+            self.elec.empty_battery_2();
             self
         }
 
@@ -2385,17 +1692,17 @@ mod a320_electrical_circuit_tests {
         }
 
         fn failed_tr_1(mut self) -> ElectricalCircuitTester {
-            self.elec.alternating_current.tr_1.fail();
+            self.elec.fail_tr_1();
             self
         }
 
         fn failed_tr_2(mut self) -> ElectricalCircuitTester {
-            self.elec.alternating_current.tr_2.fail();
+            self.elec.fail_tr_2();
             self
         }
 
         fn running_emergency_generator(mut self) -> ElectricalCircuitTester {
-            self.elec.alternating_current.emergency_gen.attempt_start();
+            self.elec.attempt_emergency_gen_start();
             self
         }
 
@@ -2470,81 +1777,75 @@ mod a320_electrical_circuit_tests {
         }
 
         fn ac_bus_1_output_potential(&self) -> Potential {
-            self.elec.alternating_current.ac_bus_1.output_potential()
+            self.elec.ac_bus_1().output_potential()
         }
 
         fn ac_bus_2_output_potential(&self) -> Potential {
-            self.elec.alternating_current.ac_bus_2.output_potential()
+            self.elec.ac_bus_2().output_potential()
         }
 
         fn ac_ess_bus_output_potential(&self) -> Potential {
-            self.elec.alternating_current.ac_ess_bus.output_potential()
+            self.elec.ac_ess_bus().output_potential()
         }
 
         fn ac_ess_shed_bus_output_potential(&self) -> Potential {
-            self.elec
-                .alternating_current
-                .ac_ess_shed_bus
-                .output_potential()
+            self.elec.ac_ess_shed_bus().output_potential()
         }
 
         fn ac_stat_inv_bus_output_potential(&self) -> Potential {
-            self.elec
-                .alternating_current
-                .ac_stat_inv_bus
-                .output_potential()
+            self.elec.ac_stat_inv_bus().output_potential()
         }
 
         fn static_inverter_input(&self) -> Potential {
-            self.elec.direct_current.static_inverter.input_potential()
+            self.elec.direct_current.static_inverter().input_potential()
         }
 
         fn tr_1_input(&self) -> Potential {
-            self.elec.alternating_current.tr_1.input_potential()
+            self.elec.tr_1().input_potential()
         }
 
         fn tr_2_input(&self) -> Potential {
-            self.elec.alternating_current.tr_2.input_potential()
+            self.elec.tr_2().input_potential()
         }
 
         fn tr_ess_input(&self) -> Potential {
-            self.elec.alternating_current.tr_ess.input_potential()
+            self.elec.tr_ess().input_potential()
         }
 
         fn dc_bus_1_output_potential(&self) -> Potential {
-            self.elec.direct_current.dc_bus_1.output_potential()
+            self.elec.dc_bus_1().output_potential()
         }
 
         fn dc_bus_2_output_potential(&self) -> Potential {
-            self.elec.direct_current.dc_bus_2.output_potential()
+            self.elec.dc_bus_2().output_potential()
         }
 
         fn dc_bat_bus_output_potential(&self) -> Potential {
-            self.elec.direct_current.dc_bat_bus.output_potential()
+            self.elec.dc_bat_bus().output_potential()
         }
 
         fn dc_ess_bus_output_potential(&self) -> Potential {
-            self.elec.direct_current.dc_ess_bus.output_potential()
+            self.elec.dc_ess_bus().output_potential()
         }
 
         fn dc_ess_shed_bus_output_potential(&self) -> Potential {
-            self.elec.direct_current.dc_ess_shed_bus.output_potential()
+            self.elec.dc_ess_shed_bus().output_potential()
         }
 
         fn battery_1_input(&self) -> Potential {
-            self.elec.direct_current.battery_1.input_potential()
+            self.elec.battery_1_input_potential()
         }
 
         fn battery_2_input(&self) -> Potential {
-            self.elec.direct_current.battery_2.input_potential()
+            self.elec.battery_2_input_potential()
         }
 
         fn hot_bus_1_output_potential(&self) -> Potential {
-            self.elec.direct_current.hot_bus_1.output_potential()
+            self.elec.hot_bus_1().output_potential()
         }
 
         fn hot_bus_2_output_potential(&self) -> Potential {
-            self.elec.direct_current.hot_bus_2.output_potential()
+            self.elec.hot_bus_2().output_potential()
         }
 
         fn ac_ess_feed_has_fault(&self) -> bool {
@@ -2562,19 +1863,11 @@ mod a320_electrical_circuit_tests {
         fn both_ac_ess_feed_contactors_open(&self) -> bool {
             self.elec
                 .alternating_current
-                .ac_ess_feed_contactors
-                .ac_ess_feed_contactor_1
-                .is_open()
-                && self
-                    .elec
-                    .alternating_current
-                    .ac_ess_feed_contactors
-                    .ac_ess_feed_contactor_2
-                    .is_open()
+                .both_ac_ess_feed_contactors_are_open()
         }
 
         fn dc_bus_2_tie_contactor_is_open(&self) -> bool {
-            self.elec.direct_current.dc_bus_2_tie_contactor.is_open()
+            self.elec.direct_current.dc_bus_2_tie_contactor_is_open()
         }
 
         fn run(mut self) -> ElectricalCircuitTester {

@@ -1,4 +1,11 @@
+mod electrical;
+mod fuel;
+mod hydraulic;
+mod pneumatic;
+
 use self::{fuel::A320Fuel, pneumatic::A320PneumaticOverheadPanel};
+use electrical::{A320Electrical, A320ElectricalOverheadPanel};
+use hydraulic::A320Hydraulic;
 use systems::{
     apu::{
         Aps3200ApuGenerator, AuxiliaryPowerUnit, AuxiliaryPowerUnitFactory,
@@ -8,16 +15,6 @@ use systems::{
     engine::Engine,
     simulation::{Aircraft, SimulationElement, SimulationElementVisitor, UpdateContext},
 };
-
-mod electrical;
-pub use electrical::*;
-
-mod hydraulic;
-pub use hydraulic::*;
-
-mod fuel;
-
-mod pneumatic;
 
 pub struct A320 {
     apu: AuxiliaryPowerUnit<Aps3200ApuGenerator>,
