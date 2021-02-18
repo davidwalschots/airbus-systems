@@ -110,6 +110,13 @@ pub trait SimulationElement {
     /// [`PowerConsumer`]: ../electrical/struct.PowerConsumer.html
     fn consume_power(&mut self, _consumption: &mut PowerConsumption) {}
 
+    /// Consume power within converters, such as transformer rectifiers and the static
+    /// inverter. This is a separate function, as their power consumption can only be
+    /// determined after the consumption of elements to which they provide power is known.
+    ///
+    /// [`consume_power`]: fn.consume_power.html
+    fn consume_power_in_converters(&mut self, _consumption: &mut PowerConsumption) {}
+
     /// Process a report containing the power consumption per potential origin.
     /// This is useful for calculating the load percentage on a given generator,
     /// amperes provided by a given transformer rectifier and so on.
@@ -215,7 +222,7 @@ impl<T: Aircraft, U: SimulatorReaderWriter> Simulation<T, U> {
 
 /// Visits aircraft components in order to pass data coming
 /// from the simulator into the aircraft system simulation.
-struct SimulatorToSimulationVisitor<'a> {
+pub(crate) struct SimulatorToSimulationVisitor<'a> {
     reader: &'a mut SimulatorReader<'a>,
 }
 impl<'a> SimulatorToSimulationVisitor<'a> {

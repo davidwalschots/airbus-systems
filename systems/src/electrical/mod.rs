@@ -14,7 +14,8 @@ pub use emergency_generator::EmergencyGenerator;
 pub use engine_generator::EngineGenerator;
 pub use external_power_source::ExternalPowerSource;
 pub use power_consumption::{
-    ElectricPower, PowerConsumer, PowerConsumption, PowerConsumptionReport, SuppliedPower,
+    ElectricPower, FlightPhasePowerConsumer, PowerConsumer, PowerConsumerFlightPhase,
+    PowerConsumption, PowerConsumptionReport, SuppliedPower,
 };
 pub use static_inverter::StaticInverter;
 pub use transformer_rectifier::TransformerRectifier;

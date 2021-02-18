@@ -1,9 +1,24 @@
 use crate::simulation::UpdateContext;
+use num_derive::FromPrimitive;
 use std::time::Duration;
 use uom::si::{f64::*, thermodynamic_temperature::degree_celsius};
 
 mod random;
 pub use random::*;
+
+#[derive(FromPrimitive)]
+pub(crate) enum FwcFlightPhase {
+    ElecPwr = 1,
+    FirstEngineStarted = 2,
+    FirstEngineTakeOffPower = 3,
+    AtOrAboveEightyKnots = 4,
+    LiftOff = 5,
+    AtOrAbove1500Feet = 6,
+    AtOrBelow800Feet = 7,
+    TouchDown = 8,
+    AtOrBelowEightyKnots = 9,
+    EnginesShutdown = 10,
+}
 
 /// The delay logic gate delays the true result of a given expression by the given amount of time.
 /// False results are output immediately.
