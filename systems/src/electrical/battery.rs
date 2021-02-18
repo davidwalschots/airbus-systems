@@ -1,8 +1,8 @@
 use super::{
-    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumptionState,
+    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumptionReport,
     ProvideCurrent, ProvidePotential,
 };
-use crate::simulation::{SimulationElement, SimulatorWriter};
+use crate::simulation::{SimulationElement, SimulatorWriter, UpdateContext};
 use uom::si::{
     electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt, f64::*,
 };
@@ -81,8 +81,12 @@ impl ProvidePotential for Battery {
     }
 }
 impl SimulationElement for Battery {
-    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {
-        // TODO: Charging and depleting battery when used.
+    fn process_power_consumption_report<T: PowerConsumptionReport>(
+        &mut self,
+        _report: &T,
+        _context: &UpdateContext,
+    ) {
+        // TODO charging and depleting battery.
     }
 
     fn write(&self, writer: &mut SimulatorWriter) {

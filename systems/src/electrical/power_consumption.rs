@@ -1,92 +1,62 @@
+//! Power consumption works as follows:
+//! 1. The electrical system determines which electrical buses are powered
+//!    by which electric potential origin (generators, external power,
+//!    transformer rectifiers, etc).
+//! 2. Thereafter, power consumers can ask the electrical system if the buses they receive power
+//!    from are powered, and which origin supplies them.
+//! 3. A power consumer declares which bus(es) it receives power from in order of priority.
+//!    When a power consumer consumes from a bus which has potential, it is considered powered.
+//!    Systems can use this information to determine if elements within the system
+//!    can perform their work and how much power they consume in doing so.
+//! 4. After systems finished their state update. Each power consumer is then asked how much
+//!    power they consume from which origin. This is summed to get the total consumption per origin.
+//! 5. The total load is passed to the various origins so that they can calculate their
+//!    load %, voltage, frequency and current.
+
 use std::collections::HashMap;
 
-use super::{ElectricalBus, ElectricalBusType, Potential, PotentialSource};
-use crate::simulation::{SimulationElement, SimulationElementVisitor};
+use super::{ElectricalBus, ElectricalBusType, ElectricalSystem, Potential, PotentialSource};
+use crate::simulation::{SimulationElement, SimulationElementVisitor, UpdateContext};
 use uom::si::{f64::*, power::watt};
 
-pub struct SupplyPowerVisitor<'a> {
-    supply: &'a PowerSupply,
+pub struct ElectricPower {
+    supplied_power: SuppliedPower,
+    power_consumption: PowerConsumption,
 }
-impl<'a> SupplyPowerVisitor<'a> {
-    pub fn new(supply: &'a PowerSupply) -> Self {
-        SupplyPowerVisitor { supply }
-    }
-}
-impl<'a> SimulationElementVisitor for SupplyPowerVisitor<'a> {
-    fn visit<T: SimulationElement>(&mut self, visited: &mut T) {
-        visited.supply_power(&self.supply);
-    }
-}
-
-pub struct DeterminePowerConsumptionVisitor<'a, 'b> {
-    state: &'a mut PowerConsumptionState<'b>,
-}
-impl<'a, 'b> DeterminePowerConsumptionVisitor<'a, 'b> {
-    pub fn new(state: &'a mut PowerConsumptionState<'b>) -> Self {
-        DeterminePowerConsumptionVisitor { state }
-    }
-}
-impl<'a, 'b> SimulationElementVisitor for DeterminePowerConsumptionVisitor<'a, 'b> {
-    fn visit<T: SimulationElement>(&mut self, visited: &mut T) {
-        visited.determine_power_consumption(&mut self.state);
-    }
-}
-
-pub struct WritePowerConsumptionVisitor<'a> {
-    state: &'a PowerConsumptionState<'a>,
-}
-impl<'a> WritePowerConsumptionVisitor<'a> {
-    pub fn new(state: &'a PowerConsumptionState) -> Self {
-        WritePowerConsumptionVisitor { state }
-    }
-}
-impl<'a> SimulationElementVisitor for WritePowerConsumptionVisitor<'a> {
-    fn visit<T: SimulationElement>(&mut self, visited: &mut T) {
-        visited.write_power_consumption(&self.state);
-    }
-}
-
-pub struct PowerConsumptionState<'a> {
-    supply: &'a PowerSupply,
-    consumption: HashMap<Potential, Power>,
-}
-impl<'a> PowerConsumptionState<'a> {
-    pub fn new(supply: &'a PowerSupply) -> Self {
-        PowerConsumptionState {
-            supply,
-            consumption: HashMap::new(),
+impl ElectricPower {
+    pub fn from<T: ElectricalSystem>(electrical_system: &T) -> Self {
+        ElectricPower {
+            supplied_power: electrical_system.get_supplied_power(),
+            power_consumption: PowerConsumption::new(),
         }
     }
 
-    pub fn add(&mut self, bus_type: &ElectricalBusType, power: Power) {
-        match self.supply.source_for(bus_type) {
-            Potential::None => {}
-            potential => {
-                let existing_power = match self.consumption.get(&potential) {
-                    Some(power) => *power,
-                    None => Power::new::<watt>(0.),
-                };
-
-                self.consumption.insert(potential, existing_power + power);
-            }
-        };
+    pub fn supply_to<T: SimulationElement>(&self, element: &mut T) {
+        let mut visitor = ReceivePowerVisitor::new(&self.supplied_power);
+        element.accept(&mut visitor);
     }
 
-    pub fn total_consumption_for(&self, potential: &Potential) -> Power {
-        match self.consumption.get(potential) {
-            Some(power) => *power,
-            None => Power::new::<watt>(0.),
-        }
+    pub fn consume_in<T: SimulationElement>(&mut self, element: &mut T) {
+        let mut visitor = ConsumePowerVisitor::new(&mut self.power_consumption);
+        element.accept(&mut visitor);
+    }
+
+    pub fn report_consumption_to<T: SimulationElement>(
+        &mut self,
+        element: &mut T,
+        context: &UpdateContext,
+    ) {
+        let mut visitor = ReportPowerConsumptionVisitor::new(&self.power_consumption, context);
+        element.accept(&mut visitor);
     }
 }
 
-#[derive(Debug)]
-pub struct PowerSupply {
+pub struct SuppliedPower {
     state: HashMap<ElectricalBusType, Potential>,
 }
-impl PowerSupply {
-    pub fn new() -> PowerSupply {
-        PowerSupply {
+impl SuppliedPower {
+    pub fn new() -> SuppliedPower {
+        SuppliedPower {
             state: HashMap::new(),
         }
     }
@@ -95,11 +65,15 @@ impl PowerSupply {
         self.state.insert(bus.bus_type(), bus.output_potential());
     }
 
-    pub fn is_powered(&self, bus_type: &ElectricalBusType) -> bool {
+    pub fn potential_of(&self, bus_type: &ElectricalBusType) -> Potential {
         match self.state.get(bus_type) {
-            Some(source) => source.is_powered(),
-            None => false,
+            Some(potential) => *potential,
+            None => Potential::None,
         }
+    }
+
+    pub fn is_powered(&self, bus_type: &ElectricalBusType) -> bool {
+        self.potential_of(bus_type).is_powered()
     }
 
     pub fn source_for(&self, bus_type: &ElectricalBusType) -> Potential {
@@ -109,100 +83,146 @@ impl PowerSupply {
         }
     }
 }
-impl Default for PowerSupply {
+impl Default for SuppliedPower {
     fn default() -> Self {
         Self::new()
     }
 }
 
-pub trait ElectricalBusStateFactory {
-    fn create_power_supply(&self) -> PowerSupply;
-}
-
-#[derive(Debug)]
-pub struct PowerConsumption {
-    is_powered_by: Option<ElectricalBusType>,
-    power_demand: Power,
+/// A generic consumer of power.
+pub struct PowerConsumer {
+    provided_potential: Potential,
+    demand: Power,
     powered_by: Vec<ElectricalBusType>,
 }
-impl PowerConsumption {
+impl PowerConsumer {
     #[cfg(test)]
-    pub fn from_single(bus_type: ElectricalBusType) -> Self {
-        PowerConsumption {
-            is_powered_by: None,
-            power_demand: Power::new::<watt>(0.),
+    /// Create a power consumer which consumes power from the given bus type.
+    pub fn from(bus_type: ElectricalBusType) -> Self {
+        PowerConsumer {
+            provided_potential: Default::default(),
+            demand: Power::new::<watt>(0.),
             powered_by: vec![bus_type],
         }
     }
 
     #[cfg(test)]
+    /// Determine if the power consumer has potential powering
+    /// it during this simulation tick.
+    /// If this function is called before power has been supplied to it
+    /// during this tick, the result of this function will be last frame's state.
     pub fn is_powered(&self) -> bool {
-        self.is_powered_by.is_some()
+        self.provided_potential.is_powered()
     }
 
     #[cfg(test)]
+    /// Set the amount of power that is demanded by the consumer when powered.
     pub fn demand(&mut self, power: Power) {
-        self.power_demand = power;
+        self.demand = power;
+    }
+}
+impl SimulationElement for PowerConsumer {
+    fn receive_power(&mut self, supplied_power: &SuppliedPower) {
+        self.provided_potential = self
+            .powered_by
+            .iter()
+            .find_map(|bus_type| {
+                let potential = supplied_power.potential_of(bus_type);
+                if potential.is_powered() {
+                    Some(potential)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
     }
 
-    fn try_powering(&mut self, supply: &PowerSupply) -> Option<(&ElectricalBusType, Power)> {
-        let first_powered_bus_type = self.powered_by.iter().find(|bus| supply.is_powered(bus));
+    fn consume_power(&mut self, state: &mut PowerConsumption) {
+        state.add(&self.provided_potential, self.demand);
+    }
+}
 
-        self.is_powered_by = match first_powered_bus_type {
-            Some(bus_type) => Some(*bus_type),
-            None => None,
+pub trait PowerConsumptionReport {
+    fn total_consumption_of(&self, potential: &Potential) -> Power;
+}
+
+pub struct PowerConsumption {
+    consumption: HashMap<Potential, Power>,
+}
+impl PowerConsumption {
+    pub fn new() -> Self {
+        PowerConsumption {
+            consumption: HashMap::new(),
+        }
+    }
+
+    pub fn add(&mut self, potential: &Potential, power: Power) {
+        match potential {
+            Potential::None => {}
+            potential => {
+                let x = self.consumption.entry(*potential).or_default();
+                *x += power;
+            }
         };
-
-        match first_powered_bus_type {
-            Some(bus_type) => Some((bus_type, self.power_demand)),
-            None => None,
-        }
     }
-
-    fn get_demand(&self) -> Option<(ElectricalBusType, Power)> {
-        match self.is_powered_by {
-            Some(bus_type) => Some((bus_type, self.power_demand)),
-            None => None,
+}
+impl PowerConsumptionReport for PowerConsumption {
+    fn total_consumption_of(&self, potential: &Potential) -> Power {
+        match self.consumption.get(potential) {
+            Some(power) => *power,
+            None => Power::new::<watt>(0.),
         }
     }
 }
-impl SimulationElement for PowerConsumption {
-    fn supply_power(&mut self, supply: &PowerSupply) {
-        self.try_powering(supply);
-    }
-
-    fn determine_power_consumption(&mut self, state: &mut PowerConsumptionState) {
-        if let Some((bus_type, power)) = self.get_demand() {
-            state.add(&bus_type, power)
-        }
+impl Default for PowerConsumption {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-pub struct PowerConsumptionHandler<'a> {
-    supply: &'a PowerSupply,
-    power_consumption_state: PowerConsumptionState<'a>,
+struct ReceivePowerVisitor<'a> {
+    supplied_power: &'a SuppliedPower,
 }
-impl<'a> PowerConsumptionHandler<'a> {
-    pub fn new(supply: &'a PowerSupply) -> Self {
-        PowerConsumptionHandler {
-            supply,
-            power_consumption_state: PowerConsumptionState::new(&supply),
+impl<'a> ReceivePowerVisitor<'a> {
+    pub fn new(supplied_power: &'a SuppliedPower) -> Self {
+        ReceivePowerVisitor { supplied_power }
+    }
+}
+impl<'a> SimulationElementVisitor for ReceivePowerVisitor<'a> {
+    fn visit<T: SimulationElement>(&mut self, visited: &mut T) {
+        visited.receive_power(&self.supplied_power);
+    }
+}
+
+struct ConsumePowerVisitor<'a> {
+    consumption: &'a mut PowerConsumption,
+}
+impl<'a> ConsumePowerVisitor<'a> {
+    pub fn new(consumption: &'a mut PowerConsumption) -> Self {
+        ConsumePowerVisitor { consumption }
+    }
+}
+impl<'a> SimulationElementVisitor for ConsumePowerVisitor<'a> {
+    fn visit<T: SimulationElement>(&mut self, visited: &mut T) {
+        visited.consume_power(&mut self.consumption);
+    }
+}
+
+struct ReportPowerConsumptionVisitor<'a> {
+    consumption: &'a PowerConsumption,
+    context: &'a UpdateContext,
+}
+impl<'a> ReportPowerConsumptionVisitor<'a> {
+    pub fn new(consumption: &'a PowerConsumption, context: &'a UpdateContext) -> Self {
+        ReportPowerConsumptionVisitor {
+            consumption,
+            context,
         }
     }
-
-    pub fn supply_power_to_elements<T: SimulationElement>(&self, element: &mut T) {
-        let mut visitor = SupplyPowerVisitor::new(&self.supply);
-        element.accept(&mut visitor);
-    }
-
-    pub fn determine_power_consumption<T: SimulationElement>(&mut self, element: &mut T) {
-        let mut visitor = DeterminePowerConsumptionVisitor::new(&mut self.power_consumption_state);
-        element.accept(&mut visitor);
-    }
-
-    pub fn write_power_consumption<T: SimulationElement>(&mut self, element: &mut T) {
-        let mut visitor = WritePowerConsumptionVisitor::new(&self.power_consumption_state);
-        element.accept(&mut visitor);
+}
+impl<'a> SimulationElementVisitor for ReportPowerConsumptionVisitor<'a> {
+    fn visit<T: SimulationElement>(&mut self, visited: &mut T) {
+        visited.process_power_consumption_report(self.consumption, &self.context);
     }
 }
 
@@ -212,13 +232,17 @@ mod tests {
     use crate::electrical::{Potential, PotentialSource};
 
     struct ApuStub {
-        used_power: Power,
+        consumed_power: Power,
     }
     impl ApuStub {
         fn new() -> Self {
             ApuStub {
-                used_power: Power::new::<watt>(0.),
+                consumed_power: Power::new::<watt>(0.),
             }
+        }
+
+        fn consumed_power(&self) -> Power {
+            self.consumed_power
         }
     }
     impl PotentialSource for ApuStub {
@@ -227,20 +251,19 @@ mod tests {
         }
     }
     impl SimulationElement for ApuStub {
-        fn write_power_consumption(&mut self, state: &PowerConsumptionState) {
-            self.used_power = state.total_consumption_for(&Potential::ApuGenerator(1));
+        fn process_power_consumption_report<T: PowerConsumptionReport>(
+            &mut self,
+            report: &T,
+            _: &UpdateContext,
+        ) {
+            self.consumed_power = report.total_consumption_of(&Potential::ApuGenerator(1));
         }
     }
 
     #[cfg(test)]
-    mod power_supply_tests {
-        use crate::electrical::PotentialTarget;
-
+    mod supplied_power_tests {
         use super::*;
-
-        fn power_supply() -> PowerSupply {
-            PowerSupply::new()
-        }
+        use crate::electrical::PotentialTarget;
 
         fn powered_bus(bus_type: ElectricalBusType) -> ElectricalBus {
             let mut bus = unpowered_bus(bus_type);
@@ -255,29 +278,29 @@ mod tests {
 
         #[test]
         fn is_powered_returns_false_when_bus_not_found() {
-            let supply = power_supply();
-            assert!(!supply.is_powered(&ElectricalBusType::AlternatingCurrent(1)))
+            let supplied_power = SuppliedPower::new();
+            assert!(!supplied_power.is_powered(&ElectricalBusType::AlternatingCurrent(1)))
         }
 
         #[test]
         fn is_powered_returns_true_when_bus_is_powered() {
-            let mut supply = power_supply();
-            supply.add(&powered_bus(ElectricalBusType::AlternatingCurrent(1)));
+            let mut supplied_power = SuppliedPower::new();
+            supplied_power.add(&powered_bus(ElectricalBusType::AlternatingCurrent(1)));
 
-            assert!(supply.is_powered(&ElectricalBusType::AlternatingCurrent(1)))
+            assert!(supplied_power.is_powered(&ElectricalBusType::AlternatingCurrent(1)))
         }
 
         #[test]
         fn is_powered_returns_false_when_bus_unpowered() {
-            let mut supply = power_supply();
-            supply.add(&unpowered_bus(ElectricalBusType::AlternatingCurrent(1)));
+            let mut supplied_power = SuppliedPower::new();
+            supplied_power.add(&unpowered_bus(ElectricalBusType::AlternatingCurrent(1)));
 
-            assert!(!supply.is_powered(&ElectricalBusType::AlternatingCurrent(1)))
+            assert!(!supplied_power.is_powered(&ElectricalBusType::AlternatingCurrent(1)))
         }
     }
 
     #[cfg(test)]
-    mod power_consumption_tests {
+    mod power_consumer_tests {
         use super::*;
         use crate::electrical::PotentialTarget;
 
@@ -288,77 +311,127 @@ mod tests {
             bus
         }
 
-        fn power_supply() -> PowerSupply {
-            PowerSupply::new()
-        }
+        fn powered_consumer() -> PowerConsumer {
+            let mut consumer = PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1));
+            let mut supplied_power = SuppliedPower::new();
+            supplied_power.add(&powered_bus(ElectricalBusType::AlternatingCurrent(1)));
+            consumer.receive_power(&supplied_power);
 
-        fn power_consumption() -> PowerConsumption {
-            PowerConsumption::from_single(ElectricalBusType::AlternatingCurrent(1))
-        }
-
-        fn powered_power_consumption() -> PowerConsumption {
-            let mut consumption = power_consumption();
-            let mut supply = power_supply();
-            supply.add(&powered_bus(ElectricalBusType::AlternatingCurrent(1)));
-            consumption.try_powering(&supply);
-
-            consumption
+            consumer
         }
 
         #[test]
         fn is_powered_returns_false_when_not_powered() {
-            let consumption = power_consumption();
-            assert!(!consumption.is_powered());
+            let consumer = PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1));
+            assert!(!consumer.is_powered());
         }
 
         #[test]
-        fn is_powered_returns_false_when_powered_by_bus_is_not_powered() {
-            let mut supply = power_supply();
-            supply.add(&powered_bus(ElectricalBusType::AlternatingCurrent(2)));
+        fn is_powered_returns_false_when_powered_by_bus_which_is_not_powered() {
+            let mut supplied_power = SuppliedPower::new();
+            supplied_power.add(&powered_bus(ElectricalBusType::AlternatingCurrent(2)));
 
-            let mut consumption = power_consumption();
-            consumption.try_powering(&supply);
+            let mut consumer = PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1));
+            consumer.receive_power(&supplied_power);
 
-            assert!(!consumption.is_powered());
+            assert!(!consumer.is_powered());
         }
 
         #[test]
-        fn is_powered_returns_true_when_powered_by_bus_is_powered() {
-            let mut supply = power_supply();
-            supply.add(&powered_bus(ElectricalBusType::AlternatingCurrent(2)));
-            supply.add(&powered_bus(ElectricalBusType::AlternatingCurrent(1)));
+        fn is_powered_returns_true_when_powered_by_bus_which_is_powered() {
+            let mut supplied_power = SuppliedPower::new();
+            supplied_power.add(&powered_bus(ElectricalBusType::AlternatingCurrent(2)));
+            supplied_power.add(&powered_bus(ElectricalBusType::AlternatingCurrent(1)));
 
-            let mut consumption = power_consumption();
-            consumption.try_powering(&supply);
+            let mut consumption = PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1));
+            consumption.receive_power(&supplied_power);
 
             assert!(consumption.is_powered());
         }
 
         #[test]
-        fn get_demand_returns_demand_demanded_by_demand() {
-            let mut consumption = powered_power_consumption();
-            consumption.demand(Power::new::<watt>(100.));
+        fn consume_power_adds_power_consumption_when_powered() {
+            let mut consumption = PowerConsumption::new();
+            let mut consumer = powered_consumer();
+            let expected = Power::new::<watt>(100.);
 
-            let demand = consumption.get_demand().unwrap();
-            assert_eq!(demand.0, ElectricalBusType::AlternatingCurrent(1));
-            assert!((demand.1.get::<watt>() - 100.).abs() < f64::EPSILON);
+            consumer.demand(expected);
+            consumer.consume_power(&mut consumption);
+
+            assert_eq!(
+                consumption.total_consumption_of(&Potential::ApuGenerator(1)),
+                expected
+            );
         }
 
         #[test]
-        fn get_demand_returns_no_demand_when_no_supply() {
-            let mut consumption = power_consumption();
-            consumption.demand(Power::new::<watt>(100.));
+        fn consume_power_does_not_add_power_consumption_when_unpowered() {
+            let mut consumption = PowerConsumption::new();
+            let mut consumer = PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1));
 
-            let demand = consumption.get_demand();
-            assert!(demand.is_none());
+            consumer.demand(Power::new::<watt>(100.));
+            consumer.consume_power(&mut consumption);
+
+            assert_eq!(
+                consumption.total_consumption_of(&Potential::ApuGenerator(1)),
+                Power::new::<watt>(0.)
+            );
+        }
+    }
+
+    #[cfg(test)]
+    mod power_consumption_tests {
+        use super::*;
+
+        fn power_consumption() -> PowerConsumption {
+            PowerConsumption::new()
+        }
+
+        #[test]
+        fn total_consumption_of_returns_zero_when_no_consumption() {
+            let consumption = power_consumption();
+            let expected = Power::new::<watt>(0.);
+
+            assert_eq!(
+                consumption.total_consumption_of(&Potential::ApuGenerator(1)),
+                expected
+            );
+        }
+
+        #[test]
+        fn total_consumption_of_returns_the_consumption_of_the_requested_potential() {
+            let mut consumption = power_consumption();
+            let expected = Power::new::<watt>(600.);
+
+            consumption.add(&Potential::ApuGenerator(1), expected);
+            consumption.add(&Potential::EngineGenerator(1), Power::new::<watt>(400.));
+
+            assert_eq!(
+                consumption.total_consumption_of(&Potential::ApuGenerator(1)),
+                expected
+            );
+        }
+
+        #[test]
+        fn total_consumption_of_returns_the_sum_of_consumption_of_the_requested_potential() {
+            let mut consumption = power_consumption();
+            let expected = Power::new::<watt>(1100.);
+
+            consumption.add(&Potential::ApuGenerator(1), Power::new::<watt>(400.));
+            consumption.add(&Potential::ApuGenerator(1), Power::new::<watt>(700.));
+
+            assert_eq!(
+                consumption.total_consumption_of(&Potential::ApuGenerator(1)),
+                expected
+            );
         }
     }
 
     #[cfg(test)]
     mod power_consumption_handler_tests {
-        use crate::electrical::PotentialTarget;
-
         use super::*;
+        use crate::electrical::{ElectricalSystem, PotentialTarget};
+        use crate::simulation::context;
 
         struct AircraftStub {
             door: PowerConsumerStub,
@@ -370,19 +443,23 @@ mod tests {
             fn new() -> Self {
                 AircraftStub {
                     door: PowerConsumerStub::new(
-                        PowerConsumption::from_single(ElectricalBusType::AlternatingCurrent(2)),
+                        PowerConsumer::from(ElectricalBusType::AlternatingCurrent(2)),
                         Power::new::<watt>(500.),
                     ),
                     light: PowerConsumerStub::new(
-                        PowerConsumption::from_single(ElectricalBusType::AlternatingCurrent(1)),
+                        PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1)),
                         Power::new::<watt>(1000.),
                     ),
                     screen: PowerConsumerStub::new(
-                        PowerConsumption::from_single(ElectricalBusType::AlternatingCurrent(2)),
+                        PowerConsumer::from(ElectricalBusType::AlternatingCurrent(2)),
                         Power::new::<watt>(100.),
                     ),
                     apu: ApuStub::new(),
                 }
+            }
+
+            fn apu_consumed_power(&self) -> Power {
+                self.apu.consumed_power()
             }
         }
         impl SimulationElement for AircraftStub {
@@ -394,9 +471,9 @@ mod tests {
                 visitor.visit(self);
             }
         }
-        impl ElectricalBusStateFactory for AircraftStub {
-            fn create_power_supply(&self) -> PowerSupply {
-                let mut supply = PowerSupply::new();
+        impl ElectricalSystem for AircraftStub {
+            fn get_supplied_power(&self) -> SuppliedPower {
+                let mut supply = SuppliedPower::new();
 
                 let mut powered = ElectricalBus::new(ElectricalBusType::AlternatingCurrent(2));
                 powered.powered_by(&ApuStub::new());
@@ -411,10 +488,10 @@ mod tests {
         }
 
         struct PowerConsumerStub {
-            power_consumption: PowerConsumption,
+            power_consumption: PowerConsumer,
         }
         impl PowerConsumerStub {
-            fn new(mut power_consumption: PowerConsumption, power: Power) -> Self {
+            fn new(mut power_consumption: PowerConsumer, power: Power) -> Self {
                 power_consumption.demand(power);
                 PowerConsumerStub { power_consumption }
             }
@@ -427,17 +504,15 @@ mod tests {
         }
 
         #[test]
-        fn used_power_is_correctly_calculated() {
+        fn reported_consumption_is_correct() {
             let mut aircraft = AircraftStub::new();
-            let supply = aircraft.create_power_supply();
+            let mut electric_power = ElectricPower::from(&aircraft);
 
-            let mut handler = PowerConsumptionHandler::new(&supply);
+            electric_power.supply_to(&mut aircraft);
+            electric_power.consume_in(&mut aircraft);
+            electric_power.report_consumption_to(&mut aircraft, &context());
 
-            handler.supply_power_to_elements(&mut aircraft);
-            handler.determine_power_consumption(&mut aircraft);
-            handler.write_power_consumption(&mut aircraft);
-
-            assert!((aircraft.apu.used_power.get::<watt>() - 600.).abs() < f64::EPSILON);
+            assert_eq!(aircraft.apu_consumed_power(), Power::new::<watt>(600.));
         }
     }
 }

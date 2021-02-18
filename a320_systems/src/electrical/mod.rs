@@ -13,8 +13,8 @@ use systems::electrical::Potential;
 use systems::{
     apu::{ApuGenerator, AuxiliaryPowerUnit},
     electrical::{
-        ElectricalBus, ElectricalBusStateFactory, ExternalPowerSource, PotentialSource,
-        PowerSupply, StaticInverter, TransformerRectifier,
+        ElectricalBus, ElectricalSystem, ExternalPowerSource, PotentialSource, StaticInverter,
+        SuppliedPower, TransformerRectifier,
     },
     engine::Engine,
     overhead::{
@@ -178,9 +178,9 @@ impl A320Electrical {
         self.direct_current.empty_battery_2();
     }
 }
-impl ElectricalBusStateFactory for A320Electrical {
-    fn create_power_supply(&self) -> PowerSupply {
-        let mut state = PowerSupply::new();
+impl ElectricalSystem for A320Electrical {
+    fn get_supplied_power(&self) -> SuppliedPower {
+        let mut state = SuppliedPower::new();
         state.add(self.ac_bus_1());
         state.add(self.ac_bus_2());
         state.add(self.ac_ess_bus());
@@ -1853,8 +1853,8 @@ mod a320_electrical_circuit_tests {
             self.overhead.ac_ess_feed_has_fault()
         }
 
-        fn create_power_supply(&self) -> PowerSupply {
-            self.elec.create_power_supply()
+        fn create_power_supply(&self) -> SuppliedPower {
+            self.elec.get_supplied_power()
         }
 
         fn galley_is_shed(&self) -> bool {

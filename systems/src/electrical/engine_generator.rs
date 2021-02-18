@@ -1,5 +1,5 @@
 use super::{
-    ElectricalStateWriter, Potential, PotentialSource, PowerConsumptionState, ProvideFrequency,
+    ElectricalStateWriter, Potential, PotentialSource, PowerConsumptionReport, ProvideFrequency,
     ProvideLoad, ProvidePotential,
 };
 use crate::{
@@ -94,7 +94,11 @@ impl SimulationElement for EngineGenerator {
         visitor.visit(self);
     }
 
-    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {
+    fn process_power_consumption_report<T: PowerConsumptionReport>(
+        &mut self,
+        _report: &T,
+        _context: &UpdateContext,
+    ) {
         // TODO
     }
 

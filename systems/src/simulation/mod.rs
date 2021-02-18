@@ -5,7 +5,7 @@ pub use update_context::*;
 
 pub mod test;
 
-use crate::electrical::{PowerConsumptionState, PowerSupply};
+use crate::electrical::{PowerConsumption, PowerConsumptionReport, SuppliedPower};
 
 /// Trait for a type which can read and write simulator data.
 /// Using this trait implementors can abstract away the way the code
@@ -98,14 +98,27 @@ pub trait SimulationElement {
     /// [`Simulation`]: struct.Simulation.html
     fn write(&self, _writer: &mut SimulatorWriter) {}
 
-    /// Supplies the element with power when available.
-    fn supply_power(&mut self, _supply: &PowerSupply) {}
+    /// Receive power from the aircraft's electrical systems.
+    /// The easiest way to deal with power consumption is using the [`PowerConsumer`] type.
+    ///
+    /// [`PowerConsumer`]: ../electrical/struct.PowerConsumer.html
+    fn receive_power(&mut self, _supplied_power: &SuppliedPower) {}
 
-    /// Determines the electrical demand of the element at this time.
-    fn determine_power_consumption(&mut self, _state: &mut PowerConsumptionState) {}
+    /// Consume power previously made available by  aircraft's electrical system.
+    /// The easiest way to deal with power consumption is using the [`PowerConsumer`] type.
+    ///
+    /// [`PowerConsumer`]: ../electrical/struct.PowerConsumer.html
+    fn consume_power(&mut self, _consumption: &mut PowerConsumption) {}
 
-    /// Writes electrical consumption to elements that can cater to such demand.
-    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {}
+    /// Process a report containing the power consumption per potential origin.
+    /// This is useful for calculating the load percentage on a given generator,
+    /// amperes provided by a given transformer rectifier and so on.
+    fn process_power_consumption_report<T: PowerConsumptionReport>(
+        &mut self,
+        _report: &T,
+        _context: &UpdateContext,
+    ) {
+    }
 }
 
 /// Trait for visitors that visit the aircraft's system simulation to call

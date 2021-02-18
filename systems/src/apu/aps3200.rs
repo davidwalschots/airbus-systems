@@ -1,8 +1,8 @@
 use super::{ApuGenerator, Turbine, TurbineController, TurbineState};
 use crate::{
     electrical::{
-        ElectricalStateWriter, Potential, PotentialSource, PowerConsumptionState, ProvideFrequency,
-        ProvideLoad, ProvidePotential,
+        ElectricalStateWriter, Potential, PotentialSource, PowerConsumptionReport,
+        ProvideFrequency, ProvideLoad, ProvidePotential,
     },
     shared::{calculate_towards_target_temperature, random_number, TimedRandom},
     simulation::{SimulationElement, SimulatorWriter, UpdateContext},
@@ -505,7 +505,11 @@ impl SimulationElement for Aps3200ApuGenerator {
         self.writer.write_alternating_with_load(self, writer);
     }
 
-    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {
+    fn process_power_consumption_report<T: PowerConsumptionReport>(
+        &mut self,
+        _report: &T,
+        _context: &UpdateContext,
+    ) {
         // TODO
     }
 }

@@ -1,8 +1,8 @@
 use super::{
-    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumptionState,
+    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumptionReport,
     ProvideFrequency, ProvidePotential,
 };
-use crate::simulation::{SimulationElement, SimulatorWriter};
+use crate::simulation::{SimulationElement, SimulatorWriter, UpdateContext};
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
 pub struct StaticInverter {
@@ -62,7 +62,11 @@ impl ProvideFrequency for StaticInverter {
     }
 }
 impl SimulationElement for StaticInverter {
-    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {
+    fn process_power_consumption_report<T: PowerConsumptionReport>(
+        &mut self,
+        _report: &T,
+        _context: &UpdateContext,
+    ) {
         // TODO
     }
 

@@ -11,7 +11,7 @@ use systems::{
         Aps3200ApuGenerator, AuxiliaryPowerUnit, AuxiliaryPowerUnitFactory,
         AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
-    electrical::{ElectricalBusStateFactory, ExternalPowerSource, PowerConsumptionHandler},
+    electrical::{ElectricPower, ExternalPowerSource},
     engine::Engine,
     simulation::{Aircraft, SimulationElement, SimulationElementVisitor, UpdateContext},
 };
@@ -82,15 +82,14 @@ impl Aircraft for A320 {
         );
         self.electrical_overhead.update_after_elec(&self.electrical);
 
-        let power_supply = self.electrical.create_power_supply();
-        let mut power_consumption_handler = PowerConsumptionHandler::new(&power_supply);
-        power_consumption_handler.supply_power_to_elements(self);
+        let mut electric_power = ElectricPower::from(&self.electrical);
+        electric_power.supply_to(self);
 
         // Update everything that needs to know if it is powered here.
         self.hydraulic.update(context);
 
-        power_consumption_handler.determine_power_consumption(self);
-        power_consumption_handler.write_power_consumption(self);
+        electric_power.consume_in(self);
+        electric_power.report_consumption_to(self, context);
     }
 }
 impl SimulationElement for A320 {

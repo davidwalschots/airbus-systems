@@ -14,8 +14,7 @@ pub use emergency_generator::EmergencyGenerator;
 pub use engine_generator::EngineGenerator;
 pub use external_power_source::ExternalPowerSource;
 pub use power_consumption::{
-    ElectricalBusStateFactory, PowerConsumption, PowerConsumptionHandler, PowerConsumptionState,
-    PowerSupply,
+    ElectricPower, PowerConsumer, PowerConsumption, PowerConsumptionReport, SuppliedPower,
 };
 pub use static_inverter::StaticInverter;
 pub use transformer_rectifier::TransformerRectifier;
@@ -24,6 +23,10 @@ use crate::simulation::{SimulationElement, SimulatorWriter};
 use uom::si::{
     electric_current::ampere, electric_potential::volt, f64::*, frequency::hertz, ratio::percent,
 };
+
+pub trait ElectricalSystem {
+    fn get_supplied_power(&self) -> SuppliedPower;
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 /// Within an electrical system, electric potential is made available by an origin.
@@ -60,6 +63,11 @@ impl Potential {
     /// Indicates if the instance does not provide electric potential.
     pub fn is_unpowered(&self) -> bool {
         *self == Potential::None
+    }
+}
+impl Default for Potential {
+    fn default() -> Self {
+        Potential::None
     }
 }
 

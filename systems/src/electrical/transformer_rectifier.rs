@@ -1,8 +1,8 @@
 use super::{
-    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumptionState,
+    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumptionReport,
     ProvideCurrent, ProvidePotential,
 };
-use crate::simulation::{SimulationElement, SimulatorWriter};
+use crate::simulation::{SimulationElement, SimulatorWriter, UpdateContext};
 use uom::si::{electric_current::ampere, electric_potential::volt, f64::*};
 
 pub struct TransformerRectifier {
@@ -72,7 +72,11 @@ impl ProvidePotential for TransformerRectifier {
     }
 }
 impl SimulationElement for TransformerRectifier {
-    fn write_power_consumption(&mut self, _state: &PowerConsumptionState) {
+    fn process_power_consumption_report<T: PowerConsumptionReport>(
+        &mut self,
+        _report: &T,
+        _context: &UpdateContext,
+    ) {
         // TODO
     }
 
