@@ -10,7 +10,10 @@
 //!    can perform their work and how much power they consume in doing so.
 //! 4. After systems finished their state update. Each power consumer is then asked how much
 //!    power they consume from which origin. This is summed to get the total consumption per origin.
-//! 5. The total load is passed to the various origins so that they can calculate their
+//! 5. The consumption of some consumers relates to the power consumption of other consumers.
+//!    Specifically this applies to transformer rectifiers and static inverters. Their consumption
+//!    is requested after the consumption of all other consumers is known.
+//! 6. The total load is passed to the various origins so that they can calculate their
 //!    load %, voltage, frequency and current.
 
 use std::{collections::HashMap, time::Duration};
@@ -43,6 +46,9 @@ impl ElectricPower {
     pub fn consume_in<T: SimulationElement>(&mut self, element: &mut T) {
         let mut visitor = ConsumePowerVisitor::new(&mut self.power_consumption);
         element.accept(&mut visitor);
+
+        let mut visitor = ConsumePowerInConvertersVisitor::new(&mut self.power_consumption);
+        element.accept(&mut visitor);
     }
 
     pub fn report_consumption_to<T: SimulationElement>(
@@ -50,7 +56,8 @@ impl ElectricPower {
         element: &mut T,
         context: &UpdateContext,
     ) {
-        let mut visitor = ReportPowerConsumptionVisitor::new(&self.power_consumption, context);
+        let mut visitor =
+            ProcessPowerConsumptionReportVisitor::new(&self.power_consumption, context);
         element.accept(&mut visitor);
     }
 }
@@ -293,19 +300,33 @@ impl<'a> SimulationElementVisitor for ConsumePowerVisitor<'a> {
     }
 }
 
-struct ReportPowerConsumptionVisitor<'a> {
+struct ConsumePowerInConvertersVisitor<'a> {
+    consumption: &'a mut PowerConsumption,
+}
+impl<'a> ConsumePowerInConvertersVisitor<'a> {
+    pub fn new(consumption: &'a mut PowerConsumption) -> Self {
+        ConsumePowerInConvertersVisitor { consumption }
+    }
+}
+impl<'a> SimulationElementVisitor for ConsumePowerInConvertersVisitor<'a> {
+    fn visit<T: SimulationElement>(&mut self, visited: &mut T) {
+        visited.consume_power_in_converters(&mut self.consumption);
+    }
+}
+
+struct ProcessPowerConsumptionReportVisitor<'a> {
     consumption: &'a PowerConsumption,
     context: &'a UpdateContext,
 }
-impl<'a> ReportPowerConsumptionVisitor<'a> {
+impl<'a> ProcessPowerConsumptionReportVisitor<'a> {
     pub fn new(consumption: &'a PowerConsumption, context: &'a UpdateContext) -> Self {
-        ReportPowerConsumptionVisitor {
+        ProcessPowerConsumptionReportVisitor {
             consumption,
             context,
         }
     }
 }
-impl<'a> SimulationElementVisitor for ReportPowerConsumptionVisitor<'a> {
+impl<'a> SimulationElementVisitor for ProcessPowerConsumptionReportVisitor<'a> {
     fn visit<T: SimulationElement>(&mut self, visited: &mut T) {
         visited.process_power_consumption_report(self.consumption, &self.context);
     }
