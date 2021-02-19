@@ -10,7 +10,7 @@ use crate::{
 };
 use std::cmp::min;
 use uom::si::{
-    electric_potential::volt, f64::*, frequency::hertz, ratio::percent,
+    electric_potential::volt, f64::*, frequency::hertz, power::watt, ratio::percent,
     thermodynamic_temperature::degree_celsius,
 };
 
@@ -18,6 +18,9 @@ pub struct EngineGenerator {
     writer: ElectricalStateWriter,
     number: usize,
     idg: IntegratedDriveGenerator,
+    frequency: Frequency,
+    potential: ElectricPotential,
+    load: Ratio,
 }
 impl EngineGenerator {
     pub fn new(number: usize) -> EngineGenerator {
@@ -25,6 +28,9 @@ impl EngineGenerator {
             writer: ElectricalStateWriter::new(&format!("ENG_GEN_{}", number)),
             number,
             idg: IntegratedDriveGenerator::new(number),
+            frequency: Frequency::new::<hertz>(0.),
+            potential: ElectricPotential::new::<volt>(0.),
+            load: Ratio::new::<percent>(0.),
         }
     }
 
@@ -48,43 +54,31 @@ impl PotentialSource for EngineGenerator {
 }
 impl ProvidePotential for EngineGenerator {
     fn potential(&self) -> ElectricPotential {
-        // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            ElectricPotential::new::<volt>(115.)
-        } else {
-            ElectricPotential::new::<volt>(0.)
-        }
+        self.potential
     }
 
     fn potential_normal(&self) -> bool {
-        // TODO: Replace with actual values once calculated.
-        self.output_potential().is_powered()
+        let volts = self.potential.get::<volt>();
+        (110.0..=120.0).contains(&volts)
     }
 }
 impl ProvideFrequency for EngineGenerator {
     fn frequency(&self) -> Frequency {
-        // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            Frequency::new::<hertz>(400.)
-        } else {
-            Frequency::new::<hertz>(0.)
-        }
+        self.frequency
     }
 
     fn frequency_normal(&self) -> bool {
-        // TODO: Replace with actual values once calculated.
-        self.output_potential().is_powered()
+        let hz = self.frequency.get::<hertz>();
+        (390.0..=410.0).contains(&hz)
     }
 }
 impl ProvideLoad for EngineGenerator {
     fn load(&self) -> Ratio {
-        // TODO: Replace with actual values once calculated.
-        Ratio::new::<percent>(0.)
+        self.load
     }
 
     fn load_normal(&self) -> bool {
-        // TODO: Replace with actual values once calculated.
-        true
+        self.load <= Ratio::new::<percent>(100.)
     }
 }
 impl SimulationElement for EngineGenerator {
@@ -96,10 +90,28 @@ impl SimulationElement for EngineGenerator {
 
     fn process_power_consumption_report<T: PowerConsumptionReport>(
         &mut self,
-        _report: &T,
-        _context: &UpdateContext,
+        report: &T,
+        _: &UpdateContext,
     ) {
-        // TODO
+        self.frequency = if self.output_potential().is_powered() {
+            Frequency::new::<hertz>(400.)
+        } else {
+            Frequency::new::<hertz>(0.)
+        };
+        self.potential = if self.output_potential().is_powered() {
+            ElectricPotential::new::<volt>(115.)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        };
+
+        let power_consumption = report
+            .total_consumption_of(&self.output_potential())
+            .get::<watt>();
+        let power_factor_correction = 0.8;
+        let maximum_load = 90000.;
+        self.load = Ratio::new::<percent>(
+            (power_consumption * power_factor_correction / maximum_load) * 100.,
+        );
     }
 
     fn write(&self, writer: &mut SimulatorWriter) {
