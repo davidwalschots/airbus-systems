@@ -8,12 +8,16 @@ use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 pub struct StaticInverter {
     writer: ElectricalStateWriter,
     input: Potential,
+    potential: ElectricPotential,
+    frequency: Frequency,
 }
 impl StaticInverter {
     pub fn new() -> StaticInverter {
         StaticInverter {
             writer: ElectricalStateWriter::new("STAT_INV"),
             input: Potential::None,
+            potential: ElectricPotential::new::<volt>(0.),
+            frequency: Frequency::new::<hertz>(0.),
         }
     }
 
@@ -33,45 +37,52 @@ impl PotentialSource for StaticInverter {
 }
 impl ProvidePotential for StaticInverter {
     fn potential(&self) -> ElectricPotential {
-        // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            ElectricPotential::new::<volt>(115.)
-        } else {
-            ElectricPotential::new::<volt>(0.)
-        }
+        self.potential
     }
 
     fn potential_normal(&self) -> bool {
-        // TODO: Replace with actual values once calculated.
-        self.output_potential().is_powered()
+        let volts = self.potential.get::<volt>();
+        (110.0..=120.0).contains(&volts)
     }
 }
 impl ProvideFrequency for StaticInverter {
     fn frequency(&self) -> Frequency {
-        // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            Frequency::new::<hertz>(400.)
-        } else {
-            Frequency::new::<hertz>(0.)
-        }
+        self.frequency
     }
 
     fn frequency_normal(&self) -> bool {
-        // TODO: Replace with actual values once calculated.
-        self.output_potential().is_powered()
+        let hz = self.frequency.get::<hertz>();
+        (390.0..=410.0).contains(&hz)
     }
 }
 impl SimulationElement for StaticInverter {
-    fn process_power_consumption_report<T: PowerConsumptionReport>(
-        &mut self,
-        _report: &T,
-        _context: &UpdateContext,
-    ) {
-        // TODO
-    }
-
     fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_alternating(self, writer);
+    }
+
+    fn consume_power_in_converters(&mut self, consumption: &mut super::PowerConsumption) {
+        let ac_consumption = consumption.total_consumption_of(&self.output_potential());
+
+        // Add the AC consumption to the STAT INVs input (DC) consumption.
+        consumption.add(&self.input, ac_consumption);
+    }
+
+    fn process_power_consumption_report<T: PowerConsumptionReport>(
+        &mut self,
+        _: &T,
+        _: &UpdateContext,
+    ) {
+        self.potential = if self.output_potential().is_powered() {
+            ElectricPotential::new::<volt>(115.)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        };
+
+        self.frequency = if self.output_potential().is_powered() {
+            Frequency::new::<hertz>(400.)
+        } else {
+            Frequency::new::<hertz>(0.)
+        };
     }
 }
 impl Default for StaticInverter {
