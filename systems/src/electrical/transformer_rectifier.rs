@@ -1,6 +1,6 @@
 use super::{
-    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumptionReport,
-    ProvideCurrent, ProvidePotential,
+    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumption,
+    PowerConsumptionReport, ProvideCurrent, ProvidePotential,
 };
 use crate::simulation::{SimulationElement, SimulatorWriter, UpdateContext};
 use uom::si::{electric_current::ampere, electric_potential::volt, f64::*};
@@ -10,6 +10,8 @@ pub struct TransformerRectifier {
     number: usize,
     input: Potential,
     failed: bool,
+    potential: ElectricPotential,
+    current: ElectricCurrent,
 }
 impl TransformerRectifier {
     pub fn new(number: usize) -> TransformerRectifier {
@@ -18,6 +20,8 @@ impl TransformerRectifier {
             number,
             input: Potential::None,
             failed: false,
+            potential: ElectricPotential::new::<volt>(0.),
+            current: ElectricCurrent::new::<ampere>(0.),
         }
     }
 
@@ -43,45 +47,48 @@ impl PotentialSource for TransformerRectifier {
 }
 impl ProvideCurrent for TransformerRectifier {
     fn current(&self) -> ElectricCurrent {
-        // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            ElectricCurrent::new::<ampere>(150.)
-        } else {
-            ElectricCurrent::new::<ampere>(0.)
-        }
+        self.current
     }
 
     fn current_normal(&self) -> bool {
-        // TODO: Replace with actual values once calculated.
-        self.output_potential().is_powered()
+        self.current > ElectricCurrent::new::<ampere>(5.)
     }
 }
 impl ProvidePotential for TransformerRectifier {
     fn potential(&self) -> ElectricPotential {
-        // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            ElectricPotential::new::<volt>(28.)
-        } else {
-            ElectricPotential::new::<volt>(0.)
-        }
+        self.potential
     }
 
     fn potential_normal(&self) -> bool {
-        // TODO: Replace with actual values once calculated.
-        self.output_potential().is_powered()
+        let volts = self.potential.get::<volt>();
+        (25.0..=31.0).contains(&volts)
     }
 }
 impl SimulationElement for TransformerRectifier {
-    fn process_power_consumption_report<T: PowerConsumptionReport>(
-        &mut self,
-        _report: &T,
-        _context: &UpdateContext,
-    ) {
-        // TODO
-    }
-
     fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_direct(self, writer);
+    }
+
+    fn consume_power_in_converters(&mut self, consumption: &mut PowerConsumption) {
+        let dc_consumption = consumption.total_consumption_of(&self.output_potential());
+
+        // Add the DC consumption to the TRs input (AC) consumption.
+        consumption.add(&self.input, dc_consumption);
+    }
+
+    fn process_power_consumption_report<T: PowerConsumptionReport>(
+        &mut self,
+        report: &T,
+        _: &UpdateContext,
+    ) {
+        self.potential = if self.output_potential().is_powered() {
+            ElectricPotential::new::<volt>(28.)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        };
+
+        let consumption = report.total_consumption_of(&self.output_potential());
+        self.current = consumption / self.potential;
     }
 }
 
