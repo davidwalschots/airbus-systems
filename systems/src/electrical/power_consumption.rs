@@ -299,7 +299,6 @@ impl<'a> SimulationElementVisitor for ConsumePowerVisitor<'a> {
         visited.consume_power(&mut self.consumption);
     }
 }
-
 struct ConsumePowerInConvertersVisitor<'a> {
     consumption: &'a mut PowerConsumption,
 }

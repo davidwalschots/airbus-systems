@@ -4,12 +4,12 @@ use crate::{
         ElectricalStateWriter, Potential, PotentialSource, PowerConsumptionReport,
         ProvideFrequency, ProvideLoad, ProvidePotential,
     },
-    shared::{calculate_towards_target_temperature, random_number, TimedRandom},
+    shared::{calculate_towards_target_temperature, random_number},
     simulation::{SimulationElement, SimulatorWriter, UpdateContext},
 };
 use std::time::Duration;
 use uom::si::{
-    electric_current::ampere, electric_potential::volt, f64::*, frequency::hertz, ratio::percent,
+    electric_potential::volt, f64::*, frequency::hertz, power::watt, ratio::percent,
     temperature_interval, thermodynamic_temperature::degree_celsius,
 };
 
@@ -356,10 +356,9 @@ pub struct Aps3200ApuGenerator {
     number: usize,
     writer: ElectricalStateWriter,
     output: Potential,
-    random_voltage: TimedRandom<f64>,
-    current: ElectricCurrent,
-    potential: ElectricPotential,
     frequency: Frequency,
+    potential: ElectricPotential,
+    load: Ratio,
 }
 impl Aps3200ApuGenerator {
     const APU_GEN_POWERED_N: f64 = 84.;
@@ -369,13 +368,9 @@ impl Aps3200ApuGenerator {
             number,
             writer: ElectricalStateWriter::new(&format!("APU_GEN_{}", number)),
             output: Potential::None,
-            random_voltage: TimedRandom::new(
-                Duration::from_secs(1),
-                vec![114., 115., 115., 115., 115.],
-            ),
-            current: ElectricCurrent::new::<ampere>(0.),
             potential: ElectricPotential::new::<volt>(0.),
             frequency: Frequency::new::<hertz>(0.),
+            load: Ratio::new::<percent>(0.),
         }
     }
 
@@ -387,7 +382,7 @@ impl Aps3200ApuGenerator {
         } else if n < 85. {
             ElectricPotential::new::<volt>(105.)
         } else {
-            ElectricPotential::new::<volt>(self.random_voltage.current_value())
+            ElectricPotential::new::<volt>(115.)
         }
     }
 
@@ -435,21 +430,13 @@ impl Aps3200ApuGenerator {
     }
 }
 impl ApuGenerator for Aps3200ApuGenerator {
-    fn update(&mut self, context: &UpdateContext, n: Ratio, is_emergency_shutdown: bool) {
-        self.random_voltage.update(context);
+    fn update(&mut self, _: &UpdateContext, n: Ratio, is_emergency_shutdown: bool) {
         self.output = if is_emergency_shutdown
             || n.get::<percent>() < Aps3200ApuGenerator::APU_GEN_POWERED_N
         {
             Potential::None
         } else {
             Potential::ApuGenerator(self.number)
-        };
-
-        self.current = if self.is_powered() {
-            // TODO: Once we actually know what to do with the amperes, we'll have to adapt this.
-            ElectricCurrent::new::<ampere>(782.60)
-        } else {
-            ElectricCurrent::new::<ampere>(0.)
         };
 
         self.potential = if self.is_powered() {
@@ -487,12 +474,11 @@ impl ProvideFrequency for Aps3200ApuGenerator {
 }
 impl ProvideLoad for Aps3200ApuGenerator {
     fn load(&self) -> Ratio {
-        // TODO: Replace with actual values once calculated.
-        Ratio::new::<percent>(0.)
+        self.load
     }
 
     fn load_normal(&self) -> bool {
-        true
+        self.load <= Ratio::new::<percent>(100.)
     }
 }
 impl PotentialSource for Aps3200ApuGenerator {
@@ -507,10 +493,17 @@ impl SimulationElement for Aps3200ApuGenerator {
 
     fn process_power_consumption_report<T: PowerConsumptionReport>(
         &mut self,
-        _report: &T,
-        _context: &UpdateContext,
+        report: &T,
+        _: &UpdateContext,
     ) {
-        // TODO
+        let power_consumption = report
+            .total_consumption_of(&self.output_potential())
+            .get::<watt>();
+        let power_factor_correction = 0.8;
+        let maximum_load = 90000.;
+        self.load = Ratio::new::<percent>(
+            (power_consumption * power_factor_correction / maximum_load) * 100.,
+        );
     }
 }
 
