@@ -13,11 +13,11 @@
 //! 5. The total load is passed to the various origins so that they can calculate their
 //!    load %, voltage, frequency and current.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use super::{ElectricalBus, ElectricalBusType, ElectricalSystem, Potential, PotentialSource};
 use crate::{
-    shared::FwcFlightPhase,
+    shared::{random_number, FwcFlightPhase},
     simulation::{SimulationElement, SimulationElementVisitor, SimulatorReader, UpdateContext},
 };
 use num_traits::FromPrimitive;
@@ -148,13 +148,29 @@ impl SimulationElement for PowerConsumer {
 /// based on the phase of the flight.
 pub struct FlightPhasePowerConsumer {
     consumer: PowerConsumer,
-    demand: [Power; PowerConsumerFlightPhase::TaxiIn as usize + 1],
+    base_demand: [Power; PowerConsumerFlightPhase::TaxiIn as usize + 1],
+    current_flight_phase: PowerConsumerFlightPhase,
+    update_after: Duration,
 }
 impl FlightPhasePowerConsumer {
     pub fn from(bus_type: ElectricalBusType) -> Self {
         Self {
             consumer: PowerConsumer::from(bus_type),
-            demand: Default::default(),
+            base_demand: Default::default(),
+            current_flight_phase: PowerConsumerFlightPhase::BeforeStart,
+            update_after: Duration::from_secs(0),
+        }
+    }
+
+    pub fn update(&mut self, context: &UpdateContext) {
+        if self.update_after <= context.delta {
+            self.update_after = Duration::from_secs_f64(5. + ((random_number() % 26) as f64));
+            let base_demand = self.base_demand[self.current_flight_phase as usize].get::<watt>();
+            self.consumer.demand(Power::new::<watt>(
+                base_demand * ((90. + ((random_number() % 21) as f64)) / 100.),
+            ));
+        } else {
+            self.update_after -= context.delta;
         }
     }
 
@@ -163,7 +179,7 @@ impl FlightPhasePowerConsumer {
         demand: [(PowerConsumerFlightPhase, Power); PowerConsumerFlightPhase::TaxiIn as usize + 1],
     ) -> Self {
         for (phase, power) in &demand {
-            self.demand[*phase as usize] = *power;
+            self.base_demand[*phase as usize] = *power;
         }
 
         self
@@ -177,13 +193,11 @@ impl SimulationElement for FlightPhasePowerConsumer {
     }
 
     fn read(&mut self, reader: &mut SimulatorReader) {
-        let fwc_flight_phase: Option<FwcFlightPhase> =
+        let flight_phase: Option<FwcFlightPhase> =
             FromPrimitive::from_f64(reader.read_f64("A32NX_FWC_FLIGHT_PHASE"));
-        self.consumer.demand(if let Some(phase) = fwc_flight_phase {
-            self.demand[PowerConsumerFlightPhase::from(phase) as usize]
-        } else {
-            Power::new::<watt>(0.)
-        });
+        if let Some(phase) = flight_phase {
+            self.current_flight_phase = PowerConsumerFlightPhase::from(phase);
+        }
     }
 }
 
@@ -455,7 +469,8 @@ mod tests {
         use crate::{
             electrical::PotentialTarget,
             simulation::{
-                test::TestReaderWriter, SimulatorReaderWriter, SimulatorToSimulationVisitor,
+                context, test::TestReaderWriter, SimulatorReaderWriter,
+                SimulatorToSimulationVisitor,
             },
         };
 
@@ -508,6 +523,7 @@ mod tests {
             ]);
 
             apply_flight_phase(&mut consumer, FwcFlightPhase::FirstEngineStarted);
+            consumer.update(&context());
             let power_consumption = consume_power(&mut consumer);
 
             assert_eq!(
@@ -517,8 +533,8 @@ mod tests {
         }
 
         #[test]
-        fn when_flight_phase_does_have_demand_usage_is_demand() {
-            let expected = Power::new::<watt>(20000.);
+        fn when_flight_phase_does_have_demand_usage_is_close_to_demand() {
+            let input = 20000.;
             let mut consumer = powered_consumer().demand([
                 (
                     PowerConsumerFlightPhase::BeforeStart,
@@ -526,18 +542,20 @@ mod tests {
                 ),
                 (PowerConsumerFlightPhase::AfterStart, Power::new::<watt>(0.)),
                 (PowerConsumerFlightPhase::Takeoff, Power::new::<watt>(0.)),
-                (PowerConsumerFlightPhase::Flight, expected),
+                (PowerConsumerFlightPhase::Flight, Power::new::<watt>(input)),
                 (PowerConsumerFlightPhase::Landing, Power::new::<watt>(0.)),
                 (PowerConsumerFlightPhase::TaxiIn, Power::new::<watt>(0.)),
             ]);
 
             apply_flight_phase(&mut consumer, FwcFlightPhase::AtOrAbove1500Feet);
+            consumer.update(&context());
             let power_consumption = consume_power(&mut consumer);
 
-            assert_eq!(
-                power_consumption.total_consumption_of(&Potential::ApuGenerator(1)),
-                expected
-            );
+            let consumption = power_consumption
+                .total_consumption_of(&Potential::ApuGenerator(1))
+                .get::<watt>();
+            assert!(consumption >= input * 0.9);
+            assert!(consumption <= input * 1.1);
         }
 
         #[test]
@@ -565,6 +583,7 @@ mod tests {
                 ]);
 
             apply_flight_phase(&mut consumer, FwcFlightPhase::FirstEngineStarted);
+            consumer.update(&context());
             let power_consumption = consume_power(&mut consumer);
 
             assert_eq!(

@@ -1,6 +1,6 @@
 use systems::{
     electrical::{ElectricalBusType, FlightPhasePowerConsumer, PowerConsumerFlightPhase},
-    simulation::{SimulationElement, SimulationElementVisitor},
+    simulation::{SimulationElement, SimulationElementVisitor, UpdateContext},
 };
 use uom::si::{f64::*, power::watt};
 
@@ -287,6 +287,21 @@ impl A320PowerConsumption {
                 (PowerConsumerFlightPhase::TaxiIn, Power::new::<watt>(19.44)),
             ]),
         }
+    }
+
+    pub fn update(&mut self, context: &UpdateContext) {
+        self.ac_bus_1_consumer.update(context);
+        self.ac_bus_2_consumer.update(context);
+        self.ac_ess_bus_consumer.update(context);
+        self.ac_ess_shed_bus_consumer.update(context);
+        self.ac_stat_inv_bus_consumer.update(context);
+        self.dc_bus_1_consumer.update(context);
+        self.dc_bus_2_consumer.update(context);
+        self.dc_ess_bus_consumer.update(context);
+        self.dc_ess_shed_bus_consumer.update(context);
+        self.dc_bat_bus_consumer.update(context);
+        self.dc_hot_bus_1_consumer.update(context);
+        self.dc_hot_bus_2_consumer.update(context);
     }
 }
 impl SimulationElement for A320PowerConsumption {

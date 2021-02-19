@@ -91,6 +91,7 @@ impl Aircraft for A320 {
 
         // Update everything that needs to know if it is powered here.
         self.hydraulic.update(context);
+        self.power_consumption.update(context);
 
         electric_power.consume_in(self);
         electric_power.report_consumption_to(self, context);
