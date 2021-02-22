@@ -3,7 +3,6 @@ mod fuel;
 mod hydraulic;
 mod pneumatic;
 mod power_consumption;
-mod test;
 
 use self::{fuel::A320Fuel, pneumatic::A320PneumaticOverheadPanel};
 use electrical::{A320Electrical, A320ElectricalOverheadPanel, A320ElectricalUpdateArguments};
