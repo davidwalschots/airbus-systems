@@ -11,7 +11,7 @@ use std::fmt::Display;
 
 pub use battery::Battery;
 pub use emergency_generator::EmergencyGenerator;
-pub use engine_generator::EngineGenerator;
+pub use engine_generator::{EngineGenerator, EngineGeneratorUpdateArguments};
 pub use external_power_source::ExternalPowerSource;
 pub use static_inverter::StaticInverter;
 pub use transformer_rectifier::TransformerRectifier;

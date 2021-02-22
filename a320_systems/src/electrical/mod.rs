@@ -2,29 +2,68 @@ mod alternating_current;
 mod direct_current;
 mod galley;
 
+#[cfg(test)]
+use systems::electrical::Potential;
+
 use self::{
     alternating_current::A320AlternatingCurrentElectrical,
     direct_current::A320DirectCurrentElectrical,
     galley::{MainGalley, SecondaryGalley},
 };
-use super::hydraulic::A320Hydraulic;
-#[cfg(test)]
-use systems::electrical::Potential;
 use systems::{
-    apu::{ApuGenerator, AuxiliaryPowerUnit},
     electrical::{
-        consumption::SuppliedPower, ElectricalBus, ElectricalSystem, ExternalPowerSource,
-        PotentialSource, StaticInverter, TransformerRectifier,
+        consumption::SuppliedPower, ElectricalBus, ElectricalSystem,
+        EngineGeneratorUpdateArguments, ExternalPowerSource, PotentialSource, StaticInverter,
+        TransformerRectifier,
     },
-    engine::Engine,
     overhead::{
         AutoOffFaultPushButton, FaultReleasePushButton, NormalAltnFaultPushButton,
         OnOffAvailablePushButton, OnOffFaultPushButton,
     },
     simulation::{SimulationElement, SimulationElementVisitor, SimulatorWriter, UpdateContext},
 };
+use uom::si::f64::*;
 
-pub(crate) struct A320Electrical {
+pub(super) struct A320ElectricalUpdateArguments<'a> {
+    engine_corrected_n2: [Ratio; 2],
+    idg_push_buttons_released: [bool; 2],
+    apu: &'a dyn PotentialSource,
+    is_blue_hydraulic_circuit_pressurised: bool,
+}
+impl<'a> A320ElectricalUpdateArguments<'a> {
+    pub fn new(
+        engine_corrected_n2: [Ratio; 2],
+        idg_push_buttons_released: [bool; 2],
+        apu: &'a dyn PotentialSource,
+        is_blue_hydraulic_circuit_pressurised: bool,
+    ) -> Self {
+        Self {
+            engine_corrected_n2,
+            idg_push_buttons_released,
+            apu,
+            is_blue_hydraulic_circuit_pressurised,
+        }
+    }
+
+    fn apu(&self) -> &dyn PotentialSource {
+        self.apu
+    }
+
+    fn is_blue_hydraulic_circuit_pressurised(&self) -> bool {
+        self.is_blue_hydraulic_circuit_pressurised
+    }
+}
+impl<'a> EngineGeneratorUpdateArguments for A320ElectricalUpdateArguments<'a> {
+    fn engine_corrected_n2(&self, number: usize) -> Ratio {
+        self.engine_corrected_n2[number - 1]
+    }
+
+    fn idg_push_button_released(&self, number: usize) -> bool {
+        self.idg_push_buttons_released[number - 1]
+    }
+}
+
+pub(super) struct A320Electrical {
     alternating_current: A320AlternatingCurrentElectrical,
     direct_current: A320DirectCurrentElectrical,
     main_galley: MainGalley,
@@ -40,19 +79,15 @@ impl A320Electrical {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn update<T: ApuGenerator>(
+    pub fn update<'a>(
         &mut self,
         context: &UpdateContext,
-        engine1: &Engine,
-        engine2: &Engine,
-        apu: &AuxiliaryPowerUnit<T>,
         ext_pwr: &ExternalPowerSource,
-        hydraulic: &A320Hydraulic,
         overhead: &A320ElectricalOverheadPanel,
+        arguments: &A320ElectricalUpdateArguments<'a>,
     ) {
         self.alternating_current
-            .update(context, engine1, engine2, apu, ext_pwr, hydraulic, overhead);
+            .update(context, ext_pwr, overhead, arguments);
 
         self.direct_current.update_with_alternating_current_state(
             context,
@@ -310,6 +345,14 @@ impl A320ElectricalOverheadPanel {
     fn galy_and_cab_is_off(&self) -> bool {
         self.galy_and_cab.is_off()
     }
+
+    pub fn idg_1_push_button_released(&self) -> bool {
+        self.idg_1.is_released()
+    }
+
+    pub fn idg_2_push_button_released(&self) -> bool {
+        self.idg_2.is_released()
+    }
 }
 impl SimulationElement for A320ElectricalOverheadPanel {
     fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
@@ -351,14 +394,12 @@ mod a320_electrical {
 #[cfg(test)]
 mod a320_electrical_circuit_tests {
     use std::time::Duration;
-    use uom::si::f64::*;
+    use uom::si::ratio::percent;
 
     use super::alternating_current::A320AcEssFeedContactors;
     use super::*;
     use systems::{
-        apu::{Aps3200ApuGenerator, AuxiliaryPowerUnitFactory},
         electrical::{ElectricalBusType, ExternalPowerSource, Potential},
-        engine::Engine,
         simulation::{test::SimulationTestBed, Aircraft},
     };
     use uom::si::{length::foot, velocity::knot};
@@ -1705,30 +1746,54 @@ mod a320_electrical_circuit_tests {
         A320ElectricalTestBed::new()
     }
 
+    struct TestApu {
+        running: bool,
+    }
+    impl TestApu {
+        fn new(running: bool) -> Self {
+            Self { running }
+        }
+    }
+    impl PotentialSource for TestApu {
+        fn output_potential(&self) -> Potential {
+            if self.running {
+                Potential::ApuGenerator(1)
+            } else {
+                Potential::None
+            }
+        }
+    }
+
     struct A320ElectricalTestAircraft {
-        engine1: Engine,
-        engine2: Engine,
-        apu: AuxiliaryPowerUnit<Aps3200ApuGenerator>,
+        engine_1_running: bool,
+        engine_2_running: bool,
+        apu_running: bool,
         ext_pwr: ExternalPowerSource,
-        hyd: A320Hydraulic,
         elec: A320Electrical,
         overhead: A320ElectricalOverheadPanel,
     }
     impl A320ElectricalTestAircraft {
         fn new() -> Self {
             Self {
-                engine1: Engine::new(1),
-                engine2: Engine::new(2),
-                apu: AuxiliaryPowerUnitFactory::new_shutdown_aps3200(1),
+                engine_1_running: false,
+                engine_2_running: false,
+                apu_running: false,
                 ext_pwr: ExternalPowerSource::new(),
-                hyd: A320Hydraulic::new(),
                 elec: A320Electrical::new(),
                 overhead: A320ElectricalOverheadPanel::new(),
             }
         }
 
+        fn running_engine_1(&mut self) {
+            self.engine_1_running = true;
+        }
+
+        fn running_engine_2(&mut self) {
+            self.engine_2_running = true;
+        }
+
         fn running_apu(&mut self) {
-            self.apu = AuxiliaryPowerUnitFactory::new_running_aps3200(1);
+            self.apu_running = true;
         }
 
         fn empty_battery_1(&mut self) {
@@ -1779,12 +1844,20 @@ mod a320_electrical_circuit_tests {
         fn update_before_power_distribution(&mut self, context: &UpdateContext) {
             self.elec.update(
                 context,
-                &self.engine1,
-                &self.engine2,
-                &self.apu,
                 &self.ext_pwr,
-                &self.hyd,
                 &self.overhead,
+                &A320ElectricalUpdateArguments::new(
+                    [
+                        Ratio::new::<percent>(if self.engine_1_running { 80. } else { 0. }),
+                        Ratio::new::<percent>(if self.engine_2_running { 80. } else { 0. }),
+                    ],
+                    [
+                        self.overhead.idg_1_push_button_released(),
+                        self.overhead.idg_2_push_button_released(),
+                    ],
+                    &TestApu::new(self.apu_running),
+                    true,
+                ),
             );
             self.overhead.update_after_elec(&self.elec);
         }
@@ -1795,11 +1868,7 @@ mod a320_electrical_circuit_tests {
     }
     impl SimulationElement for A320ElectricalTestAircraft {
         fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
-            self.engine1.accept(visitor);
-            self.engine2.accept(visitor);
-            self.apu.accept(visitor);
             self.ext_pwr.accept(visitor);
-            self.hyd.accept(visitor);
             self.elec.accept(visitor);
             self.overhead.accept(visitor);
 
@@ -1821,14 +1890,12 @@ mod a320_electrical_circuit_tests {
         }
 
         fn running_engine_1(mut self) -> Self {
-            self.simulation_test_bed
-                .write_f64("TURB ENG CORRECTED N2:1", 80.);
+            self.aircraft.running_engine_1();
             self
         }
 
         fn running_engine_2(mut self) -> Self {
-            self.simulation_test_bed
-                .write_f64("TURB ENG CORRECTED N2:2", 80.);
+            self.aircraft.running_engine_2();
             self
         }
 

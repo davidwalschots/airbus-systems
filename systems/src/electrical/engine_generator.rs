@@ -3,8 +3,6 @@ use super::{
     ProvideFrequency, ProvideLoad, ProvidePotential,
 };
 use crate::{
-    engine::Engine,
-    overhead::FaultReleasePushButton,
     shared::calculate_towards_target_temperature,
     simulation::{SimulationElement, SimulationElementVisitor, SimulatorWriter, UpdateContext},
 };
@@ -13,6 +11,11 @@ use uom::si::{
     electric_potential::volt, f64::*, frequency::hertz, power::watt, ratio::percent,
     thermodynamic_temperature::degree_celsius,
 };
+
+pub trait EngineGeneratorUpdateArguments {
+    fn engine_corrected_n2(&self, number: usize) -> Ratio;
+    fn idg_push_button_released(&self, number: usize) -> bool;
+}
 
 pub struct EngineGenerator {
     writer: ElectricalStateWriter,
@@ -34,13 +37,12 @@ impl EngineGenerator {
         }
     }
 
-    pub fn update(
+    pub fn update<T: EngineGeneratorUpdateArguments>(
         &mut self,
         context: &UpdateContext,
-        engine: &Engine,
-        idg_push_button: &FaultReleasePushButton,
+        arguments: &T,
     ) {
-        self.idg.update(context, engine, idg_push_button);
+        self.idg.update(context, arguments);
     }
 }
 impl PotentialSource for EngineGenerator {
@@ -119,11 +121,12 @@ impl SimulationElement for EngineGenerator {
     }
 }
 
-pub struct IntegratedDriveGenerator {
+struct IntegratedDriveGenerator {
     oil_outlet_temperature_id: String,
     oil_outlet_temperature: ThermodynamicTemperature,
     is_connected_id: String,
     connected: bool,
+    number: usize,
 
     time_above_threshold_in_milliseconds: u64,
 }
@@ -141,24 +144,27 @@ impl IntegratedDriveGenerator {
             oil_outlet_temperature: ThermodynamicTemperature::new::<degree_celsius>(0.),
             is_connected_id: format!("ELEC_ENG_GEN_{}_IDG_IS_CONNECTED", number),
             connected: true,
+            number,
 
             time_above_threshold_in_milliseconds: 0,
         }
     }
 
-    fn update(
+    pub fn update<T: EngineGeneratorUpdateArguments>(
         &mut self,
         context: &UpdateContext,
-        engine: &Engine,
-        idg_push_button: &FaultReleasePushButton,
+        arguments: &T,
     ) {
-        if idg_push_button.is_released() {
+        if arguments.idg_push_button_released(self.number) {
             // The IDG cannot be reconnected.
             self.connected = false;
         }
 
-        self.update_stable_time(context, engine);
-        self.update_temperature(context, self.get_target_temperature(context, engine));
+        self.update_stable_time(context, arguments.engine_corrected_n2(self.number));
+        self.update_temperature(
+            context,
+            self.get_target_temperature(context, arguments.engine_corrected_n2(self.number)),
+        );
     }
 
     fn provides_stable_power_output(&self) -> bool {
@@ -166,20 +172,20 @@ impl IntegratedDriveGenerator {
             == IntegratedDriveGenerator::STABILIZATION_TIME_IN_MILLISECONDS
     }
 
-    fn update_stable_time(&mut self, context: &UpdateContext, engine: &Engine) {
+    fn update_stable_time(&mut self, context: &UpdateContext, corrected_n2: Ratio) {
         if !self.connected {
             self.time_above_threshold_in_milliseconds = 0;
             return;
         }
 
         let mut new_time = self.time_above_threshold_in_milliseconds;
-        if engine.corrected_n2()
+        if corrected_n2
             >= Ratio::new::<percent>(IntegratedDriveGenerator::ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD)
             && self.time_above_threshold_in_milliseconds
                 < IntegratedDriveGenerator::STABILIZATION_TIME_IN_MILLISECONDS
         {
             new_time = self.time_above_threshold_in_milliseconds + context.delta.as_millis() as u64;
-        } else if engine.corrected_n2()
+        } else if corrected_n2
             <= Ratio::new::<percent>(
                 IntegratedDriveGenerator::ENGINE_N2_POWER_DOWN_OUTPUT_THRESHOLD,
             )
@@ -218,13 +224,13 @@ impl IntegratedDriveGenerator {
     fn get_target_temperature(
         &self,
         context: &UpdateContext,
-        engine: &Engine,
+        corrected_n2: Ratio,
     ) -> ThermodynamicTemperature {
         if !self.connected {
             return context.ambient_temperature;
         }
 
-        let mut target_idg = engine.corrected_n2().get::<percent>() * 1.8;
+        let mut target_idg = corrected_n2.get::<percent>() * 1.8;
         let ambient_temperature = context.ambient_temperature.get::<degree_celsius>();
         target_idg += ambient_temperature;
 
@@ -258,28 +264,27 @@ fn clamp<T: PartialOrd>(value: T, min: T, max: T) -> T {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{engine::Engine, simulation::test::SimulationTestBed};
 
-    fn engine_above_threshold() -> Engine {
-        engine(Ratio::new::<percent>(
-            IntegratedDriveGenerator::ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD + 1.,
-        ))
+    struct UpdateArguments {
+        engine_corrected_n2: Ratio,
+        idg_push_button_released: bool,
     }
-
-    fn engine_below_threshold() -> Engine {
-        engine(Ratio::new::<percent>(
-            IntegratedDriveGenerator::ENGINE_N2_POWER_DOWN_OUTPUT_THRESHOLD - 1.,
-        ))
+    impl UpdateArguments {
+        fn new(engine_corrected_n2: Ratio, idg_push_button_released: bool) -> Self {
+            Self {
+                engine_corrected_n2,
+                idg_push_button_released,
+            }
+        }
     }
+    impl EngineGeneratorUpdateArguments for UpdateArguments {
+        fn engine_corrected_n2(&self, _: usize) -> Ratio {
+            self.engine_corrected_n2
+        }
 
-    fn engine(n2: Ratio) -> Engine {
-        let mut engine = Engine::new(1);
-        let mut test_bed = SimulationTestBed::new();
-        test_bed.write_f64("TURB ENG CORRECTED N2:1", n2.get::<percent>());
-
-        test_bed.run_without_update(&mut engine);
-
-        engine
+        fn idg_push_button_released(&self, _: usize) -> bool {
+            self.idg_push_button_released
+        }
     }
 
     #[cfg(test)]
@@ -322,8 +327,7 @@ mod tests {
             test_bed.run(&mut generator, |gen, context| {
                 gen.update(
                     context,
-                    &engine_above_threshold(),
-                    &FaultReleasePushButton::new_released("TEST"),
+                    &UpdateArguments::new(Ratio::new::<percent>(80.), true),
                 )
             });
 
@@ -356,8 +360,7 @@ mod tests {
             test_bed.run(generator, |gen, context| {
                 gen.update(
                     context,
-                    &engine_above_threshold(),
-                    &FaultReleasePushButton::new_in("TEST"),
+                    &UpdateArguments::new(Ratio::new::<percent>(80.), false),
                 )
             });
         }
@@ -369,8 +372,7 @@ mod tests {
             test_bed.run(generator, |gen, context| {
                 gen.update(
                     context,
-                    &engine_below_threshold(),
-                    &FaultReleasePushButton::new_in("TEST"),
+                    &UpdateArguments::new(Ratio::new::<percent>(0.), false),
                 )
             });
         }
@@ -411,8 +413,7 @@ mod tests {
             test_bed.run(&mut idg, |element, context| {
                 element.update(
                     context,
-                    &engine_above_threshold(),
-                    &FaultReleasePushButton::new_in("TEST"),
+                    &UpdateArguments::new(Ratio::new::<percent>(80.), false),
                 )
             });
 
@@ -427,8 +428,7 @@ mod tests {
             test_bed.run(&mut idg, |element, context| {
                 element.update(
                     context,
-                    &engine_above_threshold(),
-                    &FaultReleasePushButton::new_in("TEST"),
+                    &UpdateArguments::new(Ratio::new::<percent>(80.), false),
                 )
             });
 
@@ -442,16 +442,14 @@ mod tests {
             test_bed.run(&mut idg, |element, context| {
                 element.update(
                     context,
-                    &engine_above_threshold(),
-                    &FaultReleasePushButton::new_released("TEST"),
+                    &UpdateArguments::new(Ratio::new::<percent>(80.), true),
                 )
             });
 
             test_bed.run(&mut idg, |element, context| {
                 element.update(
                     context,
-                    &engine_above_threshold(),
-                    &FaultReleasePushButton::new_in("TEST"),
+                    &UpdateArguments::new(Ratio::new::<percent>(80.), false),
                 )
             });
 
@@ -467,8 +465,7 @@ mod tests {
             test_bed.run(&mut idg, |element, context| {
                 element.update(
                     context,
-                    &engine_above_threshold(),
-                    &FaultReleasePushButton::new_in("TEST"),
+                    &UpdateArguments::new(Ratio::new::<percent>(80.), false),
                 )
             });
 
@@ -484,8 +481,7 @@ mod tests {
             test_bed.run(&mut idg, |element, context| {
                 element.update(
                     context,
-                    &engine_above_threshold(),
-                    &FaultReleasePushButton::new_released("TEST"),
+                    &UpdateArguments::new(Ratio::new::<percent>(80.), true),
                 )
             });
 
@@ -500,8 +496,7 @@ mod tests {
             test_bed.run(&mut idg, |element, context| {
                 element.update(
                     context,
-                    &engine_above_threshold(),
-                    &FaultReleasePushButton::new_in("TEST"),
+                    &UpdateArguments::new(Ratio::new::<percent>(80.), false),
                 )
             });
 
@@ -510,8 +505,7 @@ mod tests {
             test_bed.run(&mut idg, |element, context| {
                 element.update(
                     context,
-                    &Engine::new(1),
-                    &FaultReleasePushButton::new_in("TEST"),
+                    &UpdateArguments::new(Ratio::new::<percent>(0.), false),
                 )
             });
 

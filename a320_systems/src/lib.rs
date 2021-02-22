@@ -6,7 +6,7 @@ mod power_consumption;
 mod test;
 
 use self::{fuel::A320Fuel, pneumatic::A320PneumaticOverheadPanel};
-use electrical::{A320Electrical, A320ElectricalOverheadPanel};
+use electrical::{A320Electrical, A320ElectricalOverheadPanel, A320ElectricalUpdateArguments};
 use hydraulic::A320Hydraulic;
 use power_consumption::A320PowerConsumption;
 use systems::{
@@ -36,7 +36,7 @@ pub struct A320 {
 impl A320 {
     pub fn new() -> A320 {
         A320 {
-            apu: AuxiliaryPowerUnitFactory::new_shutdown_aps3200(1),
+            apu: AuxiliaryPowerUnitFactory::new_aps3200(1),
             apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
             apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
             pneumatic_overhead: A320PneumaticOverheadPanel::new(),
@@ -76,12 +76,17 @@ impl Aircraft for A320 {
 
         self.electrical.update(
             context,
-            &self.engine_1,
-            &self.engine_2,
-            &self.apu,
             &self.ext_pwr,
-            &self.hydraulic,
             &self.electrical_overhead,
+            &A320ElectricalUpdateArguments::new(
+                [self.engine_1.corrected_n2(), self.engine_2.corrected_n2()],
+                [
+                    self.electrical_overhead.idg_1_push_button_released(),
+                    self.electrical_overhead.idg_2_push_button_released(),
+                ],
+                &self.apu,
+                self.hydraulic.is_blue_pressurised(),
+            ),
         );
         self.electrical_overhead.update_after_elec(&self.electrical);
     }

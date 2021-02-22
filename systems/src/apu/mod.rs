@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use self::{
     air_intake_flap::AirIntakeFlap, aps3200::ShutdownAps3200Turbine,
     electronic_control_box::ElectronicControlBox,
@@ -8,10 +6,10 @@ use crate::{
     electrical::{Potential, PotentialSource, ProvideFrequency, ProvidePotential},
     overhead::{FirePushButton, OnOffAvailablePushButton, OnOffFaultPushButton},
     pneumatic::{BleedAirValve, BleedAirValveState, Valve},
-    simulation::{
-        context_with, SimulationElement, SimulationElementVisitor, SimulatorWriter, UpdateContext,
-    },
+    simulation::{SimulationElement, SimulationElementVisitor, SimulatorWriter, UpdateContext},
 };
+#[cfg(test)]
+use std::time::Duration;
 use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
 
 mod air_intake_flap;
@@ -21,45 +19,11 @@ mod electronic_control_box;
 
 pub struct AuxiliaryPowerUnitFactory {}
 impl AuxiliaryPowerUnitFactory {
-    pub fn new_shutdown_aps3200(number: usize) -> AuxiliaryPowerUnit<Aps3200ApuGenerator> {
+    pub fn new_aps3200(number: usize) -> AuxiliaryPowerUnit<Aps3200ApuGenerator> {
         AuxiliaryPowerUnit::new(
             Box::new(ShutdownAps3200Turbine::new()),
             Aps3200ApuGenerator::new(number),
         )
-    }
-
-    pub fn new_running_aps3200(number: usize) -> AuxiliaryPowerUnit<Aps3200ApuGenerator> {
-        let mut apu = AuxiliaryPowerUnit::new(
-            Box::new(ShutdownAps3200Turbine::new()),
-            Aps3200ApuGenerator::new(number),
-        );
-
-        AuxiliaryPowerUnitFactory::start_running(&mut apu);
-
-        apu
-    }
-
-    fn start_running<T: ApuGenerator>(apu: &mut AuxiliaryPowerUnit<T>) {
-        loop {
-            AuxiliaryPowerUnitFactory::run(apu);
-            if apu.is_available() {
-                break;
-            }
-        }
-    }
-
-    fn run<T: ApuGenerator>(apu: &mut AuxiliaryPowerUnit<T>) {
-        let mut overhead = AuxiliaryPowerUnitOverheadPanel::new();
-        overhead.master.set_on(true);
-        overhead.start.set_on(true);
-        apu.update(
-            &context_with().delta(Duration::from_secs(100)).build(),
-            &overhead,
-            &AuxiliaryPowerUnitFireOverheadPanel::new(),
-            true,
-            true,
-            true,
-        );
     }
 }
 
@@ -432,7 +396,7 @@ pub mod tests {
     impl AuxiliaryPowerUnitTestAircraft {
         fn new() -> Self {
             Self {
-                apu: AuxiliaryPowerUnitFactory::new_shutdown_aps3200(1),
+                apu: AuxiliaryPowerUnitFactory::new_aps3200(1),
                 apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel::new(),
                 apu_overhead: AuxiliaryPowerUnitOverheadPanel::new(),
                 apu_bleed: OnOffFaultPushButton::new_on("APU_BLEED"),

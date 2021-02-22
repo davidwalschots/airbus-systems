@@ -1,15 +1,14 @@
-use crate::hydraulic::A320Hydraulic;
-
-use super::{A320ElectricalOverheadPanel, AlternatingCurrentState, DirectCurrentState};
+use super::{
+    A320ElectricalOverheadPanel, A320ElectricalUpdateArguments, AlternatingCurrentState,
+    DirectCurrentState,
+};
 use std::time::Duration;
 use systems::{
-    apu::{ApuGenerator, AuxiliaryPowerUnit},
     electrical::{
         combine_potential_sources, CombinedPotentialSource, Contactor, ElectricalBus,
         ElectricalBusType, EmergencyGenerator, EngineGenerator, ExternalPowerSource, Potential,
         PotentialSource, PotentialTarget, TransformerRectifier,
     },
-    engine::Engine,
     shared::DelayedTrueLogicGate,
     simulation::{SimulationElement, SimulationElementVisitor, UpdateContext},
 };
@@ -55,26 +54,22 @@ impl A320AlternatingCurrentElectrical {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn update<T: ApuGenerator>(
+    pub fn update<'a>(
         &mut self,
         context: &UpdateContext,
-        engine1: &Engine,
-        engine2: &Engine,
-        apu: &AuxiliaryPowerUnit<T>,
         ext_pwr: &ExternalPowerSource,
-        hydraulic: &A320Hydraulic,
         overhead: &A320ElectricalOverheadPanel,
+        arguments: &A320ElectricalUpdateArguments<'a>,
     ) {
         self.emergency_gen.update(
             // ON GROUND BAT ONLY SPEED <= 100 kts scenario. We'll probably need to move this logic into
             // the ram air turbine, emergency generator and hydraulic implementation.
-            hydraulic.is_blue_pressurised()
+            arguments.is_blue_hydraulic_circuit_pressurised()
                 && context.indicated_airspeed > Velocity::new::<knot>(100.),
         );
 
         self.main_power_sources
-            .update(context, engine1, engine2, apu, ext_pwr, overhead);
+            .update(context, ext_pwr, overhead, arguments);
 
         self.ac_bus_1
             .powered_by(&self.main_power_sources.ac_bus_1_electric_sources());
@@ -310,17 +305,15 @@ impl A320MainPowerSources {
         }
     }
 
-    fn update<T: ApuGenerator>(
+    fn update<'a>(
         &mut self,
         context: &UpdateContext,
-        engine1: &Engine,
-        engine2: &Engine,
-        apu: &AuxiliaryPowerUnit<T>,
         ext_pwr: &ExternalPowerSource,
         overhead: &A320ElectricalOverheadPanel,
+        arguments: &A320ElectricalUpdateArguments<'a>,
     ) {
-        self.engine_1_gen.update(context, engine1, &overhead.idg_1);
-        self.engine_2_gen.update(context, engine2, &overhead.idg_2);
+        self.engine_1_gen.update(context, arguments);
+        self.engine_2_gen.update(context, arguments);
 
         let gen_1_provides_power = overhead.generator_1_is_on() && self.engine_1_gen.is_powered();
         let gen_2_provides_power = overhead.generator_2_is_on() && self.engine_2_gen.is_powered();
@@ -332,7 +325,7 @@ impl A320MainPowerSources {
             && ext_pwr.is_powered()
             && !both_engine_gens_provide_power;
         let apu_gen_provides_power = overhead.apu_generator_is_on()
-            && apu.is_powered()
+            && arguments.apu().is_powered()
             && !ext_pwr_provides_power
             && !both_engine_gens_provide_power;
 
@@ -353,7 +346,7 @@ impl A320MainPowerSources {
                     || (apu_or_ext_pwr_provides_power && !gen_2_provides_power)),
         );
 
-        self.apu_gen_contactor.powered_by(apu);
+        self.apu_gen_contactor.powered_by(arguments.apu());
         self.ext_pwr_contactor.powered_by(ext_pwr);
 
         self.engine_1_gen_contactor.powered_by(&self.engine_1_gen);
