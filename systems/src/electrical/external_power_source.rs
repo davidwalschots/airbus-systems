@@ -7,7 +7,7 @@ use super::{
 
 pub struct ExternalPowerSource {
     writer: ElectricalStateWriter,
-    pub is_connected: bool,
+    is_connected: bool,
 }
 impl ExternalPowerSource {
     pub fn new() -> ExternalPowerSource {
@@ -75,7 +75,7 @@ impl Default for ExternalPowerSource {
 
 #[cfg(test)]
 mod external_power_source_tests {
-    use crate::simulation::test::TestReaderWriter;
+    use crate::simulation::test::SimulationTestBed;
 
     use super::*;
 
@@ -102,17 +102,15 @@ mod external_power_source_tests {
 
     #[test]
     fn writes_its_state() {
-        let external_power = external_power_source();
-        let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorWriter::new(&mut test_writer);
+        let mut external_power = external_power_source();
+        let mut test_bed = SimulationTestBed::new();
 
-        external_power.write(&mut writer);
+        test_bed.run_without_update(&mut external_power);
 
-        assert!(test_writer.len_is(4));
-        assert!(test_writer.contains_f64("ELEC_EXT_PWR_POTENTIAL", 0.));
-        assert!(test_writer.contains_bool("ELEC_EXT_PWR_POTENTIAL_NORMAL", false));
-        assert!(test_writer.contains_f64("ELEC_EXT_PWR_FREQUENCY", 0.));
-        assert!(test_writer.contains_bool("ELEC_EXT_PWR_FREQUENCY_NORMAL", false));
+        assert!(test_bed.contains_key("ELEC_EXT_PWR_POTENTIAL"));
+        assert!(test_bed.contains_key("ELEC_EXT_PWR_POTENTIAL_NORMAL"));
+        assert!(test_bed.contains_key("ELEC_EXT_PWR_FREQUENCY"));
+        assert!(test_bed.contains_key("ELEC_EXT_PWR_FREQUENCY_NORMAL"));
     }
 
     fn external_power_source() -> ExternalPowerSource {

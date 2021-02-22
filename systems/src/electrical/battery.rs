@@ -1,6 +1,6 @@
 use super::{
-    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumptionReport,
-    ProvideCurrent, ProvidePotential,
+    consumption::PowerConsumptionReport, ElectricalStateWriter, Potential, PotentialSource,
+    PotentialTarget, ProvideCurrent, ProvidePotential,
 };
 use crate::simulation::{SimulationElement, SimulatorWriter, UpdateContext};
 use uom::si::{
@@ -96,9 +96,8 @@ impl SimulationElement for Battery {
 
 #[cfg(test)]
 mod battery_tests {
-    use crate::simulation::test::TestReaderWriter;
-
     use super::*;
+    use crate::simulation::test::SimulationTestBed;
 
     struct Powerless {}
     impl PotentialSource for Powerless {
@@ -165,17 +164,14 @@ mod battery_tests {
 
     #[test]
     fn writes_its_state() {
-        let bus = full_battery();
-        let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorWriter::new(&mut test_writer);
+        let mut battery = full_battery();
+        let mut test_bed = SimulationTestBed::new();
+        test_bed.run_without_update(&mut battery);
 
-        bus.write(&mut writer);
-
-        assert!(test_writer.len_is(4));
-        assert!(test_writer.contains_f64("ELEC_BAT_1_CURRENT", 0.));
-        assert!(test_writer.contains_bool("ELEC_BAT_1_CURRENT_NORMAL", true));
-        assert!(test_writer.contains_f64("ELEC_BAT_1_POTENTIAL", 28.));
-        assert!(test_writer.contains_bool("ELEC_BAT_1_POTENTIAL_NORMAL", true));
+        assert!(test_bed.contains_key("ELEC_BAT_1_CURRENT"));
+        assert!(test_bed.contains_key("ELEC_BAT_1_CURRENT_NORMAL"));
+        assert!(test_bed.contains_key("ELEC_BAT_1_POTENTIAL"));
+        assert!(test_bed.contains_key("ELEC_BAT_1_POTENTIAL_NORMAL"));
     }
 
     fn full_battery() -> Battery {

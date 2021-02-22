@@ -3,6 +3,7 @@ mod fuel;
 mod hydraulic;
 mod pneumatic;
 mod power_consumption;
+mod test;
 
 use self::{fuel::A320Fuel, pneumatic::A320PneumaticOverheadPanel};
 use electrical::{A320Electrical, A320ElectricalOverheadPanel};
@@ -13,7 +14,7 @@ use systems::{
         Aps3200ApuGenerator, AuxiliaryPowerUnit, AuxiliaryPowerUnitFactory,
         AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
-    electrical::{ElectricPower, ExternalPowerSource},
+    electrical::{consumption::SuppliedPower, ElectricalSystem, ExternalPowerSource},
     engine::Engine,
     simulation::{Aircraft, SimulationElement, SimulationElementVisitor, UpdateContext},
 };
@@ -56,9 +57,7 @@ impl Default for A320 {
     }
 }
 impl Aircraft for A320 {
-    fn update(&mut self, context: &UpdateContext) {
-        self.fuel.update();
-
+    fn update_before_power_distribution(&mut self, context: &UpdateContext) {
         self.apu.update(
             context,
             &self.apu_overhead,
@@ -85,16 +84,15 @@ impl Aircraft for A320 {
             &self.electrical_overhead,
         );
         self.electrical_overhead.update_after_elec(&self.electrical);
+    }
 
-        let mut electric_power = ElectricPower::from(&self.electrical);
-        electric_power.supply_to(self);
-
-        // Update everything that needs to know if it is powered here.
+    fn update_after_power_distribution(&mut self, context: &UpdateContext) {
         self.hydraulic.update(context);
         self.power_consumption.update(context);
+    }
 
-        electric_power.consume_in(self);
-        electric_power.report_consumption_to(self, context);
+    fn get_supplied_power(&mut self) -> SuppliedPower {
+        self.electrical.get_supplied_power()
     }
 }
 impl SimulationElement for A320 {
@@ -110,6 +108,7 @@ impl SimulationElement for A320 {
         self.electrical.accept(visitor);
         self.power_consumption.accept(visitor);
         self.ext_pwr.accept(visitor);
+
         visitor.visit(self);
     }
 }

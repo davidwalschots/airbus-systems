@@ -9,7 +9,9 @@ use systems::simulation::{Simulation, SimulatorReaderWriter};
 
 #[msfs::gauge(name=systems)]
 async fn systems(mut gauge: msfs::Gauge) -> Result<(), Box<dyn std::error::Error>> {
-    let mut simulation = Simulation::new(A320::new(), A320SimulatorReaderWriter::new()?);
+    let mut reader_writer = A320SimulatorReaderWriter::new()?;
+    let mut a320 = A320::new();
+    let mut simulation = Simulation::new(&mut a320, &mut reader_writer);
 
     while let Some(event) = gauge.next_event().await {
         if let MSFSEvent::PreDraw(d) = event {

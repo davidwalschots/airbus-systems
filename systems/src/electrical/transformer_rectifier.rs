@@ -1,6 +1,7 @@
 use super::{
-    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumption,
-    PowerConsumptionReport, ProvideCurrent, ProvidePotential,
+    consumption::{PowerConsumption, PowerConsumptionReport},
+    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, ProvideCurrent,
+    ProvidePotential,
 };
 use crate::simulation::{SimulationElement, SimulatorWriter, UpdateContext};
 use uom::si::{electric_current::ampere, electric_potential::volt, f64::*};
@@ -94,7 +95,7 @@ impl SimulationElement for TransformerRectifier {
 
 #[cfg(test)]
 mod transformer_rectifier_tests {
-    use crate::simulation::test::TestReaderWriter;
+    use crate::simulation::test::SimulationTestBed;
 
     use super::*;
 
@@ -148,17 +149,15 @@ mod transformer_rectifier_tests {
 
     #[test]
     fn writes_its_state() {
-        let transformer_rectifier = transformer_rectifier();
-        let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorWriter::new(&mut test_writer);
+        let mut transformer_rectifier = transformer_rectifier();
+        let mut test_bed = SimulationTestBed::new();
 
-        transformer_rectifier.write(&mut writer);
+        test_bed.run_without_update(&mut transformer_rectifier);
 
-        assert!(test_writer.len_is(4));
-        assert!(test_writer.contains_f64("ELEC_TR_1_CURRENT", 0.));
-        assert!(test_writer.contains_bool("ELEC_TR_1_CURRENT_NORMAL", false));
-        assert!(test_writer.contains_f64("ELEC_TR_1_POTENTIAL", 0.));
-        assert!(test_writer.contains_bool("ELEC_TR_1_POTENTIAL_NORMAL", false));
+        assert!(test_bed.contains_key("ELEC_TR_1_CURRENT"));
+        assert!(test_bed.contains_key("ELEC_TR_1_CURRENT_NORMAL"));
+        assert!(test_bed.contains_key("ELEC_TR_1_POTENTIAL"));
+        assert!(test_bed.contains_key("ELEC_TR_1_POTENTIAL_NORMAL"));
     }
 
     fn transformer_rectifier() -> TransformerRectifier {

@@ -215,17 +215,6 @@ impl A320AlternatingCurrentElectrical {
     }
 
     #[cfg(test)]
-    pub fn both_ac_ess_feed_contactors_are_open(&self) -> bool {
-        self.ac_ess_feed_contactors
-            .ac_ess_feed_contactor_1
-            .is_open()
-            && self
-                .ac_ess_feed_contactors
-                .ac_ess_feed_contactor_2
-                .is_open()
-    }
-
-    #[cfg(test)]
     pub fn fail_tr_1(&mut self) {
         self.tr_1.fail();
     }

@@ -1,6 +1,6 @@
 use super::{
-    ElectricalStateWriter, Potential, PotentialSource, PowerConsumptionReport, ProvideFrequency,
-    ProvidePotential,
+    consumption::PowerConsumptionReport, ElectricalStateWriter, Potential, PotentialSource,
+    ProvideFrequency, ProvidePotential,
 };
 use crate::simulation::{SimulationElement, SimulatorWriter, UpdateContext};
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
@@ -92,7 +92,7 @@ impl Default for EmergencyGenerator {
 
 #[cfg(test)]
 mod emergency_generator_tests {
-    use crate::simulation::test::TestReaderWriter;
+    use crate::simulation::test::SimulationTestBed;
 
     use super::*;
 
@@ -121,17 +121,15 @@ mod emergency_generator_tests {
 
     #[test]
     fn writes_its_state() {
-        let bus = emergency_generator();
-        let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorWriter::new(&mut test_writer);
+        let mut emer_gen = emergency_generator();
+        let mut test_bed = SimulationTestBed::new();
 
-        bus.write(&mut writer);
+        test_bed.run_without_update(&mut emer_gen);
 
-        assert!(test_writer.len_is(4));
-        assert!(test_writer.contains_f64("ELEC_EMER_GEN_POTENTIAL", 0.));
-        assert!(test_writer.contains_bool("ELEC_EMER_GEN_POTENTIAL_NORMAL", false));
-        assert!(test_writer.contains_f64("ELEC_EMER_GEN_FREQUENCY", 0.));
-        assert!(test_writer.contains_bool("ELEC_EMER_GEN_FREQUENCY_NORMAL", false));
+        assert!(test_bed.contains_key("ELEC_EMER_GEN_POTENTIAL"));
+        assert!(test_bed.contains_key("ELEC_EMER_GEN_POTENTIAL_NORMAL"));
+        assert!(test_bed.contains_key("ELEC_EMER_GEN_FREQUENCY"));
+        assert!(test_bed.contains_key("ELEC_EMER_GEN_FREQUENCY_NORMAL"));
     }
 
     fn emergency_generator() -> EmergencyGenerator {

@@ -1,6 +1,7 @@
 use super::{
-    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, PowerConsumptionReport,
-    ProvideFrequency, ProvidePotential,
+    consumption::{PowerConsumption, PowerConsumptionReport},
+    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, ProvideFrequency,
+    ProvidePotential,
 };
 use crate::simulation::{SimulationElement, SimulatorWriter, UpdateContext};
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
@@ -60,7 +61,7 @@ impl SimulationElement for StaticInverter {
         self.writer.write_alternating(self, writer);
     }
 
-    fn consume_power_in_converters(&mut self, consumption: &mut super::PowerConsumption) {
+    fn consume_power_in_converters(&mut self, consumption: &mut PowerConsumption) {
         let ac_consumption = consumption.total_consumption_of(&self.output_potential());
 
         // Add the AC consumption to the STAT INVs input (DC) consumption.
@@ -93,9 +94,8 @@ impl Default for StaticInverter {
 
 #[cfg(test)]
 mod static_inverter_tests {
-    use crate::simulation::test::TestReaderWriter;
-
     use super::*;
+    use crate::simulation::test::SimulationTestBed;
 
     struct Powerless {}
     impl PotentialSource for Powerless {
@@ -119,7 +119,7 @@ mod static_inverter_tests {
     #[test]
     fn when_powered_has_output() {
         let mut static_inv = static_inverter();
-        static_inv.powered_by(&powered());
+        static_inv.powered_by(&Powered {});
 
         assert!(static_inv.is_powered());
     }
@@ -134,24 +134,18 @@ mod static_inverter_tests {
 
     #[test]
     fn writes_its_state() {
-        let static_inverter = static_inverter();
-        let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorWriter::new(&mut test_writer);
+        let mut static_inverter = static_inverter();
+        let mut test_bed = SimulationTestBed::new();
 
-        static_inverter.write(&mut writer);
+        test_bed.run_without_update(&mut static_inverter);
 
-        assert!(test_writer.len_is(4));
-        assert!(test_writer.contains_f64("ELEC_STAT_INV_POTENTIAL", 0.));
-        assert!(test_writer.contains_bool("ELEC_STAT_INV_POTENTIAL_NORMAL", false));
-        assert!(test_writer.contains_f64("ELEC_STAT_INV_FREQUENCY", 0.));
-        assert!(test_writer.contains_bool("ELEC_STAT_INV_FREQUENCY_NORMAL", false));
+        assert!(test_bed.contains_key("ELEC_STAT_INV_POTENTIAL"));
+        assert!(test_bed.contains_key("ELEC_STAT_INV_POTENTIAL_NORMAL"));
+        assert!(test_bed.contains_key("ELEC_STAT_INV_FREQUENCY"));
+        assert!(test_bed.contains_key("ELEC_STAT_INV_FREQUENCY_NORMAL"));
     }
 
     fn static_inverter() -> StaticInverter {
         StaticInverter::new()
-    }
-
-    fn powered() -> Powered {
-        Powered {}
     }
 }

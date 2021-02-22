@@ -1,7 +1,7 @@
 use super::{ApuGenerator, Turbine, TurbineController, TurbineState};
 use crate::{
     electrical::{
-        ElectricalStateWriter, Potential, PotentialSource, PowerConsumptionReport,
+        consumption::PowerConsumptionReport, ElectricalStateWriter, Potential, PotentialSource,
         ProvideFrequency, ProvideLoad, ProvidePotential,
     },
     shared::{calculate_towards_target_temperature, random_number},
@@ -513,8 +513,8 @@ mod apu_generator_tests {
     use uom::si::frequency::hertz;
 
     use crate::{
-        apu::tests::{tester, tester_with},
-        simulation::{context, test::TestReaderWriter},
+        apu::tests::{test_bed, test_bed_with},
+        simulation::test::SimulationTestBed,
     };
 
     use super::*;
@@ -527,8 +527,9 @@ mod apu_generator_tests {
     #[test]
     fn when_apu_running_provides_output() {
         let mut generator = apu_generator();
-        update_below_threshold(&mut generator);
-        update_above_threshold(&mut generator);
+        let mut test_bed = SimulationTestBed::new();
+        update_below_threshold(&mut test_bed, &mut generator);
+        update_above_threshold(&mut test_bed, &mut generator);
 
         assert!(generator.is_powered());
     }
@@ -536,22 +537,23 @@ mod apu_generator_tests {
     #[test]
     fn when_apu_shutdown_provides_no_output() {
         let mut generator = apu_generator();
-        update_above_threshold(&mut generator);
-        update_below_threshold(&mut generator);
+        let mut test_bed = SimulationTestBed::new();
+        update_above_threshold(&mut test_bed, &mut generator);
+        update_below_threshold(&mut test_bed, &mut generator);
 
         assert!(generator.is_unpowered());
     }
 
     #[test]
     fn from_n_84_provides_voltage() {
-        let mut tester = tester_with().starting_apu();
+        let mut test_bed = test_bed_with().starting_apu();
 
         loop {
-            tester = tester.run(Duration::from_millis(50));
+            test_bed = test_bed.run(Duration::from_millis(50));
 
-            let n = tester.n().get::<percent>();
+            let n = test_bed.n().get::<percent>();
             if n > 84. {
-                assert!(tester.potential().get::<volt>() > 0.);
+                assert!(test_bed.potential().get::<volt>() > 0.);
             }
 
             if (n - 100.).abs() < f64::EPSILON {
@@ -562,14 +564,14 @@ mod apu_generator_tests {
 
     #[test]
     fn from_n_84_has_frequency() {
-        let mut tester = tester_with().starting_apu();
+        let mut test_bed = test_bed_with().starting_apu();
 
         loop {
-            tester = tester.run(Duration::from_millis(50));
+            test_bed = test_bed.run(Duration::from_millis(50));
 
-            let n = tester.n().get::<percent>();
+            let n = test_bed.n().get::<percent>();
             if n > 84. {
-                assert!(tester.frequency().get::<hertz>() > 0.);
+                assert!(test_bed.frequency().get::<hertz>() > 0.);
             }
 
             if (n - 100.).abs() < f64::EPSILON {
@@ -580,93 +582,104 @@ mod apu_generator_tests {
 
     #[test]
     fn in_normal_conditions_when_n_100_voltage_114_or_115() {
-        let mut tester = tester_with().running_apu();
+        let mut test_bed = test_bed_with().running_apu();
 
         for _ in 0..100 {
-            tester = tester.run(Duration::from_millis(50));
+            test_bed = test_bed.run(Duration::from_millis(50));
 
-            let voltage = tester.potential().get::<volt>();
+            let voltage = test_bed.potential().get::<volt>();
             assert!((114.0..=115.0).contains(&voltage))
         }
     }
 
     #[test]
     fn in_normal_conditions_when_n_100_frequency_400() {
-        let mut tester = tester_with().running_apu();
+        let mut test_bed = test_bed_with().running_apu();
 
         for _ in 0..100 {
-            tester = tester.run(Duration::from_millis(50));
+            test_bed = test_bed.run(Duration::from_millis(50));
 
-            let frequency = tester.frequency().get::<hertz>();
+            let frequency = test_bed.frequency().get::<hertz>();
             assert_about_eq!(frequency, 400.);
         }
     }
 
     #[test]
     fn when_shutdown_frequency_not_normal() {
-        let tester = tester().run(Duration::from_secs(1_000));
+        let mut test_bed = test_bed().run(Duration::from_secs(1_000));
 
-        assert!(!tester.generator_frequency_within_normal_range());
+        assert!(!test_bed.generator_frequency_within_normal_range());
     }
 
     #[test]
     fn when_running_frequency_normal() {
-        let tester = tester_with().running_apu().run(Duration::from_secs(1_000));
+        let mut test_bed = test_bed_with()
+            .running_apu()
+            .run(Duration::from_secs(1_000));
 
-        assert!(tester.generator_frequency_within_normal_range());
+        assert!(test_bed.generator_frequency_within_normal_range());
     }
 
     #[test]
     fn when_shutdown_potential_not_normal() {
-        let tester = tester().run(Duration::from_secs(1_000));
+        let mut test_bed = test_bed().run(Duration::from_secs(1_000));
 
-        assert!(!tester.generator_potential_within_normal_range());
+        assert!(!test_bed.generator_potential_within_normal_range());
     }
 
     #[test]
     fn when_running_potential_normal() {
-        let tester = tester_with().running_apu().run(Duration::from_secs(1_000));
+        let mut test_bed = test_bed_with()
+            .running_apu()
+            .run(Duration::from_secs(1_000));
 
-        assert!(tester.generator_potential_within_normal_range());
+        assert!(test_bed.generator_potential_within_normal_range());
     }
 
     #[test]
     fn when_apu_emergency_shutdown_provides_no_output() {
-        let tester = tester_with()
+        let test_bed = test_bed_with()
             .running_apu()
             .and()
             .released_apu_fire_pb()
             .run(Duration::from_secs(1));
 
-        assert!(tester.generator_output_potential().is_unpowered());
+        assert!(test_bed.generator_output_potential().is_unpowered());
     }
 
     #[test]
     fn writes_its_state() {
-        let apu_gen = apu_generator();
-        let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorWriter::new(&mut test_writer);
+        let mut apu_gen = apu_generator();
+        let mut test_bed = SimulationTestBed::new();
+        test_bed.run_without_update(&mut apu_gen);
 
-        apu_gen.write(&mut writer);
-
-        assert!(test_writer.len_is(6));
-        assert!(test_writer.contains_f64("ELEC_APU_GEN_1_POTENTIAL", 0.));
-        assert!(test_writer.contains_bool("ELEC_APU_GEN_1_POTENTIAL_NORMAL", false));
-        assert!(test_writer.contains_f64("ELEC_APU_GEN_1_FREQUENCY", 0.));
-        assert!(test_writer.contains_bool("ELEC_APU_GEN_1_FREQUENCY_NORMAL", false));
-        assert!(test_writer.contains_f64("ELEC_APU_GEN_1_LOAD", 0.));
-        assert!(test_writer.contains_bool("ELEC_APU_GEN_1_LOAD_NORMAL", true));
+        assert!(test_bed.contains_key("ELEC_APU_GEN_1_POTENTIAL"));
+        assert!(test_bed.contains_key("ELEC_APU_GEN_1_POTENTIAL_NORMAL"));
+        assert!(test_bed.contains_key("ELEC_APU_GEN_1_FREQUENCY"));
+        assert!(test_bed.contains_key("ELEC_APU_GEN_1_FREQUENCY_NORMAL"));
+        assert!(test_bed.contains_key("ELEC_APU_GEN_1_LOAD"));
+        assert!(test_bed.contains_key("ELEC_APU_GEN_1_LOAD_NORMAL"));
     }
 
     fn apu_generator() -> Aps3200ApuGenerator {
         Aps3200ApuGenerator::new(1)
     }
 
-    fn update_above_threshold(generator: &mut Aps3200ApuGenerator) {
-        generator.update(&context(), Ratio::new::<percent>(100.), false);
+    fn update_above_threshold(
+        test_bed: &mut SimulationTestBed,
+        generator: &mut Aps3200ApuGenerator,
+    ) {
+        test_bed.run_before_power_distribution(generator, |gen, context| {
+            gen.update(context, Ratio::new::<percent>(100.), false);
+        });
     }
 
-    fn update_below_threshold(generator: &mut Aps3200ApuGenerator) {
-        generator.update(&context(), Ratio::new::<percent>(0.), false);
+    fn update_below_threshold(
+        test_bed: &mut SimulationTestBed,
+        generator: &mut Aps3200ApuGenerator,
+    ) {
+        test_bed.run_before_power_distribution(generator, |gen, context| {
+            gen.update(context, Ratio::new::<percent>(0.), false);
+        });
     }
 }

@@ -18,7 +18,7 @@
 
 use std::{collections::HashMap, time::Duration};
 
-use super::{ElectricalBus, ElectricalBusType, ElectricalSystem, Potential, PotentialSource};
+use super::{ElectricalBus, ElectricalBusType, Potential, PotentialSource};
 use crate::{
     shared::{random_number, FwcFlightPhase},
     simulation::{SimulationElement, SimulationElementVisitor, SimulatorReader, UpdateContext},
@@ -26,19 +26,19 @@ use crate::{
 use num_traits::FromPrimitive;
 use uom::si::{f64::*, power::watt};
 
-pub struct ElectricPower {
+pub(crate) struct ElectricPower {
     supplied_power: SuppliedPower,
     power_consumption: PowerConsumption,
 }
 impl ElectricPower {
-    pub fn from<T: ElectricalSystem>(electrical_system: &T) -> Self {
-        ElectricPower {
-            supplied_power: electrical_system.get_supplied_power(),
+    pub(crate) fn from(supplied_power: SuppliedPower) -> Self {
+        Self {
+            supplied_power: supplied_power,
             power_consumption: PowerConsumption::new(),
         }
     }
 
-    pub fn supply_to<T: SimulationElement>(&self, element: &mut T) {
+    pub fn distribute_to<T: SimulationElement>(&self, element: &mut T) {
         let mut visitor = ReceivePowerVisitor::new(&self.supplied_power);
         element.accept(&mut visitor);
     }
@@ -345,10 +345,6 @@ mod tests {
                 consumed_power: Power::new::<watt>(0.),
             }
         }
-
-        fn consumed_power(&self) -> Power {
-            self.consumed_power
-        }
     }
     impl PotentialSource for ApuStub {
         fn output_potential(&self) -> Potential {
@@ -488,99 +484,138 @@ mod tests {
     mod flight_phase_power_consumer_tests {
         use crate::{
             electrical::PotentialTarget,
-            simulation::{
-                context, test::TestReaderWriter, SimulatorReaderWriter,
-                SimulatorToSimulationVisitor,
-            },
+            simulation::{test::SimulationTestBed, Aircraft},
         };
 
         use super::*;
 
-        fn powered_bus(bus_type: ElectricalBusType) -> ElectricalBus {
-            let mut bus = ElectricalBus::new(bus_type);
-            bus.powered_by(&ApuStub::new());
+        struct FlightPhasePowerConsumerTestAircraft {
+            apu_generator_consumption: Option<Power>,
+            consumer: FlightPhasePowerConsumer,
+            powered: bool,
+        }
+        impl FlightPhasePowerConsumerTestAircraft {
+            fn new(consumer: FlightPhasePowerConsumer, powered: bool) -> Self {
+                Self {
+                    apu_generator_consumption: None,
+                    consumer,
+                    powered,
+                }
+            }
 
-            bus
+            fn consumption_equals(&self, expected: Power) -> bool {
+                match self.apu_generator_consumption {
+                    Some(consumption) => consumption == expected,
+                    None => false,
+                }
+            }
+
+            fn consumption_within_range(&self, min: Power, max: Power) -> bool {
+                match self.apu_generator_consumption {
+                    Some(consumption) => min <= consumption && consumption <= max,
+                    None => false,
+                }
+            }
+
+            fn powered_bus(bus_type: ElectricalBusType) -> ElectricalBus {
+                let mut bus = ElectricalBus::new(bus_type);
+                bus.powered_by(&ApuStub::new());
+
+                bus
+            }
+        }
+        impl Aircraft for FlightPhasePowerConsumerTestAircraft {
+            fn update_after_power_distribution(&mut self, context: &UpdateContext) {
+                self.consumer.update(context);
+            }
+
+            fn get_supplied_power(&mut self) -> SuppliedPower {
+                let mut supplied_power = SuppliedPower::new();
+
+                if self.powered {
+                    supplied_power.add(&FlightPhasePowerConsumerTestAircraft::powered_bus(
+                        ElectricalBusType::AlternatingCurrent(1),
+                    ));
+                }
+
+                supplied_power
+            }
+        }
+        impl SimulationElement for FlightPhasePowerConsumerTestAircraft {
+            fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
+                self.consumer.accept(visitor);
+
+                visitor.visit(self);
+            }
+
+            fn process_power_consumption_report<T: PowerConsumptionReport>(
+                &mut self,
+                report: &T,
+                _: &UpdateContext,
+            ) {
+                self.apu_generator_consumption =
+                    Some(report.total_consumption_of(&Potential::ApuGenerator(1)));
+            }
         }
 
-        fn powered_consumer() -> FlightPhasePowerConsumer {
-            let mut consumer =
-                FlightPhasePowerConsumer::from(ElectricalBusType::AlternatingCurrent(1));
-            let mut supplied_power = SuppliedPower::new();
-            supplied_power.add(&powered_bus(ElectricalBusType::AlternatingCurrent(1)));
-            consumer.accept(&mut ReceivePowerVisitor::new(&supplied_power));
-
-            consumer
-        }
-
-        fn apply_flight_phase(consumer: &mut FlightPhasePowerConsumer, phase: FwcFlightPhase) {
-            let mut test_reader_writer = TestReaderWriter::new();
-            test_reader_writer.write("A32NX_FWC_FLIGHT_PHASE", phase as i32 as f64);
-            let mut reader = SimulatorReader::new(&mut test_reader_writer);
-
-            consumer.accept(&mut SimulatorToSimulationVisitor::new(&mut reader))
-        }
-
-        fn consume_power(consumer: &mut FlightPhasePowerConsumer) -> PowerConsumption {
-            let mut power_consumption = PowerConsumption::new();
-            consumer.accept(&mut ConsumePowerVisitor::new(&mut power_consumption));
-
-            power_consumption
+        fn apply_flight_phase(test_bed: &mut SimulationTestBed, phase: FwcFlightPhase) {
+            test_bed.write_f64("A32NX_FWC_FLIGHT_PHASE", phase as i32 as f64);
         }
 
         #[test]
         fn when_flight_phase_doesnt_have_demand_usage_is_zero() {
-            let mut consumer = powered_consumer().demand([
-                (
-                    PowerConsumerFlightPhase::BeforeStart,
-                    Power::new::<watt>(0.),
-                ),
-                (PowerConsumerFlightPhase::AfterStart, Power::new::<watt>(0.)),
-                (PowerConsumerFlightPhase::Takeoff, Power::new::<watt>(0.)),
-                (PowerConsumerFlightPhase::Flight, Power::new::<watt>(0.)),
-                (PowerConsumerFlightPhase::Landing, Power::new::<watt>(0.)),
-                (PowerConsumerFlightPhase::TaxiIn, Power::new::<watt>(0.)),
-            ]);
-
-            apply_flight_phase(&mut consumer, FwcFlightPhase::FirstEngineStarted);
-            consumer.update(&context());
-            let power_consumption = consume_power(&mut consumer);
-
-            assert_eq!(
-                power_consumption.total_consumption_of(&Potential::ApuGenerator(1)),
-                Power::new::<watt>(0.)
+            let mut test_aircraft = FlightPhasePowerConsumerTestAircraft::new(
+                FlightPhasePowerConsumer::from(ElectricalBusType::AlternatingCurrent(1)).demand([
+                    (
+                        PowerConsumerFlightPhase::BeforeStart,
+                        Power::new::<watt>(0.),
+                    ),
+                    (PowerConsumerFlightPhase::AfterStart, Power::new::<watt>(0.)),
+                    (PowerConsumerFlightPhase::Takeoff, Power::new::<watt>(0.)),
+                    (PowerConsumerFlightPhase::Flight, Power::new::<watt>(0.)),
+                    (PowerConsumerFlightPhase::Landing, Power::new::<watt>(0.)),
+                    (PowerConsumerFlightPhase::TaxiIn, Power::new::<watt>(0.)),
+                ]),
+                true,
             );
+
+            let mut test_bed = SimulationTestBed::new();
+            apply_flight_phase(&mut test_bed, FwcFlightPhase::FirstEngineStarted);
+
+            test_bed.run_aircraft(&mut test_aircraft);
+
+            assert!(test_aircraft.consumption_equals(Power::new::<watt>(0.)));
         }
 
         #[test]
         fn when_flight_phase_does_have_demand_usage_is_close_to_demand() {
-            let input = 20000.;
-            let mut consumer = powered_consumer().demand([
-                (
-                    PowerConsumerFlightPhase::BeforeStart,
-                    Power::new::<watt>(0.),
-                ),
-                (PowerConsumerFlightPhase::AfterStart, Power::new::<watt>(0.)),
-                (PowerConsumerFlightPhase::Takeoff, Power::new::<watt>(0.)),
-                (PowerConsumerFlightPhase::Flight, Power::new::<watt>(input)),
-                (PowerConsumerFlightPhase::Landing, Power::new::<watt>(0.)),
-                (PowerConsumerFlightPhase::TaxiIn, Power::new::<watt>(0.)),
-            ]);
+            let input = Power::new::<watt>(20000.);
+            let mut test_aircraft = FlightPhasePowerConsumerTestAircraft::new(
+                FlightPhasePowerConsumer::from(ElectricalBusType::AlternatingCurrent(1)).demand([
+                    (
+                        PowerConsumerFlightPhase::BeforeStart,
+                        Power::new::<watt>(0.),
+                    ),
+                    (PowerConsumerFlightPhase::AfterStart, Power::new::<watt>(0.)),
+                    (PowerConsumerFlightPhase::Takeoff, Power::new::<watt>(0.)),
+                    (PowerConsumerFlightPhase::Flight, input),
+                    (PowerConsumerFlightPhase::Landing, Power::new::<watt>(0.)),
+                    (PowerConsumerFlightPhase::TaxiIn, Power::new::<watt>(0.)),
+                ]),
+                true,
+            );
 
-            apply_flight_phase(&mut consumer, FwcFlightPhase::AtOrAbove1500Feet);
-            consumer.update(&context());
-            let power_consumption = consume_power(&mut consumer);
+            let mut test_bed = SimulationTestBed::new();
+            apply_flight_phase(&mut test_bed, FwcFlightPhase::AtOrAbove1500Feet);
 
-            let consumption = power_consumption
-                .total_consumption_of(&Potential::ApuGenerator(1))
-                .get::<watt>();
-            assert!(consumption >= input * 0.9);
-            assert!(consumption <= input * 1.1);
+            test_bed.run_aircraft(&mut test_aircraft);
+
+            assert!(test_aircraft.consumption_within_range(input * 0.9, input * 1.1));
         }
 
         #[test]
         fn when_flight_phase_does_have_demand_but_consumer_unpowered_usage_is_zero() {
-            let mut consumer =
+            let mut test_aircraft = FlightPhasePowerConsumerTestAircraft::new(
                 FlightPhasePowerConsumer::from(ElectricalBusType::AlternatingCurrent(1)).demand([
                     (
                         PowerConsumerFlightPhase::BeforeStart,
@@ -600,16 +635,16 @@ mod tests {
                         Power::new::<watt>(20000.),
                     ),
                     (PowerConsumerFlightPhase::TaxiIn, Power::new::<watt>(20000.)),
-                ]);
-
-            apply_flight_phase(&mut consumer, FwcFlightPhase::FirstEngineStarted);
-            consumer.update(&context());
-            let power_consumption = consume_power(&mut consumer);
-
-            assert_eq!(
-                power_consumption.total_consumption_of(&Potential::ApuGenerator(1)),
-                Power::new::<watt>(0.)
+                ]),
+                false,
             );
+
+            let mut test_bed = SimulationTestBed::new();
+            apply_flight_phase(&mut test_bed, FwcFlightPhase::FirstEngineStarted);
+
+            test_bed.run_aircraft(&mut test_aircraft);
+
+            assert!(test_aircraft.consumption_equals(Power::new::<watt>(0.)));
         }
     }
 
@@ -658,95 +693,6 @@ mod tests {
                 consumption.total_consumption_of(&Potential::ApuGenerator(1)),
                 expected
             );
-        }
-    }
-
-    #[cfg(test)]
-    mod power_consumption_handler_tests {
-        use super::*;
-        use crate::electrical::{ElectricalSystem, PotentialTarget};
-        use crate::simulation::context;
-
-        struct AircraftStub {
-            door: PowerConsumerStub,
-            light: PowerConsumerStub,
-            screen: PowerConsumerStub,
-            apu: ApuStub,
-        }
-        impl AircraftStub {
-            fn new() -> Self {
-                AircraftStub {
-                    door: PowerConsumerStub::new(
-                        PowerConsumer::from(ElectricalBusType::AlternatingCurrent(2)),
-                        Power::new::<watt>(500.),
-                    ),
-                    light: PowerConsumerStub::new(
-                        PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1)),
-                        Power::new::<watt>(1000.),
-                    ),
-                    screen: PowerConsumerStub::new(
-                        PowerConsumer::from(ElectricalBusType::AlternatingCurrent(2)),
-                        Power::new::<watt>(100.),
-                    ),
-                    apu: ApuStub::new(),
-                }
-            }
-
-            fn apu_consumed_power(&self) -> Power {
-                self.apu.consumed_power()
-            }
-        }
-        impl SimulationElement for AircraftStub {
-            fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
-                self.door.accept(visitor);
-                self.light.accept(visitor);
-                self.screen.accept(visitor);
-                self.apu.accept(visitor);
-                visitor.visit(self);
-            }
-        }
-        impl ElectricalSystem for AircraftStub {
-            fn get_supplied_power(&self) -> SuppliedPower {
-                let mut supply = SuppliedPower::new();
-
-                let mut powered = ElectricalBus::new(ElectricalBusType::AlternatingCurrent(2));
-                powered.powered_by(&ApuStub::new());
-
-                supply.add(&powered);
-                supply.add(&ElectricalBus::new(ElectricalBusType::AlternatingCurrent(
-                    1,
-                )));
-
-                supply
-            }
-        }
-
-        struct PowerConsumerStub {
-            power_consumption: PowerConsumer,
-        }
-        impl PowerConsumerStub {
-            fn new(mut power_consumption: PowerConsumer, power: Power) -> Self {
-                power_consumption.demand(power);
-                PowerConsumerStub { power_consumption }
-            }
-        }
-        impl SimulationElement for PowerConsumerStub {
-            fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
-                self.power_consumption.accept(visitor);
-                visitor.visit(self);
-            }
-        }
-
-        #[test]
-        fn reported_consumption_is_correct() {
-            let mut aircraft = AircraftStub::new();
-            let mut electric_power = ElectricPower::from(&aircraft);
-
-            electric_power.supply_to(&mut aircraft);
-            electric_power.consume_in(&mut aircraft);
-            electric_power.report_consumption_to(&mut aircraft, &context());
-
-            assert_eq!(aircraft.apu_consumed_power(), Power::new::<watt>(600.));
         }
     }
 }

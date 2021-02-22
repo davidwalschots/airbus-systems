@@ -237,11 +237,6 @@ impl A320DirectCurrentElectrical {
     }
 
     #[cfg(test)]
-    pub fn dc_bus_2_tie_contactor_is_open(&self) -> bool {
-        self.dc_bus_2_tie_contactor.is_open()
-    }
-
-    #[cfg(test)]
     pub fn battery_1_input_potential(&self) -> Potential {
         self.battery_1.input_potential()
     }

@@ -5,7 +5,9 @@ pub use update_context::*;
 
 pub mod test;
 
-use crate::electrical::{PowerConsumption, PowerConsumptionReport, SuppliedPower};
+use crate::electrical::consumption::{
+    ElectricPower, PowerConsumption, PowerConsumptionReport, SuppliedPower,
+};
 
 /// Trait for a type which can read and write simulator data.
 /// Using this trait implementors can abstract away the way the code
@@ -23,7 +25,11 @@ pub trait SimulatorReaderWriter {
 /// [`Aircraft`]: trait.Aircraft.html
 /// [`Simulation`]: struct.Simulation.html
 pub trait Aircraft: SimulationElement {
-    fn update(&mut self, context: &UpdateContext);
+    fn update_before_power_distribution(&mut self, _context: &UpdateContext) {}
+    fn update_after_power_distribution(&mut self, _context: &UpdateContext) {}
+    fn get_supplied_power(&mut self) -> SuppliedPower {
+        SuppliedPower::new()
+    }
 }
 
 /// The [`Simulation`] runs across many different [`SimulationElement`]s.
@@ -124,7 +130,9 @@ pub trait SimulationElement {
         &mut self,
         _report: &T,
         _context: &UpdateContext,
-    ) {
+    ) where
+        Self: Sized,
+    {
     }
 }
 
@@ -164,6 +172,7 @@ pub trait SimulationElementVisitor {
 /// ```rust
 /// # use std::time::Duration;
 /// # use systems::simulation::{Aircraft, SimulationElement, SimulatorReaderWriter, Simulation, UpdateContext};
+/// # use systems::electrical::consumption::SuppliedPower;
 /// # struct MyAircraft {}
 /// # impl MyAircraft {
 /// #     fn new() -> Self {
@@ -171,7 +180,9 @@ pub trait SimulationElementVisitor {
 /// #     }
 /// # }
 /// # impl Aircraft for MyAircraft {
-/// #     fn update(&mut self, context: &UpdateContext) {}
+/// #     fn update_before_power_distribution(&mut self, context: &UpdateContext) {}
+/// #     fn update_after_power_distribution(&mut self, context: &UpdateContext) {}
+/// #     fn get_supplied_power(&mut self) -> SuppliedPower { SuppliedPower::new() }
 /// # }
 /// # impl SimulationElement for MyAircraft {}
 /// #
@@ -186,17 +197,19 @@ pub trait SimulationElementVisitor {
 /// #     fn write(&mut self, name: &str, value: f64) { }
 /// # }
 /// // Create the Simulation only once.
-/// let mut simulation = Simulation::new(MyAircraft::new(), MySimulatorReaderWriter::new());
+/// let mut aircraft = MyAircraft::new();
+/// let mut reader_writer = MySimulatorReaderWriter::new();
+/// let mut simulation = Simulation::new(&mut aircraft, &mut reader_writer);
 /// // For each frame, call the tick function.
 /// simulation.tick(Duration::from_millis(50));
 /// ```
 /// [`tick`]: #method.tick
-pub struct Simulation<T: Aircraft, U: SimulatorReaderWriter> {
-    aircraft: T,
-    simulator_read_writer: U,
+pub struct Simulation<'a, T: Aircraft, U: SimulatorReaderWriter> {
+    aircraft: &'a mut T,
+    simulator_read_writer: &'a mut U,
 }
-impl<T: Aircraft, U: SimulatorReaderWriter> Simulation<T, U> {
-    pub fn new(aircraft: T, simulator_read_writer: U) -> Self {
+impl<'a, T: Aircraft, U: SimulatorReaderWriter> Simulation<'a, T, U> {
+    pub fn new(aircraft: &'a mut T, simulator_read_writer: &'a mut U) -> Self {
         Simulation {
             aircraft,
             simulator_read_writer,
@@ -206,15 +219,23 @@ impl<T: Aircraft, U: SimulatorReaderWriter> Simulation<T, U> {
     /// Execute a single run of the simulation using the specified `delta` duration
     /// as the amount of time that has passed since the previous run.
     pub fn tick(&mut self, delta: Duration) {
-        let mut reader = SimulatorReader::new(&mut self.simulator_read_writer);
+        let mut reader = SimulatorReader::new(self.simulator_read_writer);
         let context = UpdateContext::from_reader(&mut reader, delta);
 
         let mut visitor = SimulatorToSimulationVisitor::new(&mut reader);
         self.aircraft.accept(&mut visitor);
 
-        self.aircraft.update(&context);
+        self.aircraft.update_before_power_distribution(&context);
 
-        let mut writer = SimulatorWriter::new(&mut self.simulator_read_writer);
+        let mut electric_power = ElectricPower::from(self.aircraft.get_supplied_power());
+        electric_power.distribute_to(self.aircraft);
+
+        self.aircraft.update_after_power_distribution(&context);
+
+        electric_power.consume_in(self.aircraft);
+        electric_power.report_consumption_to(self.aircraft, &context);
+
+        let mut writer = SimulatorWriter::new(self.simulator_read_writer);
         let mut visitor = SimulationToSimulatorVisitor::new(&mut writer);
         self.aircraft.accept(&mut visitor);
     }

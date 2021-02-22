@@ -1,10 +1,10 @@
 //! Provides things one needs for the electrical system of an aircraft.
 
 mod battery;
+pub mod consumption;
 mod emergency_generator;
 mod engine_generator;
 mod external_power_source;
-mod power_consumption;
 mod static_inverter;
 mod transformer_rectifier;
 use std::fmt::Display;
@@ -13,10 +13,6 @@ pub use battery::Battery;
 pub use emergency_generator::EmergencyGenerator;
 pub use engine_generator::EngineGenerator;
 pub use external_power_source::ExternalPowerSource;
-pub use power_consumption::{
-    ElectricPower, FlightPhasePowerConsumer, PowerConsumer, PowerConsumerFlightPhase,
-    PowerConsumption, PowerConsumptionReport, SuppliedPower,
-};
 pub use static_inverter::StaticInverter;
 pub use transformer_rectifier::TransformerRectifier;
 
@@ -24,6 +20,8 @@ use crate::simulation::{SimulationElement, SimulatorWriter};
 use uom::si::{
     electric_current::ampere, electric_potential::volt, f64::*, frequency::hertz, ratio::percent,
 };
+
+use self::consumption::SuppliedPower;
 
 pub trait ElectricalSystem {
     fn get_supplied_power(&self) -> SuppliedPower;
@@ -357,48 +355,48 @@ impl ElectricalStateWriter {
     pub fn write_direct<T: ProvideCurrent + ProvidePotential>(
         &self,
         source: &T,
-        state: &mut SimulatorWriter,
+        writer: &mut SimulatorWriter,
     ) {
-        self.write_current(source, state);
-        self.write_potential(source, state);
+        self.write_current(source, writer);
+        self.write_potential(source, writer);
     }
 
     pub fn write_alternating<T: ProvidePotential + ProvideFrequency>(
         &self,
         source: &T,
-        state: &mut SimulatorWriter,
+        writer: &mut SimulatorWriter,
     ) {
-        self.write_potential(source, state);
-        self.write_frequency(source, state);
+        self.write_potential(source, writer);
+        self.write_frequency(source, writer);
     }
 
     pub fn write_alternating_with_load<T: ProvidePotential + ProvideFrequency + ProvideLoad>(
         &self,
         source: &T,
-        state: &mut SimulatorWriter,
+        writer: &mut SimulatorWriter,
     ) {
-        self.write_alternating(source, state);
-        self.write_load(source, state);
+        self.write_alternating(source, writer);
+        self.write_load(source, writer);
     }
 
-    fn write_current<T: ProvideCurrent>(&self, source: &T, state: &mut SimulatorWriter) {
-        state.write_f64(&self.current_id, source.current().get::<ampere>());
-        state.write_bool(&self.current_normal_id, source.current_normal());
+    fn write_current<T: ProvideCurrent>(&self, source: &T, writer: &mut SimulatorWriter) {
+        writer.write_f64(&self.current_id, source.current().get::<ampere>());
+        writer.write_bool(&self.current_normal_id, source.current_normal());
     }
 
-    fn write_potential<T: ProvidePotential>(&self, source: &T, state: &mut SimulatorWriter) {
-        state.write_f64(&self.potential_id, source.potential().get::<volt>());
-        state.write_bool(&self.potential_normal_id, source.potential_normal());
+    fn write_potential<T: ProvidePotential>(&self, source: &T, writer: &mut SimulatorWriter) {
+        writer.write_f64(&self.potential_id, source.potential().get::<volt>());
+        writer.write_bool(&self.potential_normal_id, source.potential_normal());
     }
 
-    fn write_frequency<T: ProvideFrequency>(&self, source: &T, state: &mut SimulatorWriter) {
-        state.write_f64(&self.frequency_id, source.frequency().get::<hertz>());
-        state.write_bool(&self.frequency_normal_id, source.frequency_normal());
+    fn write_frequency<T: ProvideFrequency>(&self, source: &T, writer: &mut SimulatorWriter) {
+        writer.write_f64(&self.frequency_id, source.frequency().get::<hertz>());
+        writer.write_bool(&self.frequency_normal_id, source.frequency_normal());
     }
 
-    fn write_load<T: ProvideLoad>(&self, source: &T, state: &mut SimulatorWriter) {
-        state.write_f64(&self.load_id, source.load().get::<percent>());
-        state.write_bool(&self.load_normal_id, source.load_normal());
+    fn write_load<T: ProvideLoad>(&self, source: &T, writer: &mut SimulatorWriter) {
+        writer.write_f64(&self.load_id, source.load().get::<percent>());
+        writer.write_bool(&self.load_normal_id, source.load_normal());
     }
 }
 
@@ -553,20 +551,16 @@ mod tests {
 
     #[cfg(test)]
     mod electrical_bus_tests {
-        use crate::simulation::test::TestReaderWriter;
-
         use super::*;
+        use crate::simulation::test::SimulationTestBed;
 
         #[test]
         fn writes_its_state() {
-            let bus = electrical_bus();
-            let mut test_writer = TestReaderWriter::new();
-            let mut writer = SimulatorWriter::new(&mut test_writer);
+            let mut bus = electrical_bus();
+            let mut bed = SimulationTestBed::new();
+            bed.run_without_update(&mut bus);
 
-            bus.write(&mut writer);
-
-            assert!(test_writer.len_is(1));
-            assert!(test_writer.contains_bool("ELEC_AC_2_BUS_IS_POWERED", false));
+            assert!(bed.contains_bool("ELEC_AC_2_BUS_IS_POWERED", false));
         }
 
         struct BatteryStub {
@@ -654,7 +648,7 @@ mod tests {
 
     #[cfg(test)]
     mod contactor_tests {
-        use crate::simulation::test::TestReaderWriter;
+        use crate::simulation::test::SimulationTestBed;
 
         use super::*;
 
@@ -747,14 +741,11 @@ mod tests {
 
         #[test]
         fn writes_its_state() {
-            let contactor = contactor();
-            let mut test_writer = TestReaderWriter::new();
-            let mut writer = SimulatorWriter::new(&mut test_writer);
+            let mut contactor = contactor();
+            let mut bed = SimulationTestBed::new();
+            bed.run_without_update(&mut contactor);
 
-            contactor.write(&mut writer);
-
-            assert!(test_writer.len_is(1));
-            assert!(test_writer.contains_bool("ELEC_CONTACTOR_TEST_IS_CLOSED", false));
+            assert!(bed.contains_bool("ELEC_CONTACTOR_TEST_IS_CLOSED", false));
         }
 
         fn contactor() -> Contactor {
@@ -778,55 +769,85 @@ mod tests {
 
     #[cfg(test)]
     mod current_state_writer_tests {
-        use crate::simulation::test::TestReaderWriter;
-
         use super::*;
+        use crate::simulation::{test::SimulationTestBed, Aircraft};
+
+        enum WriteType {
+            DirectCurrent,
+            AlternatingCurrent,
+            AlternatingCurrentWithLoad,
+        }
+
+        struct CurrentStateWriterTestAircraft {
+            write_type: WriteType,
+            writer: ElectricalStateWriter,
+        }
+        impl CurrentStateWriterTestAircraft {
+            fn new(write_type: WriteType) -> Self {
+                Self {
+                    write_type,
+                    writer: ElectricalStateWriter::new("TEST"),
+                }
+            }
+        }
+        impl Aircraft for CurrentStateWriterTestAircraft {}
+        impl SimulationElement for CurrentStateWriterTestAircraft {
+            fn write(&self, writer: &mut SimulatorWriter) {
+                match self.write_type {
+                    WriteType::DirectCurrent => {
+                        self.writer.write_direct(&StubElectricSource {}, writer)
+                    }
+                    WriteType::AlternatingCurrent => self
+                        .writer
+                        .write_alternating(&StubElectricSource {}, writer),
+                    WriteType::AlternatingCurrentWithLoad => self
+                        .writer
+                        .write_alternating_with_load(&StubElectricSource {}, writer),
+                }
+            }
+        }
 
         #[test]
         fn writes_direct_current_state() {
-            let writer = ElectricalStateWriter::new("BAT_2");
-            let mut test_writer = TestReaderWriter::new();
-            let mut element_writer = SimulatorWriter::new(&mut test_writer);
+            let mut test_aircraft = CurrentStateWriterTestAircraft::new(WriteType::DirectCurrent);
+            let mut test_bed = SimulationTestBed::new();
 
-            writer.write_direct(&StubElectricSource {}, &mut element_writer);
+            test_bed.run_aircraft(&mut test_aircraft);
 
-            assert!(test_writer.len_is(4));
-            assert!(test_writer.contains_f64("ELEC_BAT_2_CURRENT", 150.));
-            assert!(test_writer.contains_bool("ELEC_BAT_2_CURRENT_NORMAL", true));
-            assert!(test_writer.contains_f64("ELEC_BAT_2_POTENTIAL", 28.));
-            assert!(test_writer.contains_bool("ELEC_BAT_2_POTENTIAL_NORMAL", true));
+            assert!(test_bed.contains_key("ELEC_TEST_CURRENT"));
+            assert!(test_bed.contains_key("ELEC_TEST_CURRENT_NORMAL"));
+            assert!(test_bed.contains_key("ELEC_TEST_POTENTIAL"));
+            assert!(test_bed.contains_key("ELEC_TEST_POTENTIAL_NORMAL"));
         }
 
         #[test]
         fn writes_alternating_current_state() {
-            let writer = ElectricalStateWriter::new("APU_GEN");
-            let mut test_writer = TestReaderWriter::new();
-            let mut element_writer = SimulatorWriter::new(&mut test_writer);
+            let mut test_aircraft =
+                CurrentStateWriterTestAircraft::new(WriteType::AlternatingCurrent);
+            let mut test_bed = SimulationTestBed::new();
 
-            writer.write_alternating(&StubElectricSource {}, &mut element_writer);
+            test_bed.run_aircraft(&mut test_aircraft);
 
-            assert!(test_writer.len_is(4));
-            assert!(test_writer.contains_f64("ELEC_APU_GEN_POTENTIAL", 28.));
-            assert!(test_writer.contains_bool("ELEC_APU_GEN_POTENTIAL_NORMAL", true));
-            assert!(test_writer.contains_f64("ELEC_APU_GEN_FREQUENCY", 400.));
-            assert!(test_writer.contains_bool("ELEC_APU_GEN_FREQUENCY_NORMAL", true));
+            assert!(test_bed.contains_key("ELEC_TEST_POTENTIAL"));
+            assert!(test_bed.contains_key("ELEC_TEST_POTENTIAL_NORMAL"));
+            assert!(test_bed.contains_key("ELEC_TEST_FREQUENCY"));
+            assert!(test_bed.contains_key("ELEC_TEST_FREQUENCY_NORMAL"));
         }
 
         #[test]
         fn writes_alternating_current_with_load_state() {
-            let writer = ElectricalStateWriter::new("APU_GEN");
-            let mut test_writer = TestReaderWriter::new();
-            let mut element_writer = SimulatorWriter::new(&mut test_writer);
+            let mut test_aircraft =
+                CurrentStateWriterTestAircraft::new(WriteType::AlternatingCurrentWithLoad);
+            let mut test_bed = SimulationTestBed::new();
 
-            writer.write_alternating_with_load(&StubElectricSource {}, &mut element_writer);
+            test_bed.run_aircraft(&mut test_aircraft);
 
-            assert!(test_writer.len_is(6));
-            assert!(test_writer.contains_f64("ELEC_APU_GEN_POTENTIAL", 28.));
-            assert!(test_writer.contains_bool("ELEC_APU_GEN_POTENTIAL_NORMAL", true));
-            assert!(test_writer.contains_f64("ELEC_APU_GEN_FREQUENCY", 400.));
-            assert!(test_writer.contains_bool("ELEC_APU_GEN_FREQUENCY_NORMAL", true));
-            assert!(test_writer.contains_f64("ELEC_APU_GEN_LOAD", 50.));
-            assert!(test_writer.contains_bool("ELEC_APU_GEN_LOAD_NORMAL", true));
+            assert!(test_bed.contains_key("ELEC_TEST_POTENTIAL"));
+            assert!(test_bed.contains_key("ELEC_TEST_POTENTIAL_NORMAL"));
+            assert!(test_bed.contains_key("ELEC_TEST_FREQUENCY"));
+            assert!(test_bed.contains_key("ELEC_TEST_FREQUENCY_NORMAL"));
+            assert!(test_bed.contains_key("ELEC_TEST_LOAD"));
+            assert!(test_bed.contains_key("ELEC_TEST_LOAD_NORMAL"));
         }
     }
 }

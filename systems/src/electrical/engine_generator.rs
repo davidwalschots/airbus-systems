@@ -1,6 +1,6 @@
 use super::{
-    ElectricalStateWriter, Potential, PotentialSource, PowerConsumptionReport, ProvideFrequency,
-    ProvideLoad, ProvidePotential,
+    consumption::PowerConsumptionReport, ElectricalStateWriter, Potential, PotentialSource,
+    ProvideFrequency, ProvideLoad, ProvidePotential,
 };
 use crate::{
     engine::Engine,
@@ -258,10 +258,7 @@ fn clamp<T: PartialOrd>(value: T, min: T, max: T) -> T {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        engine::Engine,
-        simulation::{test::TestReaderWriter, SimulatorReader, SimulatorReaderWriter},
-    };
+    use crate::{engine::Engine, simulation::test::SimulationTestBed};
 
     fn engine_above_threshold() -> Engine {
         engine(Ratio::new::<percent>(
@@ -277,9 +274,10 @@ mod tests {
 
     fn engine(n2: Ratio) -> Engine {
         let mut engine = Engine::new(1);
-        let mut test_reader_writer = TestReaderWriter::new();
-        test_reader_writer.write("TURB ENG CORRECTED N2:1", n2.get::<percent>());
-        engine.read(&mut SimulatorReader::new(&mut test_reader_writer));
+        let mut test_bed = SimulationTestBed::new();
+        test_bed.write_f64("TURB ENG CORRECTED N2:1", n2.get::<percent>());
+
+        test_bed.run_without_update(&mut engine);
 
         engine
     }
@@ -287,8 +285,7 @@ mod tests {
     #[cfg(test)]
     mod engine_generator_tests {
         use super::*;
-        use crate::simulation::{context_with, test::TestReaderWriter};
-        use std::time::Duration;
+        use crate::simulation::test::SimulationTestBed;
 
         #[test]
         fn starts_without_output() {
@@ -298,8 +295,10 @@ mod tests {
         #[test]
         fn when_engine_n2_above_threshold_provides_output() {
             let mut generator = engine_generator();
-            update_below_threshold(&mut generator);
-            update_above_threshold(&mut generator);
+            let mut test_bed = SimulationTestBed::new();
+
+            update_below_threshold(&mut test_bed, &mut generator);
+            update_above_threshold(&mut test_bed, &mut generator);
 
             assert!(generator.is_powered());
         }
@@ -307,8 +306,10 @@ mod tests {
         #[test]
         fn when_engine_n2_below_threshold_provides_no_output() {
             let mut generator = engine_generator();
-            update_above_threshold(&mut generator);
-            update_below_threshold(&mut generator);
+            let mut test_bed = SimulationTestBed::new();
+
+            update_above_threshold(&mut test_bed, &mut generator);
+            update_below_threshold(&mut test_bed, &mut generator);
 
             assert!(generator.is_unpowered());
         }
@@ -316,56 +317,68 @@ mod tests {
         #[test]
         fn when_idg_disconnected_provides_no_output() {
             let mut generator = engine_generator();
-            generator.update(
-                &context_with().delta(Duration::from_secs(0)).build(),
-                &engine_above_threshold(),
-                &FaultReleasePushButton::new_released("TEST"),
-            );
+            let mut test_bed = SimulationTestBed::new();
+
+            test_bed.run(&mut generator, |gen, context| {
+                gen.update(
+                    context,
+                    &engine_above_threshold(),
+                    &FaultReleasePushButton::new_released("TEST"),
+                )
+            });
 
             assert!(generator.is_unpowered());
         }
 
         #[test]
         fn writes_its_state() {
-            let engine_gen = engine_generator();
-            let mut test_writer = TestReaderWriter::new();
-            let mut writer = SimulatorWriter::new(&mut test_writer);
+            let mut engine_gen = engine_generator();
+            let mut test_bed = SimulationTestBed::new();
 
-            engine_gen.write(&mut writer);
+            test_bed.run_without_update(&mut engine_gen);
 
-            assert!(test_writer.len_is(6));
-            assert!(test_writer.contains_f64("ELEC_ENG_GEN_1_POTENTIAL", 0.));
-            assert!(test_writer.contains_bool("ELEC_ENG_GEN_1_POTENTIAL_NORMAL", false));
-            assert!(test_writer.contains_f64("ELEC_ENG_GEN_1_FREQUENCY", 0.));
-            assert!(test_writer.contains_bool("ELEC_ENG_GEN_1_FREQUENCY_NORMAL", false));
-            assert!(test_writer.contains_f64("ELEC_ENG_GEN_1_LOAD", 0.));
-            assert!(test_writer.contains_bool("ELEC_ENG_GEN_1_LOAD_NORMAL", true));
+            assert!(test_bed.contains_key("ELEC_ENG_GEN_1_POTENTIAL"));
+            assert!(test_bed.contains_key("ELEC_ENG_GEN_1_POTENTIAL_NORMAL"));
+            assert!(test_bed.contains_key("ELEC_ENG_GEN_1_FREQUENCY"));
+            assert!(test_bed.contains_key("ELEC_ENG_GEN_1_FREQUENCY_NORMAL"));
+            assert!(test_bed.contains_key("ELEC_ENG_GEN_1_LOAD"));
+            assert!(test_bed.contains_key("ELEC_ENG_GEN_1_LOAD_NORMAL"));
         }
 
         fn engine_generator() -> EngineGenerator {
             EngineGenerator::new(1)
         }
 
-        fn update_above_threshold(generator: &mut EngineGenerator) {
-            generator.update(
-                &context_with().delta(Duration::from_secs(1)).build(),
-                &engine_above_threshold(),
-                &FaultReleasePushButton::new_in("TEST"),
-            );
+        fn update_above_threshold(
+            test_bed: &mut SimulationTestBed,
+            generator: &mut EngineGenerator,
+        ) {
+            test_bed.run(generator, |gen, context| {
+                gen.update(
+                    context,
+                    &engine_above_threshold(),
+                    &FaultReleasePushButton::new_in("TEST"),
+                )
+            });
         }
 
-        fn update_below_threshold(generator: &mut EngineGenerator) {
-            generator.update(
-                &context_with().delta(Duration::from_secs(1)).build(),
-                &engine_below_threshold(),
-                &FaultReleasePushButton::new_in("TEST"),
-            );
+        fn update_below_threshold(
+            test_bed: &mut SimulationTestBed,
+            generator: &mut EngineGenerator,
+        ) {
+            test_bed.run(generator, |gen, context| {
+                gen.update(
+                    context,
+                    &engine_below_threshold(),
+                    &FaultReleasePushButton::new_in("TEST"),
+                )
+            });
         }
     }
 
     #[cfg(test)]
     mod integrated_drive_generator_tests {
-        use crate::simulation::{context_with, test::TestReaderWriter};
+        use crate::simulation::test::SimulationTestBed;
 
         use super::*;
         use std::time::Duration;
@@ -376,15 +389,13 @@ mod tests {
 
         #[test]
         fn writes_its_state() {
-            let idg = idg();
-            let mut test_writer = TestReaderWriter::new();
-            let mut writer = SimulatorWriter::new(&mut test_writer);
+            let mut idg = idg();
+            let mut test_bed = SimulationTestBed::new();
 
-            idg.write(&mut writer);
+            test_bed.run_without_update(&mut idg);
 
-            assert!(test_writer.len_is(2));
-            assert!(test_writer.contains_f64("ELEC_ENG_GEN_1_IDG_OIL_OUTLET_TEMPERATURE", 0.));
-            assert!(test_writer.contains_bool("ELEC_ENG_GEN_1_IDG_IS_CONNECTED", true));
+            assert!(test_bed.contains_key("ELEC_ENG_GEN_1_IDG_OIL_OUTLET_TEMPERATURE"));
+            assert!(test_bed.contains_key("ELEC_ENG_GEN_1_IDG_IS_CONNECTED"));
         }
 
         #[test]
@@ -395,11 +406,15 @@ mod tests {
         #[test]
         fn becomes_stable_once_engine_above_threshold_for_500_milliseconds() {
             let mut idg = idg();
-            idg.update(
-                &context_with().delta(Duration::from_millis(500)).build(),
-                &engine_above_threshold(),
-                &FaultReleasePushButton::new_in("TEST"),
-            );
+            let mut test_bed = SimulationTestBed::new().delta(Duration::from_millis(500));
+
+            test_bed.run(&mut idg, |element, context| {
+                element.update(
+                    context,
+                    &engine_above_threshold(),
+                    &FaultReleasePushButton::new_in("TEST"),
+                )
+            });
 
             assert_eq!(idg.provides_stable_power_output(), true);
         }
@@ -407,11 +422,15 @@ mod tests {
         #[test]
         fn does_not_become_stable_before_engine_above_threshold_for_500_milliseconds() {
             let mut idg = idg();
-            idg.update(
-                &context_with().delta(Duration::from_millis(499)).build(),
-                &engine_above_threshold(),
-                &FaultReleasePushButton::new_in("TEST"),
-            );
+            let mut test_bed = SimulationTestBed::new().delta(Duration::from_millis(499));
+
+            test_bed.run(&mut idg, |element, context| {
+                element.update(
+                    context,
+                    &engine_above_threshold(),
+                    &FaultReleasePushButton::new_in("TEST"),
+                )
+            });
 
             assert_eq!(idg.provides_stable_power_output(), false);
         }
@@ -419,17 +438,22 @@ mod tests {
         #[test]
         fn cannot_reconnect_once_disconnected() {
             let mut idg = idg();
-            idg.update(
-                &context_with().delta(Duration::from_millis(500)).build(),
-                &engine_above_threshold(),
-                &FaultReleasePushButton::new_released("TEST"),
-            );
+            let mut test_bed = SimulationTestBed::new().delta(Duration::from_millis(500));
+            test_bed.run(&mut idg, |element, context| {
+                element.update(
+                    context,
+                    &engine_above_threshold(),
+                    &FaultReleasePushButton::new_released("TEST"),
+                )
+            });
 
-            idg.update(
-                &context_with().delta(Duration::from_millis(500)).build(),
-                &engine_above_threshold(),
-                &FaultReleasePushButton::new_in("TEST"),
-            );
+            test_bed.run(&mut idg, |element, context| {
+                element.update(
+                    context,
+                    &engine_above_threshold(),
+                    &FaultReleasePushButton::new_in("TEST"),
+                )
+            });
 
             assert_eq!(idg.provides_stable_power_output(), false);
         }
@@ -438,11 +462,15 @@ mod tests {
         fn running_engine_warms_up_idg() {
             let mut idg = idg();
             let starting_temperature = idg.oil_outlet_temperature;
-            idg.update(
-                &context_with().delta(Duration::from_secs(10)).build(),
-                &engine_above_threshold(),
-                &FaultReleasePushButton::new_in("TEST"),
-            );
+            let mut test_bed = SimulationTestBed::new().delta(Duration::from_secs(10));
+
+            test_bed.run(&mut idg, |element, context| {
+                element.update(
+                    context,
+                    &engine_above_threshold(),
+                    &FaultReleasePushButton::new_in("TEST"),
+                )
+            });
 
             assert!(idg.oil_outlet_temperature > starting_temperature);
         }
@@ -451,12 +479,15 @@ mod tests {
         fn running_engine_does_not_warm_up_idg_when_disconnected() {
             let mut idg = idg();
             let starting_temperature = idg.oil_outlet_temperature;
+            let mut test_bed = SimulationTestBed::new().delta(Duration::from_secs(10));
 
-            idg.update(
-                &context_with().delta(Duration::from_secs(10)).build(),
-                &engine_above_threshold(),
-                &FaultReleasePushButton::new_released("TEST"),
-            );
+            test_bed.run(&mut idg, |element, context| {
+                element.update(
+                    context,
+                    &engine_above_threshold(),
+                    &FaultReleasePushButton::new_released("TEST"),
+                )
+            });
 
             assert_eq!(idg.oil_outlet_temperature, starting_temperature);
         }
@@ -464,18 +495,25 @@ mod tests {
         #[test]
         fn shutdown_engine_cools_down_idg() {
             let mut idg = idg();
-            idg.update(
-                &context_with().delta(Duration::from_secs(10)).build(),
-                &engine_above_threshold(),
-                &FaultReleasePushButton::new_in("TEST"),
-            );
+            let mut test_bed = SimulationTestBed::new().delta(Duration::from_secs(10));
+
+            test_bed.run(&mut idg, |element, context| {
+                element.update(
+                    context,
+                    &engine_above_threshold(),
+                    &FaultReleasePushButton::new_in("TEST"),
+                )
+            });
+
             let starting_temperature = idg.oil_outlet_temperature;
 
-            idg.update(
-                &context_with().delta(Duration::from_secs(10)).build(),
-                &Engine::new(1),
-                &FaultReleasePushButton::new_in("TEST"),
-            );
+            test_bed.run(&mut idg, |element, context| {
+                element.update(
+                    context,
+                    &Engine::new(1),
+                    &FaultReleasePushButton::new_in("TEST"),
+                )
+            });
 
             assert!(idg.oil_outlet_temperature < starting_temperature);
         }

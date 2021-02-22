@@ -1,5 +1,8 @@
 use systems::{
-    electrical::{ElectricalBusType, FlightPhasePowerConsumer, PowerConsumerFlightPhase},
+    electrical::{
+        consumption::{FlightPhasePowerConsumer, PowerConsumerFlightPhase},
+        ElectricalBusType,
+    },
     simulation::{SimulationElement, SimulationElementVisitor, UpdateContext},
 };
 use uom::si::{f64::*, power::watt};
