@@ -212,6 +212,14 @@ impl A320Electrical {
     pub fn empty_battery_2(&mut self) {
         self.direct_current.empty_battery_2();
     }
+
+    pub fn gen_1_contactor_open(&self) -> bool {
+        self.alternating_current.gen_1_contactor_open()
+    }
+
+    pub fn gen_2_contactor_open(&self) -> bool {
+        self.alternating_current.gen_2_contactor_open()
+    }
 }
 impl ElectricalSystem for A320Electrical {
     fn get_supplied_power(&self) -> SuppliedPower {
@@ -296,6 +304,11 @@ impl A320ElectricalOverheadPanel {
     pub fn update_after_elec(&mut self, electrical: &A320Electrical) {
         self.ac_ess_feed
             .set_fault(electrical.ac_ess_bus().is_unpowered());
+
+        self.gen_1
+            .set_fault(electrical.gen_1_contactor_open() && self.gen_1.is_on());
+        self.gen_2
+            .set_fault(electrical.gen_2_contactor_open() && self.gen_2.is_on());
     }
 
     fn generator_1_is_on(&self) -> bool {
@@ -1738,6 +1751,48 @@ mod a320_electrical_circuit_tests {
     #[ignore = "Generator overloading is not yet supported."]
     fn when_aircraft_on_the_ground_and_apu_gen_is_overloaded_galley_is_shed() {}
 
+    #[test]
+    fn when_gen_1_contactor_open_gen_1_push_button_has_fault() {
+        let mut test_bed = test_bed_with().running_apu().run();
+
+        assert!(test_bed.gen_1_has_fault());
+    }
+
+    #[test]
+    fn when_gen_1_contactor_open_and_gen_1_off_push_button_does_not_have_fault() {
+        let mut test_bed = test_bed_with().running_apu().and().gen_1_off().run();
+
+        assert!(!test_bed.gen_1_has_fault());
+    }
+
+    #[test]
+    fn when_gen_1_contactor_closed_gen_1_push_button_does_not_have_fault() {
+        let mut test_bed = test_bed_with().running_engine_1().run();
+
+        assert!(!test_bed.gen_1_has_fault());
+    }
+
+    #[test]
+    fn when_gen_2_contactor_open_gen_2_push_button_has_fault() {
+        let mut test_bed = test_bed_with().running_apu().run();
+
+        assert!(test_bed.gen_2_has_fault());
+    }
+
+    #[test]
+    fn when_gen_2_contactor_open_and_gen_2_off_push_button_does_not_have_fault() {
+        let mut test_bed = test_bed_with().running_apu().and().gen_2_off().run();
+
+        assert!(!test_bed.gen_2_has_fault());
+    }
+
+    #[test]
+    fn when_gen_2_contactor_closed_gen_2_push_button_does_not_have_fault() {
+        let mut test_bed = test_bed_with().running_engine_2().run();
+
+        assert!(!test_bed.gen_2_has_fault());
+    }
+
     fn test_bed_with() -> A320ElectricalTestBed {
         test_bed()
     }
@@ -2147,6 +2202,16 @@ mod a320_electrical_circuit_tests {
 
         fn get_supplied_power(&mut self) -> SuppliedPower {
             self.aircraft.get_supplied_power()
+        }
+
+        fn gen_1_has_fault(&mut self) -> bool {
+            self.simulation_test_bed
+                .read_bool("OVHD_ELEC_ENG_GEN_1_PB_HAS_FAULT")
+        }
+
+        fn gen_2_has_fault(&mut self) -> bool {
+            self.simulation_test_bed
+                .read_bool("OVHD_ELEC_ENG_GEN_2_PB_HAS_FAULT")
         }
 
         fn galley_is_shed(&mut self) -> bool {
