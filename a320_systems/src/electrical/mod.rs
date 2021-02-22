@@ -389,18 +389,15 @@ impl SimulationElement for A320ElectricalOverheadPanel {
 #[cfg(test)]
 mod a320_electrical {
     use super::*;
-    use systems::simulation::{test::TestReaderWriter, SimulationElement, SimulatorWriter};
+    use systems::simulation::test::SimulationTestBed;
 
     #[test]
     fn writes_its_state() {
-        let elec = A320Electrical::new();
-        let mut test_writer = TestReaderWriter::new();
-        let mut writer = SimulatorWriter::new(&mut test_writer);
+        let mut elec = A320Electrical::new();
+        let mut test_bed = SimulationTestBed::new();
+        test_bed.run_without_update(&mut elec);
 
-        elec.write(&mut writer);
-
-        assert!(test_writer.len_is(1));
-        assert!(test_writer.contains_bool("ELEC_GALLEY_IS_SHED", false));
+        assert!(test_bed.contains_key("ELEC_GALLEY_IS_SHED"));
     }
 }
 

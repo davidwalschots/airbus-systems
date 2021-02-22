@@ -80,10 +80,6 @@ impl TestReaderWriter {
         self.variables.contains_key(name)
     }
 
-    pub fn len_is(&self, length: usize) -> bool {
-        self.variables.len() == length
-    }
-
     fn write_bool(&mut self, name: &str, value: bool) {
         self.write(name, from_bool(value));
     }
@@ -259,14 +255,6 @@ impl SimulationTestBed {
         self.reader_writer.read_f64(name)
     }
 
-    pub fn contains_f64(&self, name: &str, value: f64) -> bool {
-        self.reader_writer.contains_f64(name, value)
-    }
-
-    pub fn contains_bool(&self, name: &str, value: bool) -> bool {
-        self.reader_writer.contains_bool(name, value)
-    }
-
     pub fn contains_key(&self, name: &str) -> bool {
         self.reader_writer.contains_key(name)
     }
@@ -352,8 +340,8 @@ mod tests {
     #[test]
     fn test_aircraft_can_run_in_simulation() {
         let mut element = ElementUnderTest::default();
-        let mut bed = SimulationTestBed::new();
-        bed.run_before_power_distribution(&mut element, |el, context| {
+        let mut test_bed = SimulationTestBed::new();
+        test_bed.run_before_power_distribution(&mut element, |el, context| {
             el.update(context);
         });
 
@@ -363,8 +351,8 @@ mod tests {
     #[test]
     fn defaults_to_receiving_power_before_update() {
         let mut element = ElementUnderTest::default();
-        let mut bed = SimulationTestBed::new();
-        bed.run(&mut element, |el, context| {
+        let mut test_bed = SimulationTestBed::new();
+        test_bed.run(&mut element, |el, context| {
             el.update(context);
         });
 
@@ -377,8 +365,8 @@ mod tests {
     #[test]
     fn when_update_before_receive_power_requested_executes_update_before_receive_power() {
         let mut element = ElementUnderTest::default();
-        let mut bed = SimulationTestBed::new();
-        bed.run_before_power_distribution(&mut element, |el, context| {
+        let mut test_bed = SimulationTestBed::new();
+        test_bed.run_before_power_distribution(&mut element, |el, context| {
             el.update(context);
         });
 

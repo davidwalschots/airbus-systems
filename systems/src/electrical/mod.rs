@@ -557,10 +557,10 @@ mod tests {
         #[test]
         fn writes_its_state() {
             let mut bus = electrical_bus();
-            let mut bed = SimulationTestBed::new();
-            bed.run_without_update(&mut bus);
+            let mut test_bed = SimulationTestBed::new();
+            test_bed.run_without_update(&mut bus);
 
-            assert!(bed.contains_bool("ELEC_AC_2_BUS_IS_POWERED", false));
+            assert!(test_bed.contains_key("ELEC_AC_2_BUS_IS_POWERED"));
         }
 
         struct BatteryStub {
@@ -742,10 +742,10 @@ mod tests {
         #[test]
         fn writes_its_state() {
             let mut contactor = contactor();
-            let mut bed = SimulationTestBed::new();
-            bed.run_without_update(&mut contactor);
+            let mut test_bed = SimulationTestBed::new();
+            test_bed.run_without_update(&mut contactor);
 
-            assert!(bed.contains_bool("ELEC_CONTACTOR_TEST_IS_CLOSED", false));
+            assert!(test_bed.contains_key("ELEC_CONTACTOR_TEST_IS_CLOSED"));
         }
 
         fn contactor() -> Contactor {
