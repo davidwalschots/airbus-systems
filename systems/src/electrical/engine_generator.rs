@@ -408,7 +408,7 @@ mod tests {
         #[test]
         fn becomes_stable_once_engine_above_threshold_for_500_milliseconds() {
             let mut idg = idg();
-            let mut test_bed = SimulationTestBed::new().delta(Duration::from_millis(500));
+            let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_millis(500));
 
             test_bed.run(&mut idg, |element, context| {
                 element.update(
@@ -423,7 +423,7 @@ mod tests {
         #[test]
         fn does_not_become_stable_before_engine_above_threshold_for_500_milliseconds() {
             let mut idg = idg();
-            let mut test_bed = SimulationTestBed::new().delta(Duration::from_millis(499));
+            let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_millis(499));
 
             test_bed.run(&mut idg, |element, context| {
                 element.update(
@@ -438,7 +438,7 @@ mod tests {
         #[test]
         fn cannot_reconnect_once_disconnected() {
             let mut idg = idg();
-            let mut test_bed = SimulationTestBed::new().delta(Duration::from_millis(500));
+            let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_millis(500));
             test_bed.run(&mut idg, |element, context| {
                 element.update(
                     context,
@@ -460,7 +460,7 @@ mod tests {
         fn running_engine_warms_up_idg() {
             let mut idg = idg();
             let starting_temperature = idg.oil_outlet_temperature;
-            let mut test_bed = SimulationTestBed::new().delta(Duration::from_secs(10));
+            let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_secs(10));
 
             test_bed.run(&mut idg, |element, context| {
                 element.update(
@@ -476,7 +476,7 @@ mod tests {
         fn running_engine_does_not_warm_up_idg_when_disconnected() {
             let mut idg = idg();
             let starting_temperature = idg.oil_outlet_temperature;
-            let mut test_bed = SimulationTestBed::new().delta(Duration::from_secs(10));
+            let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_secs(10));
 
             test_bed.run(&mut idg, |element, context| {
                 element.update(
@@ -491,7 +491,7 @@ mod tests {
         #[test]
         fn shutdown_engine_cools_down_idg() {
             let mut idg = idg();
-            let mut test_bed = SimulationTestBed::new().delta(Duration::from_secs(10));
+            let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_secs(10));
 
             test_bed.run(&mut idg, |element, context| {
                 element.update(

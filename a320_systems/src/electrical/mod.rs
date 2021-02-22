@@ -1977,15 +1977,14 @@ mod a320_electrical_circuit_tests {
         }
 
         fn airspeed(mut self, ias: Velocity) -> Self {
-            self.simulation_test_bed = self.simulation_test_bed.indicated_airspeed(ias);
+            self.simulation_test_bed.set_indicated_airspeed(ias);
             self
         }
 
         fn on_the_ground(mut self) -> Self {
-            self.simulation_test_bed = self
-                .simulation_test_bed
-                .indicated_altitude(Length::new::<foot>(0.))
-                .on_ground(true);
+            self.simulation_test_bed
+                .set_indicated_altitude(Length::new::<foot>(0.));
+            self.simulation_test_bed.set_on_ground(true);
             self
         }
 
@@ -2231,7 +2230,7 @@ mod a320_electrical_circuit_tests {
         }
 
         fn run(mut self) -> Self {
-            self.simulation_test_bed = self.simulation_test_bed.delta(Duration::from_secs(1));
+            self.simulation_test_bed.set_delta(Duration::from_secs(1));
             self.simulation_test_bed.run_aircraft(&mut self.aircraft);
 
             self
@@ -2240,10 +2239,10 @@ mod a320_electrical_circuit_tests {
         fn run_waiting_for(mut self, delta: Duration) -> Self {
             // Firstly run without any time passing at all, such that if the DelayedTrueLogicGate reaches
             // the true state after waiting for the given time it will be reflected in its output.
-            self.simulation_test_bed = self.simulation_test_bed.delta(Duration::from_secs(0));
+            self.simulation_test_bed.set_delta(Duration::from_secs(0));
             self.simulation_test_bed.run_aircraft(&mut self.aircraft);
 
-            self.simulation_test_bed = self.simulation_test_bed.delta(delta);
+            self.simulation_test_bed.set_delta(delta);
             self.simulation_test_bed.run_aircraft(&mut self.aircraft);
 
             self

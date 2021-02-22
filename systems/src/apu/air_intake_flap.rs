@@ -151,7 +151,7 @@ mod air_intake_flap_tests {
     #[test]
     fn starts_opening_when_target_is_open() {
         let mut aircraft = TestAircraft::new(AirIntakeFlap::new(), TestFlapController::new());
-        let mut test_bed = SimulationTestBed::new().delta(Duration::from_secs(5));
+        let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_secs(5));
 
         aircraft.command_flap_open();
         test_bed.run_aircraft(&mut aircraft);
@@ -162,7 +162,7 @@ mod air_intake_flap_tests {
     #[test]
     fn does_not_instantly_open() {
         let mut aircraft = TestAircraft::new(AirIntakeFlap::new(), TestFlapController::new());
-        let mut test_bed = SimulationTestBed::new().delta(Duration::from_secs(
+        let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_secs(
             (AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS - 1) as u64,
         ));
 
@@ -175,7 +175,7 @@ mod air_intake_flap_tests {
     #[test]
     fn closes_when_target_is_closed() {
         let mut aircraft = TestAircraft::new(AirIntakeFlap::new(), TestFlapController::new());
-        let mut test_bed = SimulationTestBed::new().delta(Duration::from_secs(5));
+        let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_secs(5));
 
         aircraft.command_flap_open();
         test_bed.run_aircraft(&mut aircraft);
@@ -183,9 +183,8 @@ mod air_intake_flap_tests {
         let flap_open_amount = aircraft.flap_open_amount();
 
         aircraft.command_flap_close();
-        test_bed
-            .delta(Duration::from_secs(2))
-            .run_aircraft(&mut aircraft);
+        test_bed.set_delta(Duration::from_secs(2));
+        test_bed.run_aircraft(&mut aircraft);
 
         assert!(aircraft.flap_open_amount() < flap_open_amount);
     }
@@ -193,7 +192,7 @@ mod air_intake_flap_tests {
     #[test]
     fn does_not_instantly_close() {
         let mut aircraft = TestAircraft::new(AirIntakeFlap::new(), TestFlapController::new());
-        let mut test_bed = SimulationTestBed::new().delta(Duration::from_secs(
+        let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_secs(
             AirIntakeFlap::MAXIMUM_TRAVEL_TIME_SECS as u64,
         ));
 
@@ -201,11 +200,10 @@ mod air_intake_flap_tests {
         test_bed.run_aircraft(&mut aircraft);
 
         aircraft.command_flap_close();
-        test_bed
-            .delta(Duration::from_secs(
-                (AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS - 1) as u64,
-            ))
-            .run_aircraft(&mut aircraft);
+        test_bed.set_delta(Duration::from_secs(
+            (AirIntakeFlap::MINIMUM_TRAVEL_TIME_SECS - 1) as u64,
+        ));
+        test_bed.run_aircraft(&mut aircraft);
 
         assert!(aircraft.flap_open_amount().get::<percent>() > 0.);
     }
@@ -213,7 +211,7 @@ mod air_intake_flap_tests {
     #[test]
     fn never_closes_beyond_0_percent() {
         let mut aircraft = TestAircraft::new(AirIntakeFlap::new(), TestFlapController::new());
-        let mut test_bed = SimulationTestBed::new().delta(Duration::from_secs(1_000));
+        let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_secs(1_000));
 
         aircraft.command_flap_close();
         test_bed.run_aircraft(&mut aircraft);
@@ -224,7 +222,7 @@ mod air_intake_flap_tests {
     #[test]
     fn never_opens_beyond_100_percent() {
         let mut aircraft = TestAircraft::new(AirIntakeFlap::new(), TestFlapController::new());
-        let mut test_bed = SimulationTestBed::new().delta(Duration::from_secs(1_000));
+        let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_secs(1_000));
 
         aircraft.command_flap_open();
         test_bed.run_aircraft(&mut aircraft);
@@ -242,7 +240,7 @@ mod air_intake_flap_tests {
     #[test]
     fn is_fully_open_returns_true_when_open() {
         let mut aircraft = TestAircraft::new(AirIntakeFlap::new(), TestFlapController::new());
-        let mut test_bed = SimulationTestBed::new().delta(Duration::from_secs(1_000));
+        let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_secs(1_000));
 
         aircraft.command_flap_open();
         test_bed.run_aircraft(&mut aircraft);

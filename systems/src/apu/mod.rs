@@ -613,11 +613,11 @@ pub mod tests {
         }
 
         pub fn run(mut self, delta: Duration) -> Self {
-            self.simulation_test_bed = self
-                .simulation_test_bed
-                .delta(delta)
-                .ambient_temperature(self.ambient_temperature)
-                .indicated_altitude(self.indicated_altitude);
+            self.simulation_test_bed.set_delta(delta);
+            self.simulation_test_bed
+                .set_ambient_temperature(self.ambient_temperature);
+            self.simulation_test_bed
+                .set_indicated_altitude(self.indicated_altitude);
 
             self.simulation_test_bed.run_aircraft(&mut self.aircraft);
 

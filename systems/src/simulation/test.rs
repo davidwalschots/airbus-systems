@@ -122,16 +122,22 @@ pub struct SimulationTestBed {
 }
 impl SimulationTestBed {
     pub fn new() -> Self {
-        let bed = Self {
+        Self::new_with_delta(Duration::from_secs(1))
+    }
+
+    pub fn new_with_delta(delta: Duration) -> Self {
+        let mut test_bed = Self {
             reader_writer: TestReaderWriter::new(),
             get_supplied_power_fn: Box::new(|| SuppliedPower::new()),
-            delta: Duration::from_secs(1),
+            delta,
         };
 
-        bed.indicated_airspeed(Velocity::new::<knot>(250.))
-            .indicated_altitude(Length::new::<foot>(5000.))
-            .ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(0.))
-            .on_ground(false)
+        test_bed.set_indicated_airspeed(Velocity::new::<knot>(250.));
+        test_bed.set_indicated_altitude(Length::new::<foot>(5000.));
+        test_bed.set_ambient_temperature(ThermodynamicTemperature::new::<degree_celsius>(0.));
+        test_bed.set_on_ground(false);
+
+        test_bed
     }
 
     pub fn seeded_with<T: SimulationElement>(element: &mut T) -> Self {
@@ -192,43 +198,34 @@ impl SimulationTestBed {
         self.run_aircraft(&mut aircraft);
     }
 
-    pub fn and(self) -> Self {
-        self
-    }
-
-    pub fn delta(mut self, delta: Duration) -> Self {
+    pub fn set_delta(&mut self, delta: Duration) {
         self.delta = delta;
-        self
     }
 
-    pub fn indicated_airspeed(mut self, indicated_airspeed: Velocity) -> Self {
+    pub fn set_indicated_airspeed(&mut self, indicated_airspeed: Velocity) {
         self.reader_writer.write_f64(
             UpdateContext::INDICATED_AIRSPEED_KEY,
             indicated_airspeed.get::<knot>(),
         );
-        self
     }
 
-    pub fn indicated_altitude(mut self, indicated_altitude: Length) -> Self {
+    pub fn set_indicated_altitude(&mut self, indicated_altitude: Length) {
         self.reader_writer.write_f64(
             UpdateContext::INDICATED_ALTITUDE_KEY,
             indicated_altitude.get::<foot>(),
         );
-        self
     }
 
-    pub fn ambient_temperature(mut self, ambient_temperature: ThermodynamicTemperature) -> Self {
+    pub fn set_ambient_temperature(&mut self, ambient_temperature: ThermodynamicTemperature) {
         self.reader_writer.write_f64(
             UpdateContext::AMBIENT_TEMPERATURE_KEY,
             ambient_temperature.get::<degree_celsius>(),
         );
-        self
     }
 
-    pub fn on_ground(mut self, on_ground: bool) -> Self {
+    pub fn set_on_ground(&mut self, on_ground: bool) {
         self.reader_writer
             .write_bool(UpdateContext::IS_ON_GROUND_KEY, on_ground);
-        self
     }
 
     pub fn supplied_power_fn<T: Fn() -> SuppliedPower + 'static>(
