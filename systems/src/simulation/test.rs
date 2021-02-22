@@ -8,112 +8,10 @@ use super::{
     SimulationToSimulatorVisitor, SimulatorReaderWriter, SimulatorWriter, UpdateContext,
 };
 
-struct TestAircraft<'a, T: SimulationElement, U: Fn(&mut T, &UpdateContext)> {
-    element: &'a mut T,
-    update_fn: U,
-    supplied_power: Option<SuppliedPower>,
-    update_before_power_distribution: bool,
-}
-impl<'a, T: SimulationElement, U: Fn(&mut T, &UpdateContext)> TestAircraft<'a, T, U> {
-    fn new(
-        element: &'a mut T,
-        update_fn: U,
-        supplied_power: SuppliedPower,
-        update_before_power_distribution: bool,
-    ) -> Self {
-        Self {
-            element,
-            update_fn,
-            supplied_power: Some(supplied_power),
-            update_before_power_distribution,
-        }
-    }
-}
-impl<'a, T: SimulationElement, U: Fn(&mut T, &UpdateContext)> Aircraft for TestAircraft<'a, T, U> {
-    fn update_before_power_distribution(&mut self, context: &UpdateContext) {
-        if self.update_before_power_distribution {
-            (self.update_fn)(&mut self.element, context);
-        }
-    }
-
-    fn update_after_power_distribution(&mut self, context: &UpdateContext) {
-        if !self.update_before_power_distribution {
-            (self.update_fn)(&mut self.element, context);
-        }
-    }
-
-    fn get_supplied_power(&mut self) -> SuppliedPower {
-        self.supplied_power.take().unwrap()
-    }
-}
-impl<'a, T: SimulationElement, U: Fn(&mut T, &UpdateContext)> SimulationElement
-    for TestAircraft<'a, T, U>
-{
-    fn accept<W: SimulationElementVisitor>(&mut self, visitor: &mut W) {
-        visitor.visit(self.element);
-    }
-}
-
-pub struct TestReaderWriter {
-    variables: HashMap<String, f64>,
-}
-impl TestReaderWriter {
-    pub fn new() -> Self {
-        Self {
-            variables: HashMap::new(),
-        }
-    }
-
-    pub fn contains_f64(&self, name: &str, value: f64) -> bool {
-        if let Some(val) = self.variables.get(name) {
-            (val - value).abs() < f64::EPSILON
-        } else {
-            false
-        }
-    }
-
-    pub fn contains_bool(&self, name: &str, value: bool) -> bool {
-        self.contains_f64(name, from_bool(value))
-    }
-
-    pub fn contains_key(&self, name: &str) -> bool {
-        self.variables.contains_key(name)
-    }
-
-    fn write_bool(&mut self, name: &str, value: bool) {
-        self.write(name, from_bool(value));
-    }
-
-    fn write_f64(&mut self, name: &str, value: f64) {
-        self.write(name, value);
-    }
-
-    fn read_bool(&mut self, name: &str) -> bool {
-        to_bool(self.read(name))
-    }
-
-    fn read_f64(&mut self, name: &str) -> f64 {
-        self.read(name)
-    }
-}
-impl SimulatorReaderWriter for TestReaderWriter {
-    fn read(&mut self, name: &str) -> f64 {
-        *self.variables.get(name).unwrap_or(&0.)
-    }
-
-    fn write(&mut self, name: &str, value: f64) {
-        self.variables.insert(name.to_owned(), value);
-    }
-}
-impl Default for TestReaderWriter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// The simulation test bed handles the testing of [`SimulationElement`]s
+/// The simulation test bed handles the testing of [`Aircraft`] and [`SimulationElement`]
 /// by running a full simulation tick on them.
 ///
+/// [`Aircraft`]: ../trait.Aircraft.html
 /// [`SimulationElement`]: ../trait.SimulationElement.html
 pub struct SimulationTestBed {
     reader_writer: TestReaderWriter,
@@ -140,6 +38,10 @@ impl SimulationTestBed {
         test_bed
     }
 
+    /// Creates an instance seeded with the state found in the given element.
+    ///
+    /// By default the unseeded simulation will return 0.0 or false for any requested
+    /// variables. If this is a problem for your test, then use this function.
     pub fn seeded_with<T: SimulationElement>(element: &mut T) -> Self {
         let mut test_bed = Self::new();
 
@@ -150,11 +52,24 @@ impl SimulationTestBed {
         test_bed
     }
 
+    /// Runs a single [`Simulation`] tick on the provided [`Aircraft`].
+    ///
+    /// [`Aircraft`]: ../trait.Aircraft.html
+    /// [`Simulation`]: ../struct.Simulation.html
     pub fn run_aircraft<T: Aircraft>(&mut self, aircraft: &mut T) {
         let mut simulation = Simulation::new(aircraft, &mut self.reader_writer);
         simulation.tick(self.delta);
     }
 
+    /// Runs a single [`Simulation`] tick on the provided [`SimulationElement`], executing
+    /// the given update before electrical power is distributed.
+    ///
+    /// Prefer using [`run`] over this if electrical power distribution does not
+    /// matter for the test you're executing.
+    ///
+    /// [`Simulation`]: ../struct.Simulation.html
+    /// [`SimulationElement`]: ../trait.SimulationElement.html
+    /// [`run`]: #method.run
     pub fn run_before_power_distribution<T: SimulationElement, U: Fn(&mut T, &UpdateContext)>(
         &mut self,
         element: &mut T,
@@ -163,6 +78,14 @@ impl SimulationTestBed {
         self.run_within_test_aircraft(element, update_fn, true);
     }
 
+    /// Runs a single [`Simulation`] tick on the provided [`SimulationElement`].
+    ///
+    /// Prefer using [`run_without_update`] over this if electrical power distribution does not
+    /// matter for the test you're executing.
+    ///
+    /// [`Simulation`]: ../struct.Simulation.html
+    /// [`SimulationElement`]: ../trait.SimulationElement.html
+    /// [`run_without_update`]: #method.run_without_update
     pub fn run_before_power_distribution_without_update<T: SimulationElement>(
         &mut self,
         element: &mut T,
@@ -170,6 +93,11 @@ impl SimulationTestBed {
         self.run_before_power_distribution(element, |_, _| {});
     }
 
+    /// Runs a single [`Simulation`] tick on the provided [`SimulationElement`], executing
+    /// the given update after electrical power is distributed.
+    ///
+    /// [`Simulation`]: ../struct.Simulation.html
+    /// [`SimulationElement`]: ../trait.SimulationElement.html
     pub fn run<T: SimulationElement, U: Fn(&mut T, &UpdateContext)>(
         &mut self,
         element: &mut T,
@@ -178,6 +106,10 @@ impl SimulationTestBed {
         self.run_within_test_aircraft(element, update_fn, false);
     }
 
+    /// Runs a single [`Simulation`] tick on the provided [`SimulationElement`].
+    ///
+    /// [`Simulation`]: ../struct.Simulation.html
+    /// [`SimulationElement`]: ../trait.SimulationElement.html
     pub fn run_without_update<T: SimulationElement>(&mut self, element: &mut T) {
         self.run(element, |_, _| {});
     }
@@ -254,6 +186,97 @@ impl SimulationTestBed {
 
     pub fn contains_key(&self, name: &str) -> bool {
         self.reader_writer.contains_key(name)
+    }
+}
+
+struct TestAircraft<'a, T: SimulationElement, U: Fn(&mut T, &UpdateContext)> {
+    element: &'a mut T,
+    update_fn: U,
+    supplied_power: Option<SuppliedPower>,
+    update_before_power_distribution: bool,
+}
+impl<'a, T: SimulationElement, U: Fn(&mut T, &UpdateContext)> TestAircraft<'a, T, U> {
+    fn new(
+        element: &'a mut T,
+        update_fn: U,
+        supplied_power: SuppliedPower,
+        update_before_power_distribution: bool,
+    ) -> Self {
+        Self {
+            element,
+            update_fn,
+            supplied_power: Some(supplied_power),
+            update_before_power_distribution,
+        }
+    }
+}
+impl<'a, T: SimulationElement, U: Fn(&mut T, &UpdateContext)> Aircraft for TestAircraft<'a, T, U> {
+    fn update_before_power_distribution(&mut self, context: &UpdateContext) {
+        if self.update_before_power_distribution {
+            (self.update_fn)(&mut self.element, context);
+        }
+    }
+
+    fn update_after_power_distribution(&mut self, context: &UpdateContext) {
+        if !self.update_before_power_distribution {
+            (self.update_fn)(&mut self.element, context);
+        }
+    }
+
+    fn get_supplied_power(&mut self) -> SuppliedPower {
+        self.supplied_power.take().unwrap()
+    }
+}
+impl<'a, T: SimulationElement, U: Fn(&mut T, &UpdateContext)> SimulationElement
+    for TestAircraft<'a, T, U>
+{
+    fn accept<W: SimulationElementVisitor>(&mut self, visitor: &mut W) {
+        visitor.visit(self.element);
+    }
+}
+
+struct TestReaderWriter {
+    variables: HashMap<String, f64>,
+}
+impl TestReaderWriter {
+    fn new() -> Self {
+        Self {
+            variables: HashMap::new(),
+        }
+    }
+
+    fn contains_key(&self, name: &str) -> bool {
+        self.variables.contains_key(name)
+    }
+
+    fn write_bool(&mut self, name: &str, value: bool) {
+        self.write(name, from_bool(value));
+    }
+
+    fn write_f64(&mut self, name: &str, value: f64) {
+        self.write(name, value);
+    }
+
+    fn read_bool(&mut self, name: &str) -> bool {
+        to_bool(self.read(name))
+    }
+
+    fn read_f64(&mut self, name: &str) -> f64 {
+        self.read(name)
+    }
+}
+impl SimulatorReaderWriter for TestReaderWriter {
+    fn read(&mut self, name: &str) -> f64 {
+        *self.variables.get(name).unwrap_or(&0.)
+    }
+
+    fn write(&mut self, name: &str, value: f64) {
+        self.variables.insert(name.to_owned(), value);
+    }
+}
+impl Default for TestReaderWriter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
