@@ -273,6 +273,37 @@ mod tests {
             simulation::{test::SimulationTestBed, Aircraft},
         };
 
+        struct EngineGeneratorTestBed {
+            test_bed: SimulationTestBed,
+        }
+        impl EngineGeneratorTestBed {
+            fn new() -> Self {
+                Self {
+                    test_bed: SimulationTestBed::new(),
+                }
+            }
+
+            fn run_aircraft<T: Aircraft>(&mut self, aircraft: &mut T) {
+                self.test_bed.run_aircraft(aircraft);
+            }
+
+            fn frequency_is_normal(&mut self) -> bool {
+                self.test_bed.read_bool("ELEC_ENG_GEN_1_FREQUENCY_NORMAL")
+            }
+
+            fn potential_is_normal(&mut self) -> bool {
+                self.test_bed.read_bool("ELEC_ENG_GEN_1_POTENTIAL_NORMAL")
+            }
+
+            fn load_is_normal(&mut self) -> bool {
+                self.test_bed.read_bool("ELEC_ENG_GEN_1_LOAD_NORMAL")
+            }
+
+            fn load(&mut self) -> Ratio {
+                Ratio::new::<percent>(self.test_bed.read_f64("ELEC_ENG_GEN_1_LOAD"))
+            }
+        }
+
         struct TestAircraft {
             engine_gen: EngineGenerator,
             running: bool,
@@ -344,7 +375,7 @@ mod tests {
         #[test]
         fn when_engine_running_provides_output() {
             let mut aircraft = TestAircraft::with_running_engine();
-            let mut test_bed = SimulationTestBed::new();
+            let mut test_bed = EngineGeneratorTestBed::new();
 
             test_bed.run_aircraft(&mut aircraft);
 
@@ -354,7 +385,7 @@ mod tests {
         #[test]
         fn when_engine_shutdown_provides_no_output() {
             let mut aircraft = TestAircraft::with_shutdown_engine();
-            let mut test_bed = SimulationTestBed::new();
+            let mut test_bed = EngineGeneratorTestBed::new();
 
             test_bed.run_aircraft(&mut aircraft);
 
@@ -364,7 +395,7 @@ mod tests {
         #[test]
         fn when_engine_running_but_idg_disconnected_provides_no_output() {
             let mut aircraft = TestAircraft::with_running_engine();
-            let mut test_bed = SimulationTestBed::new();
+            let mut test_bed = EngineGeneratorTestBed::new();
 
             aircraft.disconnect_idg();
             test_bed.run_aircraft(&mut aircraft);
@@ -375,103 +406,94 @@ mod tests {
         #[test]
         fn when_engine_shutdown_frequency_not_normal() {
             let mut aircraft = TestAircraft::with_shutdown_engine();
-            let mut test_bed = SimulationTestBed::new();
+            let mut test_bed = EngineGeneratorTestBed::new();
 
             test_bed.run_aircraft(&mut aircraft);
 
-            assert!(!test_bed.read_bool("ELEC_ENG_GEN_1_FREQUENCY_NORMAL"));
+            assert!(!test_bed.frequency_is_normal());
         }
 
         #[test]
         fn when_engine_running_frequency_normal() {
             let mut aircraft = TestAircraft::with_running_engine();
-            let mut test_bed = SimulationTestBed::new();
+            let mut test_bed = EngineGeneratorTestBed::new();
 
             test_bed.run_aircraft(&mut aircraft);
 
-            assert!(test_bed.read_bool("ELEC_ENG_GEN_1_FREQUENCY_NORMAL"));
+            assert!(test_bed.frequency_is_normal());
         }
 
         #[test]
         fn when_engine_shutdown_potential_not_normal() {
             let mut aircraft = TestAircraft::with_shutdown_engine();
-            let mut test_bed = SimulationTestBed::new();
+            let mut test_bed = EngineGeneratorTestBed::new();
 
             test_bed.run_aircraft(&mut aircraft);
 
-            assert!(!test_bed.read_bool("ELEC_ENG_GEN_1_POTENTIAL_NORMAL"));
+            assert!(!test_bed.potential_is_normal());
         }
 
         #[test]
         fn when_engine_running_potential_normal() {
             let mut aircraft = TestAircraft::with_running_engine();
-            let mut test_bed = SimulationTestBed::new();
+            let mut test_bed = EngineGeneratorTestBed::new();
 
             test_bed.run_aircraft(&mut aircraft);
 
-            assert!(test_bed.read_bool("ELEC_ENG_GEN_1_POTENTIAL_NORMAL"));
+            assert!(test_bed.potential_is_normal());
         }
 
         #[test]
         fn when_engine_shutdown_has_no_load() {
             let mut aircraft = TestAircraft::with_shutdown_engine();
-            let mut test_bed = SimulationTestBed::new();
+            let mut test_bed = EngineGeneratorTestBed::new();
 
             test_bed.run_aircraft(&mut aircraft);
 
-            assert_eq!(
-                Ratio::new::<percent>(test_bed.read_f64("ELEC_ENG_GEN_1_LOAD")),
-                Ratio::new::<percent>(0.)
-            );
+            assert_eq!(test_bed.load(), Ratio::new::<percent>(0.));
         }
 
         #[test]
         fn when_engine_running_but_potential_unused_has_no_load() {
             let mut aircraft = TestAircraft::with_running_engine();
-            let mut test_bed = SimulationTestBed::new();
+            let mut test_bed = EngineGeneratorTestBed::new();
 
             test_bed.run_aircraft(&mut aircraft);
 
-            assert_eq!(
-                Ratio::new::<percent>(test_bed.read_f64("ELEC_ENG_GEN_1_LOAD")),
-                Ratio::new::<percent>(0.)
-            );
+            assert_eq!(test_bed.load(), Ratio::new::<percent>(0.));
         }
 
         #[test]
         fn when_engine_running_and_potential_used_has_load() {
             let mut aircraft = TestAircraft::with_running_engine();
-            let mut test_bed = SimulationTestBed::new();
+            let mut test_bed = EngineGeneratorTestBed::new();
 
             aircraft.power_demand(Power::new::<watt>(50000.));
             test_bed.run_aircraft(&mut aircraft);
 
-            assert!(
-                Ratio::new::<percent>(test_bed.read_f64("ELEC_ENG_GEN_1_LOAD"))
-                    > Ratio::new::<percent>(0.)
-            );
+            assert!(test_bed.load() > Ratio::new::<percent>(0.));
         }
 
         #[test]
         fn when_load_below_maximum_it_is_normal() {
             let mut aircraft = TestAircraft::with_running_engine();
-            let mut test_bed = SimulationTestBed::new();
+            let mut test_bed = EngineGeneratorTestBed::new();
 
             aircraft.power_demand(Power::new::<watt>(90000. / 0.8));
             test_bed.run_aircraft(&mut aircraft);
 
-            assert!(test_bed.read_bool("ELEC_ENG_GEN_1_LOAD_NORMAL"));
+            assert!(test_bed.load_is_normal());
         }
 
         #[test]
         fn when_load_exceeds_maximum_not_normal() {
             let mut aircraft = TestAircraft::with_running_engine();
-            let mut test_bed = SimulationTestBed::new();
+            let mut test_bed = EngineGeneratorTestBed::new();
 
             aircraft.power_demand(Power::new::<watt>((90000. / 0.8) + 1.));
             test_bed.run_aircraft(&mut aircraft);
 
-            assert!(!test_bed.read_bool("ELEC_ENG_GEN_1_LOAD_NORMAL"));
+            assert!(!test_bed.load_is_normal());
         }
 
         #[test]
