@@ -809,10 +809,10 @@ mod tests {
 
         #[test]
         fn writes_direct_current_state() {
-            let mut test_aircraft = CurrentStateWriterTestAircraft::new(WriteType::DirectCurrent);
+            let mut aircraft = CurrentStateWriterTestAircraft::new(WriteType::DirectCurrent);
             let mut test_bed = SimulationTestBed::new();
 
-            test_bed.run_aircraft(&mut test_aircraft);
+            test_bed.run_aircraft(&mut aircraft);
 
             assert!(test_bed.contains_key("ELEC_TEST_CURRENT"));
             assert!(test_bed.contains_key("ELEC_TEST_CURRENT_NORMAL"));
@@ -822,11 +822,10 @@ mod tests {
 
         #[test]
         fn writes_alternating_current_state() {
-            let mut test_aircraft =
-                CurrentStateWriterTestAircraft::new(WriteType::AlternatingCurrent);
+            let mut aircraft = CurrentStateWriterTestAircraft::new(WriteType::AlternatingCurrent);
             let mut test_bed = SimulationTestBed::new();
 
-            test_bed.run_aircraft(&mut test_aircraft);
+            test_bed.run_aircraft(&mut aircraft);
 
             assert!(test_bed.contains_key("ELEC_TEST_POTENTIAL"));
             assert!(test_bed.contains_key("ELEC_TEST_POTENTIAL_NORMAL"));
@@ -836,11 +835,11 @@ mod tests {
 
         #[test]
         fn writes_alternating_current_with_load_state() {
-            let mut test_aircraft =
+            let mut aircraft =
                 CurrentStateWriterTestAircraft::new(WriteType::AlternatingCurrentWithLoad);
             let mut test_bed = SimulationTestBed::new();
 
-            test_bed.run_aircraft(&mut test_aircraft);
+            test_bed.run_aircraft(&mut aircraft);
 
             assert!(test_bed.contains_key("ELEC_TEST_POTENTIAL"));
             assert!(test_bed.contains_key("ELEC_TEST_POTENTIAL_NORMAL"));
