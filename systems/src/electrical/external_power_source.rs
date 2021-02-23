@@ -8,12 +8,16 @@ use super::{
 pub struct ExternalPowerSource {
     writer: ElectricalStateWriter,
     is_connected: bool,
+    frequency: Frequency,
+    potential: ElectricPotential,
 }
 impl ExternalPowerSource {
     pub fn new() -> ExternalPowerSource {
         ExternalPowerSource {
             writer: ElectricalStateWriter::new("EXT_PWR"),
             is_connected: false,
+            frequency: Frequency::new::<hertz>(0.),
+            potential: ElectricPotential::new::<volt>(0.),
         }
     }
 
@@ -28,36 +32,8 @@ impl PotentialSource for ExternalPowerSource {
         }
     }
 }
-impl ProvidePotential for ExternalPowerSource {
-    fn potential(&self) -> ElectricPotential {
-        // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            ElectricPotential::new::<volt>(115.)
-        } else {
-            ElectricPotential::new::<volt>(0.)
-        }
-    }
-
-    fn potential_normal(&self) -> bool {
-        // TODO: Replace with actual values once calculated.
-        self.output_potential().is_powered()
-    }
-}
-impl ProvideFrequency for ExternalPowerSource {
-    fn frequency(&self) -> Frequency {
-        // TODO: Replace with actual values once calculated.
-        if self.output_potential().is_powered() {
-            Frequency::new::<hertz>(400.)
-        } else {
-            Frequency::new::<hertz>(0.)
-        }
-    }
-
-    fn frequency_normal(&self) -> bool {
-        // TODO: Replace with actual values once calculated.
-        self.output_potential().is_powered()
-    }
-}
+provide_potential!(ExternalPowerSource);
+provide_frequency!(ExternalPowerSource);
 impl SimulationElement for ExternalPowerSource {
     fn read(&mut self, reader: &mut SimulatorReader) {
         self.is_connected = reader.read_bool("EXTERNAL POWER AVAILABLE:1");
@@ -65,6 +41,24 @@ impl SimulationElement for ExternalPowerSource {
 
     fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_alternating(self, writer);
+    }
+
+    fn process_power_consumption_report<T: super::consumption::PowerConsumptionReport>(
+        &mut self,
+        _: &T,
+        _: &UpdateContext,
+    ) {
+        self.frequency = if self.output_potential().is_powered() {
+            Frequency::new::<hertz>(400.)
+        } else {
+            Frequency::new::<hertz>(0.)
+        };
+
+        self.potential = if self.output_potential().is_powered() {
+            ElectricPotential::new::<volt>(115.)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        };
     }
 }
 impl Default for ExternalPowerSource {
@@ -75,45 +69,135 @@ impl Default for ExternalPowerSource {
 
 #[cfg(test)]
 mod external_power_source_tests {
-    use crate::simulation::test::SimulationTestBed;
-
     use super::*;
+    use crate::simulation::{test::SimulationTestBed, Aircraft, SimulationElementVisitor};
 
-    #[test]
-    fn starts_without_output() {
-        assert!(external_power_source().is_unpowered());
+    struct ExternalPowerTestBed {
+        test_bed: SimulationTestBed,
+    }
+    impl ExternalPowerTestBed {
+        fn new() -> Self {
+            Self {
+                test_bed: SimulationTestBed::new(),
+            }
+        }
+
+        fn with_disconnected_external_power(mut self) -> Self {
+            self.test_bed
+                .write_bool("EXTERNAL POWER AVAILABLE:1", false);
+            self
+        }
+
+        fn with_connected_external_power(mut self) -> Self {
+            self.test_bed.write_bool("EXTERNAL POWER AVAILABLE:1", true);
+            self
+        }
+
+        fn run_aircraft<T: Aircraft>(&mut self, aircraft: &mut T) {
+            self.test_bed.run_aircraft(aircraft);
+        }
+
+        fn frequency_is_normal(&mut self) -> bool {
+            self.test_bed.read_bool("ELEC_EXT_PWR_FREQUENCY_NORMAL")
+        }
+
+        fn potential_is_normal(&mut self) -> bool {
+            self.test_bed.read_bool("ELEC_EXT_PWR_POTENTIAL_NORMAL")
+        }
+    }
+
+    struct TestAircraft {
+        ext_pwr: ExternalPowerSource,
+    }
+    impl TestAircraft {
+        fn new() -> Self {
+            Self {
+                ext_pwr: ExternalPowerSource::new(),
+            }
+        }
+
+        fn ext_pwr_is_powered(&self) -> bool {
+            self.ext_pwr.is_powered()
+        }
+    }
+    impl Aircraft for TestAircraft {}
+    impl SimulationElement for TestAircraft {
+        fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
+            self.ext_pwr.accept(visitor);
+            visitor.visit(self);
+        }
     }
 
     #[test]
-    fn when_plugged_in_provides_output() {
-        let mut ext_pwr = external_power_source();
-        ext_pwr.is_connected = true;
+    fn when_disconnected_provides_no_output() {
+        let mut aircraft = TestAircraft::new();
+        let mut test_bed = ExternalPowerTestBed::new().with_disconnected_external_power();
 
-        assert!(ext_pwr.is_powered());
+        test_bed.run_aircraft(&mut aircraft);
+
+        assert!(!aircraft.ext_pwr_is_powered());
     }
 
     #[test]
-    fn when_not_plugged_in_provides_no_output() {
-        let mut ext_pwr = external_power_source();
-        ext_pwr.is_connected = false;
+    fn when_connected_provides_output() {
+        let mut aircraft = TestAircraft::new();
+        let mut test_bed = ExternalPowerTestBed::new().with_connected_external_power();
 
-        assert!(ext_pwr.is_unpowered());
+        test_bed.run_aircraft(&mut aircraft);
+
+        assert!(aircraft.ext_pwr_is_powered());
+    }
+
+    #[test]
+    fn when_disconnected_frequency_not_normal() {
+        let mut aircraft = TestAircraft::new();
+        let mut test_bed = ExternalPowerTestBed::new().with_disconnected_external_power();
+
+        test_bed.run_aircraft(&mut aircraft);
+
+        assert!(!test_bed.frequency_is_normal());
+    }
+
+    #[test]
+    fn when_connected_frequency_normal() {
+        let mut aircraft = TestAircraft::new();
+        let mut test_bed = ExternalPowerTestBed::new().with_connected_external_power();
+
+        test_bed.run_aircraft(&mut aircraft);
+
+        assert!(test_bed.frequency_is_normal());
+    }
+
+    #[test]
+    fn when_disconnected_potential_not_normal() {
+        let mut aircraft = TestAircraft::new();
+        let mut test_bed = ExternalPowerTestBed::new().with_disconnected_external_power();
+
+        test_bed.run_aircraft(&mut aircraft);
+
+        assert!(!test_bed.potential_is_normal());
+    }
+
+    #[test]
+    fn when_engine_running_potential_normal() {
+        let mut aircraft = TestAircraft::new();
+        let mut test_bed = ExternalPowerTestBed::new().with_connected_external_power();
+
+        test_bed.run_aircraft(&mut aircraft);
+
+        assert!(test_bed.potential_is_normal());
     }
 
     #[test]
     fn writes_its_state() {
-        let mut external_power = external_power_source();
+        let mut aircraft = TestAircraft::new();
         let mut test_bed = SimulationTestBed::new();
 
-        test_bed.run_without_update(&mut external_power);
+        test_bed.run_aircraft(&mut aircraft);
 
         assert!(test_bed.contains_key("ELEC_EXT_PWR_POTENTIAL"));
         assert!(test_bed.contains_key("ELEC_EXT_PWR_POTENTIAL_NORMAL"));
         assert!(test_bed.contains_key("ELEC_EXT_PWR_FREQUENCY"));
         assert!(test_bed.contains_key("ELEC_EXT_PWR_FREQUENCY_NORMAL"));
-    }
-
-    fn external_power_source() -> ExternalPowerSource {
-        ExternalPowerSource::new()
     }
 }
