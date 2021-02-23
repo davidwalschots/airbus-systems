@@ -72,8 +72,12 @@ impl SuppliedPower {
         }
     }
 
-    pub fn add(&mut self, bus: &ElectricalBus) {
-        self.state.insert(bus.bus_type(), bus.output_potential());
+    pub fn add_bus(&mut self, bus: &ElectricalBus) {
+        self.add(bus.bus_type(), bus.output_potential());
+    }
+
+    pub fn add(&mut self, bus_type: ElectricalBusType, output_potential: Potential) {
+        self.state.insert(bus_type, output_potential);
     }
 
     pub fn potential_of(&self, bus_type: &ElectricalBusType) -> Potential {
@@ -386,7 +390,7 @@ mod tests {
         #[test]
         fn is_powered_returns_true_when_bus_is_powered() {
             let mut supplied_power = SuppliedPower::new();
-            supplied_power.add(&powered_bus(ElectricalBusType::AlternatingCurrent(1)));
+            supplied_power.add_bus(&powered_bus(ElectricalBusType::AlternatingCurrent(1)));
 
             assert!(supplied_power.is_powered(&ElectricalBusType::AlternatingCurrent(1)))
         }
@@ -394,7 +398,7 @@ mod tests {
         #[test]
         fn is_powered_returns_false_when_bus_unpowered() {
             let mut supplied_power = SuppliedPower::new();
-            supplied_power.add(&unpowered_bus(ElectricalBusType::AlternatingCurrent(1)));
+            supplied_power.add_bus(&unpowered_bus(ElectricalBusType::AlternatingCurrent(1)));
 
             assert!(!supplied_power.is_powered(&ElectricalBusType::AlternatingCurrent(1)))
         }
@@ -415,7 +419,7 @@ mod tests {
         fn powered_consumer() -> PowerConsumer {
             let mut consumer = PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1));
             let mut supplied_power = SuppliedPower::new();
-            supplied_power.add(&powered_bus(ElectricalBusType::AlternatingCurrent(1)));
+            supplied_power.add_bus(&powered_bus(ElectricalBusType::AlternatingCurrent(1)));
             consumer.receive_power(&supplied_power);
 
             consumer
@@ -430,7 +434,7 @@ mod tests {
         #[test]
         fn is_powered_returns_false_when_powered_by_bus_which_is_not_powered() {
             let mut supplied_power = SuppliedPower::new();
-            supplied_power.add(&powered_bus(ElectricalBusType::AlternatingCurrent(2)));
+            supplied_power.add_bus(&powered_bus(ElectricalBusType::AlternatingCurrent(2)));
 
             let mut consumer = PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1));
             consumer.receive_power(&supplied_power);
@@ -441,8 +445,8 @@ mod tests {
         #[test]
         fn is_powered_returns_true_when_powered_by_bus_which_is_powered() {
             let mut supplied_power = SuppliedPower::new();
-            supplied_power.add(&powered_bus(ElectricalBusType::AlternatingCurrent(2)));
-            supplied_power.add(&powered_bus(ElectricalBusType::AlternatingCurrent(1)));
+            supplied_power.add_bus(&powered_bus(ElectricalBusType::AlternatingCurrent(2)));
+            supplied_power.add_bus(&powered_bus(ElectricalBusType::AlternatingCurrent(1)));
 
             let mut consumption = PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1));
             consumption.receive_power(&supplied_power);
@@ -533,7 +537,7 @@ mod tests {
                 let mut supplied_power = SuppliedPower::new();
 
                 if self.powered {
-                    supplied_power.add(&FlightPhasePowerConsumerTestAircraft::powered_bus(
+                    supplied_power.add_bus(&FlightPhasePowerConsumerTestAircraft::powered_bus(
                         ElectricalBusType::AlternatingCurrent(1),
                     ));
                 }
@@ -564,7 +568,7 @@ mod tests {
 
         #[test]
         fn when_flight_phase_doesnt_have_demand_usage_is_zero() {
-            let mut test_aircraft = FlightPhasePowerConsumerTestAircraft::new(
+            let mut aircraft = FlightPhasePowerConsumerTestAircraft::new(
                 FlightPhasePowerConsumer::from(ElectricalBusType::AlternatingCurrent(1)).demand([
                     (
                         PowerConsumerFlightPhase::BeforeStart,
@@ -582,15 +586,15 @@ mod tests {
             let mut test_bed = SimulationTestBed::new();
             apply_flight_phase(&mut test_bed, FwcFlightPhase::FirstEngineStarted);
 
-            test_bed.run_aircraft(&mut test_aircraft);
+            test_bed.run_aircraft(&mut aircraft);
 
-            assert!(test_aircraft.consumption_equals(Power::new::<watt>(0.)));
+            assert!(aircraft.consumption_equals(Power::new::<watt>(0.)));
         }
 
         #[test]
         fn when_flight_phase_does_have_demand_usage_is_close_to_demand() {
             let input = Power::new::<watt>(20000.);
-            let mut test_aircraft = FlightPhasePowerConsumerTestAircraft::new(
+            let mut aircraft = FlightPhasePowerConsumerTestAircraft::new(
                 FlightPhasePowerConsumer::from(ElectricalBusType::AlternatingCurrent(1)).demand([
                     (
                         PowerConsumerFlightPhase::BeforeStart,
@@ -608,14 +612,14 @@ mod tests {
             let mut test_bed = SimulationTestBed::new();
             apply_flight_phase(&mut test_bed, FwcFlightPhase::AtOrAbove1500Feet);
 
-            test_bed.run_aircraft(&mut test_aircraft);
+            test_bed.run_aircraft(&mut aircraft);
 
-            assert!(test_aircraft.consumption_within_range(input * 0.9, input * 1.1));
+            assert!(aircraft.consumption_within_range(input * 0.9, input * 1.1));
         }
 
         #[test]
         fn when_flight_phase_does_have_demand_but_consumer_unpowered_usage_is_zero() {
-            let mut test_aircraft = FlightPhasePowerConsumerTestAircraft::new(
+            let mut aircraft = FlightPhasePowerConsumerTestAircraft::new(
                 FlightPhasePowerConsumer::from(ElectricalBusType::AlternatingCurrent(1)).demand([
                     (
                         PowerConsumerFlightPhase::BeforeStart,
@@ -642,9 +646,9 @@ mod tests {
             let mut test_bed = SimulationTestBed::new();
             apply_flight_phase(&mut test_bed, FwcFlightPhase::FirstEngineStarted);
 
-            test_bed.run_aircraft(&mut test_aircraft);
+            test_bed.run_aircraft(&mut aircraft);
 
-            assert!(test_aircraft.consumption_equals(Power::new::<watt>(0.)));
+            assert!(aircraft.consumption_equals(Power::new::<watt>(0.)));
         }
     }
 

@@ -224,18 +224,18 @@ impl A320Electrical {
 impl ElectricalSystem for A320Electrical {
     fn get_supplied_power(&self) -> SuppliedPower {
         let mut state = SuppliedPower::new();
-        state.add(self.ac_bus_1());
-        state.add(self.ac_bus_2());
-        state.add(self.ac_ess_bus());
-        state.add(self.ac_ess_shed_bus());
-        state.add(self.ac_stat_inv_bus());
-        state.add(self.dc_bus_1());
-        state.add(self.dc_bus_2());
-        state.add(self.dc_ess_bus());
-        state.add(self.dc_ess_shed_bus());
-        state.add(self.dc_bat_bus());
-        state.add(self.hot_bus_1());
-        state.add(self.hot_bus_2());
+        state.add_bus(self.ac_bus_1());
+        state.add_bus(self.ac_bus_2());
+        state.add_bus(self.ac_ess_bus());
+        state.add_bus(self.ac_ess_shed_bus());
+        state.add_bus(self.ac_stat_inv_bus());
+        state.add_bus(self.dc_bus_1());
+        state.add_bus(self.dc_bus_2());
+        state.add_bus(self.dc_ess_bus());
+        state.add_bus(self.dc_ess_shed_bus());
+        state.add_bus(self.dc_bat_bus());
+        state.add_bus(self.hot_bus_1());
+        state.add_bus(self.hot_bus_2());
 
         state
     }

@@ -354,6 +354,7 @@ fn calculate_towards_ambient_egt(
 /// APS3200 APU Generator
 pub struct Aps3200ApuGenerator {
     number: usize,
+    n: Ratio,
     writer: ElectricalStateWriter,
     output: Potential,
     frequency: Frequency,
@@ -366,6 +367,7 @@ impl Aps3200ApuGenerator {
     pub fn new(number: usize) -> Aps3200ApuGenerator {
         Aps3200ApuGenerator {
             number,
+            n: Ratio::new::<percent>(0.),
             writer: ElectricalStateWriter::new(&format!("APU_GEN_{}", number)),
             output: Potential::None,
             potential: ElectricPotential::new::<volt>(0.),
@@ -430,7 +432,9 @@ impl Aps3200ApuGenerator {
     }
 }
 impl ApuGenerator for Aps3200ApuGenerator {
-    fn update(&mut self, _: &UpdateContext, n: Ratio, is_emergency_shutdown: bool) {
+    fn update(&mut self, n: Ratio, is_emergency_shutdown: bool) {
+        self.n = n;
+
         self.output = if is_emergency_shutdown
             || n.get::<percent>() < Aps3200ApuGenerator::APU_GEN_POWERED_N
         {
@@ -438,49 +442,11 @@ impl ApuGenerator for Aps3200ApuGenerator {
         } else {
             Potential::ApuGenerator(self.number)
         };
-
-        self.potential = if self.is_powered() {
-            self.calculate_potential(n)
-        } else {
-            ElectricPotential::new::<volt>(0.)
-        };
-
-        self.frequency = if self.is_powered() {
-            self.calculate_frequency(n)
-        } else {
-            Frequency::new::<hertz>(0.)
-        };
     }
 }
-impl ProvidePotential for Aps3200ApuGenerator {
-    fn potential(&self) -> ElectricPotential {
-        self.potential
-    }
-
-    fn potential_normal(&self) -> bool {
-        let volts = self.potential.get::<volt>();
-        (110.0..=120.0).contains(&volts)
-    }
-}
-impl ProvideFrequency for Aps3200ApuGenerator {
-    fn frequency(&self) -> Frequency {
-        self.frequency
-    }
-
-    fn frequency_normal(&self) -> bool {
-        let hz = self.frequency.get::<hertz>();
-        (390.0..=410.0).contains(&hz)
-    }
-}
-impl ProvideLoad for Aps3200ApuGenerator {
-    fn load(&self) -> Ratio {
-        self.load
-    }
-
-    fn load_normal(&self) -> bool {
-        self.load <= Ratio::new::<percent>(100.)
-    }
-}
+provide_potential!(Aps3200ApuGenerator);
+provide_frequency!(Aps3200ApuGenerator);
+provide_load!(Aps3200ApuGenerator);
 impl PotentialSource for Aps3200ApuGenerator {
     fn output_potential(&self) -> Potential {
         self.output
@@ -496,6 +462,18 @@ impl SimulationElement for Aps3200ApuGenerator {
         report: &T,
         _: &UpdateContext,
     ) {
+        self.potential = if self.is_powered() {
+            self.calculate_potential(self.n)
+        } else {
+            ElectricPotential::new::<volt>(0.)
+        };
+
+        self.frequency = if self.is_powered() {
+            self.calculate_frequency(self.n)
+        } else {
+            Frequency::new::<hertz>(0.)
+        };
+
         let power_consumption = report
             .total_consumption_of(&self.output_potential())
             .get::<watt>();
@@ -608,7 +586,7 @@ mod apu_generator_tests {
     fn when_shutdown_frequency_not_normal() {
         let mut test_bed = test_bed().run(Duration::from_secs(1_000));
 
-        assert!(!test_bed.generator_frequency_within_normal_range());
+        assert!(!test_bed.frequency_within_normal_range());
     }
 
     #[test]
@@ -617,14 +595,14 @@ mod apu_generator_tests {
             .running_apu()
             .run(Duration::from_secs(1_000));
 
-        assert!(test_bed.generator_frequency_within_normal_range());
+        assert!(test_bed.frequency_within_normal_range());
     }
 
     #[test]
     fn when_shutdown_potential_not_normal() {
         let mut test_bed = test_bed().run(Duration::from_secs(1_000));
 
-        assert!(!test_bed.generator_potential_within_normal_range());
+        assert!(!test_bed.potential_within_normal_range());
     }
 
     #[test]
@@ -633,7 +611,54 @@ mod apu_generator_tests {
             .running_apu()
             .run(Duration::from_secs(1_000));
 
-        assert!(test_bed.generator_potential_within_normal_range());
+        assert!(test_bed.potential_within_normal_range());
+    }
+
+    #[test]
+    fn when_shutdown_has_no_load() {
+        let mut test_bed = test_bed().run(Duration::from_secs(1_000));
+
+        assert_eq!(test_bed.load(), Ratio::new::<percent>(0.));
+    }
+
+    #[test]
+    fn when_running_but_potential_unused_has_no_load() {
+        let mut test_bed = test_bed_with()
+            .running_apu()
+            .power_demand(Power::new::<watt>(0.))
+            .run(Duration::from_secs(1_000));
+
+        assert_eq!(test_bed.load(), Ratio::new::<percent>(0.));
+    }
+
+    #[test]
+    fn when_running_and_potential_used_has_load() {
+        let mut test_bed = test_bed_with()
+            .running_apu()
+            .power_demand(Power::new::<watt>(50000.))
+            .run(Duration::from_secs(1_000));
+
+        assert!(test_bed.load() > Ratio::new::<percent>(0.));
+    }
+
+    #[test]
+    fn when_load_below_maximum_it_is_normal() {
+        let mut test_bed = test_bed_with()
+            .running_apu()
+            .power_demand(Power::new::<watt>(90000. / 0.8))
+            .run(Duration::from_secs(1_000));
+
+        assert!(test_bed.load_within_normal_range());
+    }
+
+    #[test]
+    fn when_load_exceeds_maximum_not_normal() {
+        let mut test_bed = test_bed_with()
+            .running_apu()
+            .power_demand(Power::new::<watt>((90000. / 0.8) + 1.))
+            .run(Duration::from_secs(1_000));
+
+        assert!(!test_bed.load_within_normal_range());
     }
 
     #[test]
@@ -669,8 +694,8 @@ mod apu_generator_tests {
         test_bed: &mut SimulationTestBed,
         generator: &mut Aps3200ApuGenerator,
     ) {
-        test_bed.run_before_power_distribution(generator, |gen, context| {
-            gen.update(context, Ratio::new::<percent>(100.), false);
+        test_bed.run_before_power_distribution(generator, |gen, _| {
+            gen.update(Ratio::new::<percent>(100.), false);
         });
     }
 
@@ -678,8 +703,8 @@ mod apu_generator_tests {
         test_bed: &mut SimulationTestBed,
         generator: &mut Aps3200ApuGenerator,
     ) {
-        test_bed.run_before_power_distribution(generator, |gen, context| {
-            gen.update(context, Ratio::new::<percent>(0.), false);
+        test_bed.run_before_power_distribution(generator, |gen, _| {
+            gen.update(Ratio::new::<percent>(0.), false);
         });
     }
 }

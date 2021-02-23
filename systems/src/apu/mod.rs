@@ -150,7 +150,7 @@ impl<T: ApuGenerator> AuxiliaryPowerUnit<T> {
         }
 
         self.generator
-            .update(context, self.n(), self.is_emergency_shutdown());
+            .update(self.n(), self.is_emergency_shutdown());
     }
 
     pub fn n(&self) -> Ratio {
@@ -257,7 +257,7 @@ pub enum TurbineState {
 pub trait ApuGenerator:
     PotentialSource + SimulationElement + ProvidePotential + ProvideFrequency
 {
-    fn update(&mut self, context: &UpdateContext, n: Ratio, is_emergency_shutdown: bool);
+    fn update(&mut self, n: Ratio, is_emergency_shutdown: bool);
 }
 
 pub struct AuxiliaryPowerUnitFireOverheadPanel {
@@ -336,7 +336,13 @@ impl Default for AuxiliaryPowerUnitOverheadPanel {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::simulation::{test::SimulationTestBed, Aircraft};
+    use crate::{
+        electrical::{
+            consumption::{PowerConsumer, SuppliedPower},
+            ElectricalBusType,
+        },
+        simulation::{test::SimulationTestBed, Aircraft},
+    };
 
     use super::*;
     use std::time::Duration;
@@ -392,6 +398,7 @@ pub mod tests {
         apu_bleed: OnOffFaultPushButton,
         apu_gen_is_used: bool,
         has_fuel_remaining: bool,
+        power_consumer: PowerConsumer,
     }
     impl AuxiliaryPowerUnitTestAircraft {
         fn new() -> Self {
@@ -402,6 +409,7 @@ pub mod tests {
                 apu_bleed: OnOffFaultPushButton::new_on("APU_BLEED"),
                 apu_gen_is_used: true,
                 has_fuel_remaining: true,
+                power_consumer: PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1)),
             }
         }
 
@@ -425,6 +433,10 @@ pub mod tests {
         pub fn generator_output_potential(&self) -> Potential {
             self.apu.output_potential()
         }
+
+        fn set_power_demand(&mut self, power: Power) {
+            self.power_consumer.demand(power);
+        }
     }
     impl Aircraft for AuxiliaryPowerUnitTestAircraft {
         fn update_before_power_distribution(&mut self, context: &UpdateContext) {
@@ -439,6 +451,18 @@ pub mod tests {
 
             self.apu_overhead.update_after_apu(&self.apu);
         }
+
+        fn get_supplied_power(&mut self) -> SuppliedPower {
+            let mut supplied_power = SuppliedPower::new();
+            if self.apu.is_powered() {
+                supplied_power.add(
+                    ElectricalBusType::AlternatingCurrent(1),
+                    Potential::ApuGenerator(1),
+                );
+            }
+
+            supplied_power
+        }
     }
     impl SimulationElement for AuxiliaryPowerUnitTestAircraft {
         fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
@@ -446,6 +470,7 @@ pub mod tests {
             self.apu_overhead.accept(visitor);
             self.apu_fire_overhead.accept(visitor);
             self.apu_bleed.accept(visitor);
+            self.power_consumer.accept(visitor);
 
             visitor.visit(self);
         }
@@ -475,6 +500,11 @@ pub mod tests {
 
         fn air_intake_flap_that_opens_in(mut self, duration: Duration) -> Self {
             self.aircraft.set_air_intake_flap_opening_delay(duration);
+            self
+        }
+
+        pub fn power_demand(mut self, power: Power) -> Self {
+            self.aircraft.set_power_demand(power);
             self
         }
 
@@ -711,6 +741,11 @@ pub mod tests {
             )
         }
 
+        pub fn potential_within_normal_range(&mut self) -> bool {
+            self.simulation_test_bed
+                .read_bool("ELEC_APU_GEN_1_POTENTIAL_NORMAL")
+        }
+
         pub fn frequency(&mut self) -> Frequency {
             Frequency::new::<hertz>(
                 self.simulation_test_bed
@@ -718,19 +753,23 @@ pub mod tests {
             )
         }
 
-        fn start_contactor_energized(&mut self) -> bool {
-            self.simulation_test_bed
-                .read_bool("APU_START_CONTACTOR_ENERGIZED")
-        }
-
-        pub fn generator_frequency_within_normal_range(&mut self) -> bool {
+        pub fn frequency_within_normal_range(&mut self) -> bool {
             self.simulation_test_bed
                 .read_bool("ELEC_APU_GEN_1_FREQUENCY_NORMAL")
         }
 
-        pub fn generator_potential_within_normal_range(&mut self) -> bool {
+        pub fn load(&mut self) -> Ratio {
+            Ratio::new::<percent>(self.simulation_test_bed.read_f64("ELEC_APU_GEN_1_LOAD"))
+        }
+
+        pub fn load_within_normal_range(&mut self) -> bool {
             self.simulation_test_bed
-                .read_bool("ELEC_APU_GEN_1_POTENTIAL_NORMAL")
+                .read_bool("ELEC_APU_GEN_1_LOAD_NORMAL")
+        }
+
+        fn start_contactor_energized(&mut self) -> bool {
+            self.simulation_test_bed
+                .read_bool("APU_START_CONTACTOR_ENERGIZED")
         }
 
         fn has_fuel_low_pressure_fault(&mut self) -> bool {

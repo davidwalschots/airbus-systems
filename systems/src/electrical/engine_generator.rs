@@ -54,35 +54,9 @@ impl PotentialSource for EngineGenerator {
         }
     }
 }
-impl ProvidePotential for EngineGenerator {
-    fn potential(&self) -> ElectricPotential {
-        self.potential
-    }
-
-    fn potential_normal(&self) -> bool {
-        let volts = self.potential.get::<volt>();
-        (110.0..=120.0).contains(&volts)
-    }
-}
-impl ProvideFrequency for EngineGenerator {
-    fn frequency(&self) -> Frequency {
-        self.frequency
-    }
-
-    fn frequency_normal(&self) -> bool {
-        let hz = self.frequency.get::<hertz>();
-        (390.0..=410.0).contains(&hz)
-    }
-}
-impl ProvideLoad for EngineGenerator {
-    fn load(&self) -> Ratio {
-        self.load
-    }
-
-    fn load_normal(&self) -> bool {
-        self.load <= Ratio::new::<percent>(100.)
-    }
-}
+provide_potential!(EngineGenerator);
+provide_frequency!(EngineGenerator);
+provide_load!(EngineGenerator);
 impl SimulationElement for EngineGenerator {
     fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
         self.idg.accept(visitor);
@@ -100,6 +74,7 @@ impl SimulationElement for EngineGenerator {
         } else {
             Frequency::new::<hertz>(0.)
         };
+
         self.potential = if self.output_potential().is_powered() {
             ElectricPotential::new::<volt>(115.)
         } else {
@@ -110,9 +85,9 @@ impl SimulationElement for EngineGenerator {
             .total_consumption_of(&self.output_potential())
             .get::<watt>();
         let power_factor_correction = 0.8;
-        let maximum_load = 90000.;
+        let maximum_true_power = 90000.;
         self.load = Ratio::new::<percent>(
-            (power_consumption * power_factor_correction / maximum_load) * 100.,
+            (power_consumption * power_factor_correction / maximum_true_power) * 100.,
         );
     }
 
@@ -290,56 +265,221 @@ mod tests {
     #[cfg(test)]
     mod engine_generator_tests {
         use super::*;
-        use crate::simulation::test::SimulationTestBed;
+        use crate::{
+            electrical::{
+                consumption::{PowerConsumer, SuppliedPower},
+                ElectricalBusType,
+            },
+            simulation::{test::SimulationTestBed, Aircraft},
+        };
 
-        #[test]
-        fn starts_without_output() {
-            assert!(engine_generator().is_unpowered());
+        struct TestAircraft {
+            engine_gen: EngineGenerator,
+            running: bool,
+            idg_push_button_released: bool,
+            consumer: PowerConsumer,
         }
+        impl TestAircraft {
+            fn new(running: bool) -> Self {
+                Self {
+                    engine_gen: EngineGenerator::new(1),
+                    running: running,
+                    idg_push_button_released: false,
+                    consumer: PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1)),
+                }
+            }
 
-        #[test]
-        fn when_engine_n2_above_threshold_provides_output() {
-            let mut generator = engine_generator();
-            let mut test_bed = SimulationTestBed::new();
+            fn with_shutdown_engine() -> Self {
+                TestAircraft::new(false)
+            }
 
-            update_below_threshold(&mut test_bed, &mut generator);
-            update_above_threshold(&mut test_bed, &mut generator);
+            fn with_running_engine() -> Self {
+                TestAircraft::new(true)
+            }
 
-            assert!(generator.is_powered());
+            fn disconnect_idg(&mut self) {
+                self.idg_push_button_released = true;
+            }
+
+            fn generator_is_powered(&self) -> bool {
+                self.engine_gen.is_powered()
+            }
+
+            fn power_demand(&mut self, power: Power) {
+                self.consumer.demand(power);
+            }
         }
-
-        #[test]
-        fn when_engine_n2_below_threshold_provides_no_output() {
-            let mut generator = engine_generator();
-            let mut test_bed = SimulationTestBed::new();
-
-            update_above_threshold(&mut test_bed, &mut generator);
-            update_below_threshold(&mut test_bed, &mut generator);
-
-            assert!(generator.is_unpowered());
-        }
-
-        #[test]
-        fn when_idg_disconnected_provides_no_output() {
-            let mut generator = engine_generator();
-            let mut test_bed = SimulationTestBed::new();
-
-            test_bed.run(&mut generator, |gen, context| {
-                gen.update(
+        impl Aircraft for TestAircraft {
+            fn update_before_power_distribution(&mut self, context: &UpdateContext) {
+                self.engine_gen.update(
                     context,
-                    &UpdateArguments::new(Ratio::new::<percent>(80.), true),
-                )
-            });
+                    &UpdateArguments::new(
+                        Ratio::new::<percent>(if self.running { 80. } else { 0. }),
+                        self.idg_push_button_released,
+                    ),
+                );
+            }
 
-            assert!(generator.is_unpowered());
+            fn get_supplied_power(&mut self) -> SuppliedPower {
+                let mut supplied_power = SuppliedPower::new();
+                if self.engine_gen.is_powered() {
+                    supplied_power.add(
+                        ElectricalBusType::AlternatingCurrent(1),
+                        Potential::EngineGenerator(1),
+                    );
+                }
+
+                supplied_power
+            }
+        }
+        impl SimulationElement for TestAircraft {
+            fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
+                self.engine_gen.accept(visitor);
+                self.consumer.accept(visitor);
+
+                visitor.visit(self);
+            }
+        }
+
+        #[test]
+        fn when_engine_running_provides_output() {
+            let mut aircraft = TestAircraft::with_running_engine();
+            let mut test_bed = SimulationTestBed::new();
+
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(aircraft.generator_is_powered());
+        }
+
+        #[test]
+        fn when_engine_shutdown_provides_no_output() {
+            let mut aircraft = TestAircraft::with_shutdown_engine();
+            let mut test_bed = SimulationTestBed::new();
+
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(!aircraft.generator_is_powered());
+        }
+
+        #[test]
+        fn when_engine_running_but_idg_disconnected_provides_no_output() {
+            let mut aircraft = TestAircraft::with_running_engine();
+            let mut test_bed = SimulationTestBed::new();
+
+            aircraft.disconnect_idg();
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(!aircraft.generator_is_powered());
+        }
+
+        #[test]
+        fn when_engine_shutdown_frequency_not_normal() {
+            let mut aircraft = TestAircraft::with_shutdown_engine();
+            let mut test_bed = SimulationTestBed::new();
+
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(!test_bed.read_bool("ELEC_ENG_GEN_1_FREQUENCY_NORMAL"));
+        }
+
+        #[test]
+        fn when_engine_running_frequency_normal() {
+            let mut aircraft = TestAircraft::with_running_engine();
+            let mut test_bed = SimulationTestBed::new();
+
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(test_bed.read_bool("ELEC_ENG_GEN_1_FREQUENCY_NORMAL"));
+        }
+
+        #[test]
+        fn when_engine_shutdown_potential_not_normal() {
+            let mut aircraft = TestAircraft::with_shutdown_engine();
+            let mut test_bed = SimulationTestBed::new();
+
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(!test_bed.read_bool("ELEC_ENG_GEN_1_POTENTIAL_NORMAL"));
+        }
+
+        #[test]
+        fn when_engine_running_potential_normal() {
+            let mut aircraft = TestAircraft::with_running_engine();
+            let mut test_bed = SimulationTestBed::new();
+
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(test_bed.read_bool("ELEC_ENG_GEN_1_POTENTIAL_NORMAL"));
+        }
+
+        #[test]
+        fn when_engine_shutdown_has_no_load() {
+            let mut aircraft = TestAircraft::with_shutdown_engine();
+            let mut test_bed = SimulationTestBed::new();
+
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert_eq!(
+                Ratio::new::<percent>(test_bed.read_f64("ELEC_ENG_GEN_1_LOAD")),
+                Ratio::new::<percent>(0.)
+            );
+        }
+
+        #[test]
+        fn when_engine_running_but_potential_unused_has_no_load() {
+            let mut aircraft = TestAircraft::with_running_engine();
+            let mut test_bed = SimulationTestBed::new();
+
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert_eq!(
+                Ratio::new::<percent>(test_bed.read_f64("ELEC_ENG_GEN_1_LOAD")),
+                Ratio::new::<percent>(0.)
+            );
+        }
+
+        #[test]
+        fn when_engine_running_and_potential_used_has_load() {
+            let mut aircraft = TestAircraft::with_running_engine();
+            let mut test_bed = SimulationTestBed::new();
+
+            aircraft.power_demand(Power::new::<watt>(50000.));
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(
+                Ratio::new::<percent>(test_bed.read_f64("ELEC_ENG_GEN_1_LOAD"))
+                    > Ratio::new::<percent>(0.)
+            );
+        }
+
+        #[test]
+        fn when_load_below_maximum_it_is_normal() {
+            let mut aircraft = TestAircraft::with_running_engine();
+            let mut test_bed = SimulationTestBed::new();
+
+            aircraft.power_demand(Power::new::<watt>(90000. / 0.8));
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(test_bed.read_bool("ELEC_ENG_GEN_1_LOAD_NORMAL"));
+        }
+
+        #[test]
+        fn when_load_exceeds_maximum_not_normal() {
+            let mut aircraft = TestAircraft::with_running_engine();
+            let mut test_bed = SimulationTestBed::new();
+
+            aircraft.power_demand(Power::new::<watt>((90000. / 0.8) + 1.));
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(!test_bed.read_bool("ELEC_ENG_GEN_1_LOAD_NORMAL"));
         }
 
         #[test]
         fn writes_its_state() {
-            let mut engine_gen = engine_generator();
+            let mut aircraft = TestAircraft::with_running_engine();
             let mut test_bed = SimulationTestBed::new();
 
-            test_bed.run_without_update(&mut engine_gen);
+            test_bed.run_aircraft(&mut aircraft);
 
             assert!(test_bed.contains_key("ELEC_ENG_GEN_1_POTENTIAL"));
             assert!(test_bed.contains_key("ELEC_ENG_GEN_1_POTENTIAL_NORMAL"));
@@ -347,34 +487,6 @@ mod tests {
             assert!(test_bed.contains_key("ELEC_ENG_GEN_1_FREQUENCY_NORMAL"));
             assert!(test_bed.contains_key("ELEC_ENG_GEN_1_LOAD"));
             assert!(test_bed.contains_key("ELEC_ENG_GEN_1_LOAD_NORMAL"));
-        }
-
-        fn engine_generator() -> EngineGenerator {
-            EngineGenerator::new(1)
-        }
-
-        fn update_above_threshold(
-            test_bed: &mut SimulationTestBed,
-            generator: &mut EngineGenerator,
-        ) {
-            test_bed.run(generator, |gen, context| {
-                gen.update(
-                    context,
-                    &UpdateArguments::new(Ratio::new::<percent>(80.), false),
-                )
-            });
-        }
-
-        fn update_below_threshold(
-            test_bed: &mut SimulationTestBed,
-            generator: &mut EngineGenerator,
-        ) {
-            test_bed.run(generator, |gen, context| {
-                gen.update(
-                    context,
-                    &UpdateArguments::new(Ratio::new::<percent>(0.), false),
-                )
-            });
         }
     }
 
