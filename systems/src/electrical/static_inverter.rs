@@ -48,8 +48,8 @@ impl SimulationElement for StaticInverter {
 
         // Add the AC consumption to the STAT INVs input (DC) consumption.
         // Currently static inverter inefficiency isn't modelled.
-        // It is to be expected that AC consumption should actually be somewhat
-        // higher than DC consumption.
+        // It is to be expected that DC consumption should actually be somewhat
+        // higher than AC consumption.
         consumption.add(&self.input, ac_consumption);
     }
 
