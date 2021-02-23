@@ -32,8 +32,8 @@ impl PotentialSource for ExternalPowerSource {
         }
     }
 }
-provide_potential!(ExternalPowerSource);
-provide_frequency!(ExternalPowerSource);
+provide_potential!(ExternalPowerSource, (110.0..=120.0));
+provide_frequency!(ExternalPowerSource, (390.0..=410.0));
 impl SimulationElement for ExternalPowerSource {
     fn read(&mut self, reader: &mut SimulatorReader) {
         self.is_connected = reader.read_bool("EXTERNAL POWER AVAILABLE:1");

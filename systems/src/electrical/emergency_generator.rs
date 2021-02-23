@@ -45,8 +45,8 @@ impl PotentialSource for EmergencyGenerator {
         }
     }
 }
-provide_frequency!(EmergencyGenerator);
-provide_potential!(EmergencyGenerator);
+provide_frequency!(EmergencyGenerator, (390.0..=410.0));
+provide_potential!(EmergencyGenerator, (110.0..=120.0));
 impl SimulationElement for EmergencyGenerator {
     fn process_power_consumption_report<T: PowerConsumptionReport>(
         &mut self,

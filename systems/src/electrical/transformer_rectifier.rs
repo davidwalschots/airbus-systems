@@ -55,16 +55,7 @@ impl ProvideCurrent for TransformerRectifier {
         self.current > ElectricCurrent::new::<ampere>(5.)
     }
 }
-impl ProvidePotential for TransformerRectifier {
-    fn potential(&self) -> ElectricPotential {
-        self.potential
-    }
-
-    fn potential_normal(&self) -> bool {
-        let volts = self.potential.get::<volt>();
-        (25.0..=31.0).contains(&volts)
-    }
-}
+provide_potential!(TransformerRectifier, (25.0..=31.0));
 impl SimulationElement for TransformerRectifier {
     fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_direct(self, writer);

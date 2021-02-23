@@ -54,8 +54,8 @@ impl PotentialSource for EngineGenerator {
         }
     }
 }
-provide_potential!(EngineGenerator);
-provide_frequency!(EngineGenerator);
+provide_potential!(EngineGenerator, (110.0..=120.0));
+provide_frequency!(EngineGenerator, (390.0..=410.0));
 provide_load!(EngineGenerator);
 impl SimulationElement for EngineGenerator {
     fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {

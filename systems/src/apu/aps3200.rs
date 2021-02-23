@@ -444,8 +444,8 @@ impl ApuGenerator for Aps3200ApuGenerator {
         };
     }
 }
-provide_potential!(Aps3200ApuGenerator);
-provide_frequency!(Aps3200ApuGenerator);
+provide_potential!(Aps3200ApuGenerator, (110.0..=120.0));
+provide_frequency!(Aps3200ApuGenerator, (390.0..=410.0));
 provide_load!(Aps3200ApuGenerator);
 impl PotentialSource for Aps3200ApuGenerator {
     fn output_potential(&self) -> Potential {

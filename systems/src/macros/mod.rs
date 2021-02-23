@@ -14,9 +14,9 @@ macro_rules! potential_target {
     };
 }
 
-/// Provide potential with a normal range of 390 Hz to 410 Hz.
+/// Provide potential with the given normal range.
 macro_rules! provide_frequency {
-    ($t: ty) => {
+    ($t: ty, $normal_range: expr) => {
         impl ProvideFrequency for $t {
             fn frequency(&self) -> Frequency {
                 self.frequency
@@ -24,7 +24,7 @@ macro_rules! provide_frequency {
 
             fn frequency_normal(&self) -> bool {
                 let hz = self.frequency.get::<hertz>();
-                (390.0..=410.0).contains(&hz)
+                $normal_range.contains(&hz)
             }
         }
     };
@@ -45,9 +45,9 @@ macro_rules! provide_load {
     };
 }
 
-/// Provide potential with a normal range of 110 V to 120 V.
+/// Provide potential with the given normal range.
 macro_rules! provide_potential {
-    ($t: ty) => {
+    ($t: ty, $normal_range: expr) => {
         impl ProvidePotential for $t {
             fn potential(&self) -> ElectricPotential {
                 self.potential
@@ -55,7 +55,7 @@ macro_rules! provide_potential {
 
             fn potential_normal(&self) -> bool {
                 let volts = self.potential.get::<volt>();
-                (110.0..=120.0).contains(&volts)
+                $normal_range.contains(&volts)
             }
         }
     };

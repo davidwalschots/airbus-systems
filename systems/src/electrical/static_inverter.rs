@@ -36,8 +36,8 @@ impl PotentialSource for StaticInverter {
         }
     }
 }
-provide_potential!(StaticInverter);
-provide_frequency!(StaticInverter);
+provide_potential!(StaticInverter, (110.0..=120.0));
+provide_frequency!(StaticInverter, (390.0..=410.0));
 impl SimulationElement for StaticInverter {
     fn write(&self, writer: &mut SimulatorWriter) {
         self.writer.write_alternating(self, writer);
