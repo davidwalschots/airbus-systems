@@ -126,11 +126,8 @@ pub trait SimulationElement {
     /// Process a report containing the power consumption per potential origin.
     /// This is useful for calculating the load percentage on a given generator,
     /// amperes provided by a given transformer rectifier and so on.
-    fn process_power_consumption_report<T: PowerConsumptionReport>(
-        &mut self,
-        _report: &T,
-        _context: &UpdateContext,
-    ) where
+    fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, _report: &T)
+    where
         Self: Sized,
     {
     }
@@ -227,13 +224,13 @@ impl<'a, T: Aircraft, U: SimulatorReaderWriter> Simulation<'a, T, U> {
 
         self.aircraft.update_before_power_distribution(&context);
 
-        let mut electric_power = ElectricPower::from(self.aircraft.get_supplied_power());
+        let mut electric_power = ElectricPower::from(self.aircraft.get_supplied_power(), delta);
         electric_power.distribute_to(self.aircraft);
 
         self.aircraft.update_after_power_distribution(&context);
 
         electric_power.consume_in(self.aircraft);
-        electric_power.report_consumption_to(self.aircraft, &context);
+        electric_power.report_consumption_to(self.aircraft);
 
         let mut writer = SimulatorWriter::new(self.simulator_read_writer);
         let mut visitor = SimulationToSimulatorVisitor::new(&mut writer);

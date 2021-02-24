@@ -348,11 +348,7 @@ mod tests {
             self.consume_power_in_converters_called = true;
         }
 
-        fn process_power_consumption_report<T: PowerConsumptionReport>(
-            &mut self,
-            _: &T,
-            _: &UpdateContext,
-        ) {
+        fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, _: &T) {
             self.process_power_consumption_report_called = true;
         }
     }

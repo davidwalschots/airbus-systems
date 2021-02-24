@@ -2,7 +2,7 @@ use super::{
     consumption::PowerConsumptionReport, ElectricalStateWriter, Potential, PotentialSource,
     ProvideFrequency, ProvidePotential,
 };
-use crate::simulation::{SimulationElement, SimulatorWriter, UpdateContext};
+use crate::simulation::{SimulationElement, SimulatorWriter};
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
 pub struct EmergencyGenerator {
@@ -48,11 +48,7 @@ impl PotentialSource for EmergencyGenerator {
 provide_frequency!(EmergencyGenerator, (390.0..=410.0));
 provide_potential!(EmergencyGenerator, (110.0..=120.0));
 impl SimulationElement for EmergencyGenerator {
-    fn process_power_consumption_report<T: PowerConsumptionReport>(
-        &mut self,
-        _report: &T,
-        _context: &UpdateContext,
-    ) {
+    fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, _report: &T) {
         self.frequency = if self.output_potential().is_powered() {
             Frequency::new::<hertz>(400.)
         } else {
@@ -79,7 +75,9 @@ impl Default for EmergencyGenerator {
 #[cfg(test)]
 mod emergency_generator_tests {
     use super::*;
-    use crate::simulation::{test::SimulationTestBed, Aircraft, SimulationElementVisitor};
+    use crate::simulation::{
+        test::SimulationTestBed, Aircraft, SimulationElementVisitor, UpdateContext,
+    };
 
     struct EmergencyGeneratorTestBed {
         test_bed: SimulationTestBed,

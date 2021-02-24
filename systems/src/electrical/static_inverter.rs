@@ -3,7 +3,7 @@ use super::{
     ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, ProvideFrequency,
     ProvidePotential,
 };
-use crate::simulation::{SimulationElement, SimulatorWriter, UpdateContext};
+use crate::simulation::{SimulationElement, SimulatorWriter};
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
 pub struct StaticInverter {
@@ -53,11 +53,7 @@ impl SimulationElement for StaticInverter {
         consumption.add(&self.input, ac_consumption);
     }
 
-    fn process_power_consumption_report<T: PowerConsumptionReport>(
-        &mut self,
-        _: &T,
-        _: &UpdateContext,
-    ) {
+    fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, _: &T) {
         self.potential = if self.output_potential().is_powered() {
             ElectricPotential::new::<volt>(115.)
         } else {
@@ -184,11 +180,7 @@ mod static_inverter_tests {
             visitor.visit(self);
         }
 
-        fn process_power_consumption_report<T: PowerConsumptionReport>(
-            &mut self,
-            report: &T,
-            _: &UpdateContext,
-        ) {
+        fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
             self.static_inverter_consumption =
                 report.total_consumption_of(&Potential::StaticInverter);
         }

@@ -64,11 +64,7 @@ impl SimulationElement for EngineGenerator {
         visitor.visit(self);
     }
 
-    fn process_power_consumption_report<T: PowerConsumptionReport>(
-        &mut self,
-        report: &T,
-        _: &UpdateContext,
-    ) {
+    fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
         self.frequency = if self.output_potential().is_powered() {
             Frequency::new::<hertz>(400.)
         } else {

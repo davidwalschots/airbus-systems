@@ -31,10 +31,10 @@ pub(crate) struct ElectricPower {
     power_consumption: PowerConsumption,
 }
 impl ElectricPower {
-    pub(crate) fn from(supplied_power: SuppliedPower) -> Self {
+    pub(crate) fn from(supplied_power: SuppliedPower, delta: Duration) -> Self {
         Self {
             supplied_power: supplied_power,
-            power_consumption: PowerConsumption::new(),
+            power_consumption: PowerConsumption::new(delta),
         }
     }
 
@@ -51,13 +51,8 @@ impl ElectricPower {
         element.accept(&mut visitor);
     }
 
-    pub fn report_consumption_to<T: SimulationElement>(
-        &mut self,
-        element: &mut T,
-        context: &UpdateContext,
-    ) {
-        let mut visitor =
-            ProcessPowerConsumptionReportVisitor::new(&self.power_consumption, context);
+    pub fn report_consumption_to<T: SimulationElement>(&mut self, element: &mut T) {
+        let mut visitor = ProcessPowerConsumptionReportVisitor::new(&self.power_consumption);
         element.accept(&mut visitor);
     }
 }
@@ -240,15 +235,19 @@ impl From<FwcFlightPhase> for PowerConsumerFlightPhase {
 
 pub trait PowerConsumptionReport {
     fn total_consumption_of(&self, potential: &Potential) -> Power;
+    fn delta(&self) -> Duration;
 }
 
 pub struct PowerConsumption {
     consumption: HashMap<Potential, Power>,
+    /// The duration the power consumption applies to.
+    delta: Duration,
 }
 impl PowerConsumption {
-    pub fn new() -> Self {
+    pub fn new(delta: Duration) -> Self {
         PowerConsumption {
             consumption: HashMap::new(),
+            delta,
         }
     }
 
@@ -269,10 +268,9 @@ impl PowerConsumptionReport for PowerConsumption {
             None => Power::new::<watt>(0.),
         }
     }
-}
-impl Default for PowerConsumption {
-    fn default() -> Self {
-        Self::new()
+
+    fn delta(&self) -> Duration {
+        self.delta
     }
 }
 
@@ -319,19 +317,15 @@ impl<'a> SimulationElementVisitor for ConsumePowerInConvertersVisitor<'a> {
 
 struct ProcessPowerConsumptionReportVisitor<'a> {
     consumption: &'a PowerConsumption,
-    context: &'a UpdateContext,
 }
 impl<'a> ProcessPowerConsumptionReportVisitor<'a> {
-    pub fn new(consumption: &'a PowerConsumption, context: &'a UpdateContext) -> Self {
-        ProcessPowerConsumptionReportVisitor {
-            consumption,
-            context,
-        }
+    pub fn new(consumption: &'a PowerConsumption) -> Self {
+        ProcessPowerConsumptionReportVisitor { consumption }
     }
 }
 impl<'a> SimulationElementVisitor for ProcessPowerConsumptionReportVisitor<'a> {
     fn visit<T: SimulationElement>(&mut self, visited: &mut T) {
-        visited.process_power_consumption_report(self.consumption, &self.context);
+        visited.process_power_consumption_report(self.consumption);
     }
 }
 
@@ -356,11 +350,7 @@ mod tests {
         }
     }
     impl SimulationElement for ApuStub {
-        fn process_power_consumption_report<T: PowerConsumptionReport>(
-            &mut self,
-            report: &T,
-            _: &UpdateContext,
-        ) {
+        fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
             self.consumed_power = report.total_consumption_of(&Potential::ApuGenerator(1));
         }
     }
@@ -456,7 +446,7 @@ mod tests {
 
         #[test]
         fn consume_power_adds_power_consumption_when_powered() {
-            let mut consumption = PowerConsumption::new();
+            let mut consumption = PowerConsumption::new(Duration::from_secs(1));
             let mut consumer = powered_consumer();
             let expected = Power::new::<watt>(100.);
 
@@ -471,7 +461,7 @@ mod tests {
 
         #[test]
         fn consume_power_does_not_add_power_consumption_when_unpowered() {
-            let mut consumption = PowerConsumption::new();
+            let mut consumption = PowerConsumption::new(Duration::from_secs(1));
             let mut consumer = PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1));
 
             consumer.demand(Power::new::<watt>(100.));
@@ -552,11 +542,7 @@ mod tests {
                 visitor.visit(self);
             }
 
-            fn process_power_consumption_report<T: PowerConsumptionReport>(
-                &mut self,
-                report: &T,
-                _: &UpdateContext,
-            ) {
+            fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
                 self.apu_generator_consumption =
                     Some(report.total_consumption_of(&Potential::ApuGenerator(1)));
             }
@@ -657,7 +643,7 @@ mod tests {
         use super::*;
 
         fn power_consumption() -> PowerConsumption {
-            PowerConsumption::new()
+            PowerConsumption::new(Duration::from_secs(1))
         }
 
         #[test]

@@ -3,7 +3,7 @@ use super::{
     ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, ProvideCurrent,
     ProvidePotential,
 };
-use crate::simulation::{SimulationElement, SimulatorWriter, UpdateContext};
+use crate::simulation::{SimulationElement, SimulatorWriter};
 use uom::si::{electric_current::ampere, electric_potential::volt, f64::*};
 
 pub struct TransformerRectifier {
@@ -71,11 +71,7 @@ impl SimulationElement for TransformerRectifier {
         consumption.add(&self.input, dc_consumption);
     }
 
-    fn process_power_consumption_report<T: PowerConsumptionReport>(
-        &mut self,
-        report: &T,
-        _: &UpdateContext,
-    ) {
+    fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
         self.potential = if self.output_potential().is_powered() {
             ElectricPotential::new::<volt>(28.)
         } else {
@@ -188,11 +184,7 @@ mod transformer_rectifier_tests {
             visitor.visit(self);
         }
 
-        fn process_power_consumption_report<T: PowerConsumptionReport>(
-            &mut self,
-            report: &T,
-            _: &UpdateContext,
-        ) {
+        fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
             self.transformer_rectifier_consumption =
                 report.total_consumption_of(&Potential::TransformerRectifier(1));
         }

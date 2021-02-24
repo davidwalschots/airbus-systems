@@ -46,7 +46,6 @@ impl SimulationElement for ExternalPowerSource {
     fn process_power_consumption_report<T: super::consumption::PowerConsumptionReport>(
         &mut self,
         _: &T,
-        _: &UpdateContext,
     ) {
         self.frequency = if self.output_potential().is_powered() {
             Frequency::new::<hertz>(400.)

@@ -105,11 +105,11 @@ impl A320DirectCurrentElectrical {
             ac_state.ac_bus_1_and_2_unpowered() && airspeed_below_100_knots;
         self.battery_1_contactor.close_when(
             overhead.bat_1_is_auto()
-                && (!self.battery_1.is_full() || batteries_should_supply_bat_bus),
+                && (!self.battery_1.needs_charging() || batteries_should_supply_bat_bus),
         );
         self.battery_2_contactor.close_when(
             overhead.bat_2_is_auto()
-                && (!self.battery_2.is_full() || batteries_should_supply_bat_bus),
+                && (!self.battery_2.needs_charging() || batteries_should_supply_bat_bus),
         );
 
         self.battery_1.powered_by(&self.battery_1_contactor);

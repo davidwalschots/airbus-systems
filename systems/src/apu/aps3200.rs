@@ -457,11 +457,7 @@ impl SimulationElement for Aps3200ApuGenerator {
         self.writer.write_alternating_with_load(self, writer);
     }
 
-    fn process_power_consumption_report<T: PowerConsumptionReport>(
-        &mut self,
-        report: &T,
-        _: &UpdateContext,
-    ) {
+    fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
         self.potential = if self.is_powered() {
             self.calculate_potential(self.n)
         } else {
