@@ -18,7 +18,7 @@
 
 use std::{collections::HashMap, time::Duration};
 
-use super::{ElectricalBus, ElectricalBusType, Potential, PotentialSource};
+use super::{ElectricalBus, ElectricalBusType, Potential, PotentialOrigin, PotentialSource};
 use crate::{
     shared::{random_number, FwcFlightPhase},
     simulation::{SimulationElement, SimulationElementVisitor, SimulatorReader, UpdateContext},
@@ -68,7 +68,7 @@ impl SuppliedPower {
     }
 
     pub fn add_bus(&mut self, bus: &ElectricalBus) {
-        self.add(bus.bus_type(), bus.output_potential());
+        self.add(bus.bus_type(), bus.output());
     }
 
     pub fn add(&mut self, bus_type: ElectricalBusType, output_potential: Potential) {
@@ -78,7 +78,7 @@ impl SuppliedPower {
     pub fn potential_of(&self, bus_type: &ElectricalBusType) -> Potential {
         match self.state.get(bus_type) {
             Some(potential) => *potential,
-            None => Potential::None,
+            None => Potential::none(),
         }
     }
 
@@ -89,7 +89,7 @@ impl SuppliedPower {
     pub fn source_for(&self, bus_type: &ElectricalBusType) -> Potential {
         match self.state.get(bus_type) {
             Some(source) => *source,
-            None => Potential::None,
+            None => Potential::none(),
         }
     }
 }
@@ -239,7 +239,7 @@ pub trait PowerConsumptionReport {
 }
 
 pub struct PowerConsumption {
-    consumption: HashMap<Potential, Power>,
+    consumption: HashMap<PotentialOrigin, Power>,
     /// The duration the power consumption applies to.
     delta: Duration,
 }
@@ -252,10 +252,10 @@ impl PowerConsumption {
     }
 
     pub fn add(&mut self, potential: &Potential, power: Power) {
-        match potential {
-            Potential::None => {}
-            potential => {
-                let x = self.consumption.entry(*potential).or_default();
+        match potential.origin() {
+            PotentialOrigin::None => {}
+            origin => {
+                let x = self.consumption.entry(origin).or_default();
                 *x += power;
             }
         };
@@ -263,7 +263,7 @@ impl PowerConsumption {
 }
 impl PowerConsumptionReport for PowerConsumption {
     fn total_consumption_of(&self, potential: &Potential) -> Power {
-        match self.consumption.get(potential) {
+        match self.consumption.get(&potential.origin()) {
             Some(power) => *power,
             None => Power::new::<watt>(0.),
         }
@@ -331,6 +331,8 @@ impl<'a> SimulationElementVisitor for ProcessPowerConsumptionReportVisitor<'a> {
 
 #[cfg(test)]
 mod tests {
+    use uom::si::electric_potential::volt;
+
     use super::*;
     use crate::electrical::{Potential, PotentialSource};
 
@@ -345,13 +347,13 @@ mod tests {
         }
     }
     impl PotentialSource for ApuStub {
-        fn output_potential(&self) -> Potential {
-            Potential::ApuGenerator(1)
+        fn output(&self) -> Potential {
+            Potential::apu_generator(1).with_raw(ElectricPotential::new::<volt>(115.))
         }
     }
     impl SimulationElement for ApuStub {
         fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
-            self.consumed_power = report.total_consumption_of(&Potential::ApuGenerator(1));
+            self.consumed_power = report.total_consumption_of(&Potential::apu_generator(1));
         }
     }
 
@@ -454,7 +456,7 @@ mod tests {
             consumer.consume_power(&mut consumption);
 
             assert_eq!(
-                consumption.total_consumption_of(&Potential::ApuGenerator(1)),
+                consumption.total_consumption_of(&Potential::apu_generator(1)),
                 expected
             );
         }
@@ -468,7 +470,7 @@ mod tests {
             consumer.consume_power(&mut consumption);
 
             assert_eq!(
-                consumption.total_consumption_of(&Potential::ApuGenerator(1)),
+                consumption.total_consumption_of(&Potential::apu_generator(1)),
                 Power::new::<watt>(0.)
             );
         }
@@ -544,7 +546,7 @@ mod tests {
 
             fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
                 self.apu_generator_consumption =
-                    Some(report.total_consumption_of(&Potential::ApuGenerator(1)));
+                    Some(report.total_consumption_of(&Potential::apu_generator(1)));
             }
         }
 
@@ -652,7 +654,7 @@ mod tests {
             let expected = Power::new::<watt>(0.);
 
             assert_eq!(
-                consumption.total_consumption_of(&Potential::ApuGenerator(1)),
+                consumption.total_consumption_of(&Potential::apu_generator(1)),
                 expected
             );
         }
@@ -662,11 +664,11 @@ mod tests {
             let mut consumption = power_consumption();
             let expected = Power::new::<watt>(600.);
 
-            consumption.add(&Potential::ApuGenerator(1), expected);
-            consumption.add(&Potential::EngineGenerator(1), Power::new::<watt>(400.));
+            consumption.add(&Potential::apu_generator(1), expected);
+            consumption.add(&Potential::engine_generator(1), Power::new::<watt>(400.));
 
             assert_eq!(
-                consumption.total_consumption_of(&Potential::ApuGenerator(1)),
+                consumption.total_consumption_of(&Potential::apu_generator(1)),
                 expected
             );
         }
@@ -676,11 +678,11 @@ mod tests {
             let mut consumption = power_consumption();
             let expected = Power::new::<watt>(1100.);
 
-            consumption.add(&Potential::ApuGenerator(1), Power::new::<watt>(400.));
-            consumption.add(&Potential::ApuGenerator(1), Power::new::<watt>(700.));
+            consumption.add(&Potential::apu_generator(1), Power::new::<watt>(400.));
+            consumption.add(&Potential::apu_generator(1), Power::new::<watt>(700.));
 
             assert_eq!(
-                consumption.total_consumption_of(&Potential::ApuGenerator(1)),
+                consumption.total_consumption_of(&Potential::apu_generator(1)),
                 expected
             );
         }

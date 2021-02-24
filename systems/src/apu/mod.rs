@@ -10,7 +10,9 @@ use crate::{
 };
 #[cfg(test)]
 use std::time::Duration;
-use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
+use uom::si::{
+    electric_potential::volt, f64::*, ratio::percent, thermodynamic_temperature::degree_celsius,
+};
 
 mod air_intake_flap;
 mod aps3200;
@@ -43,11 +45,11 @@ impl ApuStartContactor {
     }
 }
 impl PotentialSource for ApuStartContactor {
-    fn output_potential(&self) -> Potential {
+    fn output(&self) -> Potential {
         if self.closed {
-            Potential::Battery(10)
+            Potential::battery(10).with_raw(ElectricPotential::new::<volt>(28.))
         } else {
-            Potential::None
+            Potential::none()
         }
     }
 }
@@ -184,8 +186,8 @@ impl<T: ApuGenerator> AuxiliaryPowerUnit<T> {
     }
 }
 impl<T: ApuGenerator> PotentialSource for AuxiliaryPowerUnit<T> {
-    fn output_potential(&self) -> Potential {
-        self.generator.output_potential()
+    fn output(&self) -> Potential {
+        self.generator.output()
     }
 }
 impl<T: ApuGenerator> SimulationElement for AuxiliaryPowerUnit<T> {
@@ -430,8 +432,8 @@ pub mod tests {
                 .set_turbine(Some(Box::new(InfinitelyAtNTestTurbine::new(n))));
         }
 
-        pub fn generator_output_potential(&self) -> Potential {
-            self.apu.output_potential()
+        pub fn generator_output(&self) -> Potential {
+            self.apu.output()
         }
 
         fn set_power_demand(&mut self, power: Power) {
@@ -457,7 +459,7 @@ pub mod tests {
             if self.apu.is_powered() {
                 supplied_power.add(
                     ElectricalBusType::AlternatingCurrent(1),
-                    Potential::ApuGenerator(1),
+                    Potential::apu_generator(1),
                 );
             }
 
@@ -730,8 +732,8 @@ pub mod tests {
                 .read_bool("OVHD_APU_MASTER_SW_PB_HAS_FAULT")
         }
 
-        pub fn generator_output_potential(&self) -> Potential {
-            self.aircraft.generator_output_potential()
+        pub fn generator_output(&self) -> Potential {
+            self.aircraft.generator_output()
         }
 
         pub fn potential(&mut self) -> ElectricPotential {

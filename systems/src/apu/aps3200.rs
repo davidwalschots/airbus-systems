@@ -356,10 +356,10 @@ pub struct Aps3200ApuGenerator {
     number: usize,
     n: Ratio,
     writer: ElectricalStateWriter,
-    output: Potential,
     frequency: Frequency,
     potential: ElectricPotential,
     load: Ratio,
+    is_emergency_shutdown: bool,
 }
 impl Aps3200ApuGenerator {
     const APU_GEN_POWERED_N: f64 = 84.;
@@ -369,10 +369,10 @@ impl Aps3200ApuGenerator {
             number,
             n: Ratio::new::<percent>(0.),
             writer: ElectricalStateWriter::new(&format!("APU_GEN_{}", number)),
-            output: Potential::None,
             potential: ElectricPotential::new::<volt>(0.),
             frequency: Frequency::new::<hertz>(0.),
             load: Ratio::new::<percent>(0.),
+            is_emergency_shutdown: false,
         }
     }
 
@@ -430,26 +430,28 @@ impl Aps3200ApuGenerator {
             Frequency::new::<hertz>(400.)
         }
     }
+
+    fn should_provide_output(&self) -> bool {
+        !self.is_emergency_shutdown
+            && self.n.get::<percent>() >= Aps3200ApuGenerator::APU_GEN_POWERED_N
+    }
 }
 impl ApuGenerator for Aps3200ApuGenerator {
     fn update(&mut self, n: Ratio, is_emergency_shutdown: bool) {
         self.n = n;
-
-        self.output = if is_emergency_shutdown
-            || n.get::<percent>() < Aps3200ApuGenerator::APU_GEN_POWERED_N
-        {
-            Potential::None
-        } else {
-            Potential::ApuGenerator(self.number)
-        };
+        self.is_emergency_shutdown = is_emergency_shutdown;
     }
 }
 provide_potential!(Aps3200ApuGenerator, (110.0..=120.0));
 provide_frequency!(Aps3200ApuGenerator, (390.0..=410.0));
 provide_load!(Aps3200ApuGenerator);
 impl PotentialSource for Aps3200ApuGenerator {
-    fn output_potential(&self) -> Potential {
-        self.output
+    fn output(&self) -> Potential {
+        if self.should_provide_output() {
+            Potential::apu_generator(self.number).with_raw(self.potential)
+        } else {
+            Potential::none()
+        }
     }
 }
 impl SimulationElement for Aps3200ApuGenerator {
@@ -458,21 +460,19 @@ impl SimulationElement for Aps3200ApuGenerator {
     }
 
     fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
-        self.potential = if self.is_powered() {
+        self.potential = if self.should_provide_output() {
             self.calculate_potential(self.n)
         } else {
             ElectricPotential::new::<volt>(0.)
         };
 
-        self.frequency = if self.is_powered() {
+        self.frequency = if self.should_provide_output() {
             self.calculate_frequency(self.n)
         } else {
             Frequency::new::<hertz>(0.)
         };
 
-        let power_consumption = report
-            .total_consumption_of(&self.output_potential())
-            .get::<watt>();
+        let power_consumption = report.total_consumption_of(&self.output()).get::<watt>();
         let power_factor_correction = 0.8;
         let maximum_load = 90000.;
         self.load = Ratio::new::<percent>(
@@ -665,7 +665,7 @@ mod apu_generator_tests {
             .released_apu_fire_pb()
             .run(Duration::from_secs(1));
 
-        assert!(test_bed.generator_output_potential().is_unpowered());
+        assert!(test_bed.generator_output().is_unpowered());
     }
 
     #[test]

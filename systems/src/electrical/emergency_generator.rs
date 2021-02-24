@@ -32,16 +32,16 @@ impl EmergencyGenerator {
         self.running = true;
     }
 
-    pub fn is_running(&self) -> bool {
+    pub fn should_provide_output(&self) -> bool {
         self.is_blue_pressurised && self.running
     }
 }
 impl PotentialSource for EmergencyGenerator {
-    fn output_potential(&self) -> Potential {
-        if self.is_running() {
-            Potential::EmergencyGenerator
+    fn output(&self) -> Potential {
+        if self.should_provide_output() {
+            Potential::emergency_generator().with_raw(self.potential)
         } else {
-            Potential::None
+            Potential::none()
         }
     }
 }
@@ -49,13 +49,13 @@ provide_frequency!(EmergencyGenerator, (390.0..=410.0));
 provide_potential!(EmergencyGenerator, (110.0..=120.0));
 impl SimulationElement for EmergencyGenerator {
     fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, _report: &T) {
-        self.frequency = if self.output_potential().is_powered() {
+        self.frequency = if self.should_provide_output() {
             Frequency::new::<hertz>(400.)
         } else {
             Frequency::new::<hertz>(0.)
         };
 
-        self.potential = if self.output_potential().is_powered() {
+        self.potential = if self.should_provide_output() {
             ElectricPotential::new::<volt>(115.)
         } else {
             ElectricPotential::new::<volt>(0.)

@@ -41,7 +41,7 @@ impl Battery {
         Self {
             number,
             writer: ElectricalStateWriter::new(&format!("BAT_{}", number)),
-            input: Potential::None,
+            input: Potential::none(),
             charge,
             potential: ElectricPotential::new::<volt>(0.),
             current: ElectricCurrent::new::<ampere>(0.),
@@ -71,17 +71,17 @@ impl Battery {
         self.charge
     }
 
-    fn has_output_potential(&self) -> bool {
+    fn should_provide_output(&self) -> bool {
         !self.is_charging() && self.has_charge()
     }
 }
 potential_target!(Battery);
 impl PotentialSource for Battery {
-    fn output_potential(&self) -> Potential {
-        if self.has_output_potential() {
-            Potential::Battery(self.number)
+    fn output(&self) -> Potential {
+        if self.should_provide_output() {
+            Potential::battery(self.number).with_raw(self.potential)
         } else {
-            Potential::None
+            Potential::none()
         }
     }
 }
@@ -115,8 +115,8 @@ impl SimulationElement for Battery {
         };
 
         let time = Time::new::<second>(report.delta().as_secs_f64());
-        if self.has_output_potential() {
-            let consumption = report.total_consumption_of(&self.output_potential());
+        if self.should_provide_output() {
+            let consumption = report.total_consumption_of(&self.output());
             self.current = consumption / self.potential;
 
             if consumption > Power::new::<watt>(0.) {
@@ -232,7 +232,7 @@ mod battery_tests {
             if self.battery.is_powered() {
                 supplied_power.add(
                     ElectricalBusType::DirectCurrentBattery,
-                    Potential::Battery(1),
+                    Potential::battery(1),
                 );
             }
 
@@ -248,21 +248,21 @@ mod battery_tests {
         }
 
         fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
-            self.battery_consumption = report.total_consumption_of(&Potential::Battery(1));
+            self.battery_consumption = report.total_consumption_of(&Potential::battery(1));
         }
     }
 
     struct Powerless {}
     impl PotentialSource for Powerless {
-        fn output_potential(&self) -> Potential {
-            Potential::None
+        fn output(&self) -> Potential {
+            Potential::none()
         }
     }
 
     struct Powered {}
     impl PotentialSource for Powered {
-        fn output_potential(&self) -> Potential {
-            Potential::TransformerRectifier(1)
+        fn output(&self) -> Potential {
+            Potential::transformer_rectifier(1).with_raw(ElectricPotential::new::<volt>(28.))
         }
     }
 

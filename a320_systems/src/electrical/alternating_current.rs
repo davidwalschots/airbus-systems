@@ -6,8 +6,8 @@ use std::time::Duration;
 use systems::{
     electrical::{
         combine_potential_sources, CombinedPotentialSource, Contactor, ElectricalBus,
-        ElectricalBusType, EmergencyGenerator, EngineGenerator, ExternalPowerSource, Potential,
-        PotentialSource, PotentialTarget, TransformerRectifier,
+        ElectricalBusType, EmergencyGenerator, EngineGenerator, ExternalPowerSource,
+        PotentialOrigin, PotentialSource, PotentialTarget, TransformerRectifier,
     },
     shared::DelayedTrueLogicGate,
     simulation::{SimulationElement, SimulationElementVisitor, UpdateContext},
@@ -142,13 +142,13 @@ impl A320AlternatingCurrentElectrical {
     pub fn main_ac_buses_powered_by_single_engine_generator_only(&self) -> bool {
         matches!(
             (
-                self.ac_bus_1.output_potential(),
-                self.ac_bus_2.output_potential(),
+                self.ac_bus_1.output().origin(),
+                self.ac_bus_2.output().origin(),
             ),
-            (Potential::None, Potential::EngineGenerator(_))
-                | (Potential::EngineGenerator(_), Potential::None)
-                | (Potential::EngineGenerator(1), Potential::EngineGenerator(1))
-                | (Potential::EngineGenerator(2), Potential::EngineGenerator(2))
+            (PotentialOrigin::None, PotentialOrigin::EngineGenerator(_))
+                | (PotentialOrigin::EngineGenerator(_), PotentialOrigin::None)
+                | (PotentialOrigin::EngineGenerator(1), PotentialOrigin::EngineGenerator(1))
+                | (PotentialOrigin::EngineGenerator(2), PotentialOrigin::EngineGenerator(2))
         )
     }
 
@@ -158,12 +158,15 @@ impl A320AlternatingCurrentElectrical {
     pub fn main_ac_buses_powered_by_apu_generator_only(&self) -> bool {
         matches!(
             (
-                self.ac_bus_1.output_potential(),
-                self.ac_bus_2.output_potential(),
+                self.ac_bus_1.output().origin(),
+                self.ac_bus_2.output().origin(),
             ),
-            (Potential::None, Potential::ApuGenerator(1))
-                | (Potential::ApuGenerator(1), Potential::None)
-                | (Potential::ApuGenerator(1), Potential::ApuGenerator(1))
+            (PotentialOrigin::None, PotentialOrigin::ApuGenerator(1))
+                | (PotentialOrigin::ApuGenerator(1), PotentialOrigin::None)
+                | (
+                    PotentialOrigin::ApuGenerator(1),
+                    PotentialOrigin::ApuGenerator(1)
+                )
         )
     }
 
@@ -466,7 +469,7 @@ impl A320AcEssFeedContactors {
     }
 
     fn provides_power(&self) -> bool {
-        self.electric_sources().output_potential().is_powered()
+        self.electric_sources().output().is_powered()
     }
 }
 impl SimulationElement for A320AcEssFeedContactors {

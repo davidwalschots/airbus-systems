@@ -16,7 +16,7 @@ impl StaticInverter {
     pub fn new() -> StaticInverter {
         StaticInverter {
             writer: ElectricalStateWriter::new("STAT_INV"),
-            input: Potential::None,
+            input: Potential::none(),
             potential: ElectricPotential::new::<volt>(0.),
             frequency: Frequency::new::<hertz>(0.),
         }
@@ -25,14 +25,18 @@ impl StaticInverter {
     pub fn input_potential(&self) -> Potential {
         self.input
     }
+
+    fn should_provide_output(&self) -> bool {
+        self.input.is_powered()
+    }
 }
 potential_target!(StaticInverter);
 impl PotentialSource for StaticInverter {
-    fn output_potential(&self) -> Potential {
-        if self.input.is_powered() {
-            Potential::StaticInverter
+    fn output(&self) -> Potential {
+        if self.should_provide_output() {
+            Potential::static_inverter().with_raw(self.potential)
         } else {
-            Potential::None
+            Potential::none()
         }
     }
 }
@@ -44,7 +48,7 @@ impl SimulationElement for StaticInverter {
     }
 
     fn consume_power_in_converters(&mut self, consumption: &mut PowerConsumption) {
-        let ac_consumption = consumption.total_consumption_of(&self.output_potential());
+        let ac_consumption = consumption.total_consumption_of(&self.output());
 
         // Add the AC consumption to the STAT INVs input (DC) consumption.
         // Currently static inverter inefficiency isn't modelled.
@@ -54,13 +58,13 @@ impl SimulationElement for StaticInverter {
     }
 
     fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, _: &T) {
-        self.potential = if self.output_potential().is_powered() {
+        self.potential = if self.should_provide_output() {
             ElectricPotential::new::<volt>(115.)
         } else {
             ElectricPotential::new::<volt>(0.)
         };
 
-        self.frequency = if self.output_potential().is_powered() {
+        self.frequency = if self.should_provide_output() {
             Frequency::new::<hertz>(400.)
         } else {
             Frequency::new::<hertz>(0.)
@@ -88,15 +92,15 @@ mod static_inverter_tests {
 
     struct Powerless {}
     impl PotentialSource for Powerless {
-        fn output_potential(&self) -> Potential {
-            Potential::None
+        fn output(&self) -> Potential {
+            Potential::none()
         }
     }
 
     struct Powered {}
     impl PotentialSource for Powered {
-        fn output_potential(&self) -> Potential {
-            Potential::Battery(1)
+        fn output(&self) -> Potential {
+            Potential::battery(1).with_raw(ElectricPotential::new::<volt>(28.))
         }
     }
 
@@ -165,7 +169,7 @@ mod static_inverter_tests {
             if self.static_inverter.is_powered() {
                 supplied_power.add(
                     ElectricalBusType::AlternatingCurrentEssential,
-                    Potential::StaticInverter,
+                    Potential::static_inverter(),
                 );
             }
 
@@ -182,7 +186,7 @@ mod static_inverter_tests {
 
         fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
             self.static_inverter_consumption =
-                report.total_consumption_of(&Potential::StaticInverter);
+                report.total_consumption_of(&Potential::static_inverter());
         }
     }
 

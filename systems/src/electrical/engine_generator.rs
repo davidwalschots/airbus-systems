@@ -44,13 +44,17 @@ impl EngineGenerator {
     ) {
         self.idg.update(context, arguments);
     }
+
+    fn should_provide_output(&self) -> bool {
+        self.idg.provides_stable_power_output()
+    }
 }
 impl PotentialSource for EngineGenerator {
-    fn output_potential(&self) -> Potential {
-        if self.idg.provides_stable_power_output() {
-            Potential::EngineGenerator(self.number)
+    fn output(&self) -> Potential {
+        if self.should_provide_output() {
+            Potential::engine_generator(self.number).with_raw(self.potential)
         } else {
-            Potential::None
+            Potential::none()
         }
     }
 }
@@ -65,21 +69,19 @@ impl SimulationElement for EngineGenerator {
     }
 
     fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
-        self.frequency = if self.output_potential().is_powered() {
+        self.frequency = if self.should_provide_output() {
             Frequency::new::<hertz>(400.)
         } else {
             Frequency::new::<hertz>(0.)
         };
 
-        self.potential = if self.output_potential().is_powered() {
+        self.potential = if self.should_provide_output() {
             ElectricPotential::new::<volt>(115.)
         } else {
             ElectricPotential::new::<volt>(0.)
         };
 
-        let power_consumption = report
-            .total_consumption_of(&self.output_potential())
-            .get::<watt>();
+        let power_consumption = report.total_consumption_of(&self.output()).get::<watt>();
         let power_factor_correction = 0.8;
         let maximum_true_power = 90000.;
         self.load = Ratio::new::<percent>(
@@ -352,7 +354,7 @@ mod tests {
                 if self.engine_gen.is_powered() {
                     supplied_power.add(
                         ElectricalBusType::AlternatingCurrent(1),
-                        Potential::EngineGenerator(1),
+                        Potential::engine_generator(1),
                     );
                 }
 

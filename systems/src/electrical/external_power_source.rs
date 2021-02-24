@@ -22,13 +22,17 @@ impl ExternalPowerSource {
     }
 
     pub fn update(&mut self, _: &UpdateContext) {}
+
+    fn should_provide_output(&self) -> bool {
+        self.is_connected
+    }
 }
 impl PotentialSource for ExternalPowerSource {
-    fn output_potential(&self) -> Potential {
-        if self.is_connected {
-            Potential::External
+    fn output(&self) -> Potential {
+        if self.should_provide_output() {
+            Potential::external().with_raw(self.potential)
         } else {
-            Potential::None
+            Potential::none()
         }
     }
 }
@@ -47,13 +51,13 @@ impl SimulationElement for ExternalPowerSource {
         &mut self,
         _: &T,
     ) {
-        self.frequency = if self.output_potential().is_powered() {
+        self.frequency = if self.should_provide_output() {
             Frequency::new::<hertz>(400.)
         } else {
             Frequency::new::<hertz>(0.)
         };
 
-        self.potential = if self.output_potential().is_powered() {
+        self.potential = if self.should_provide_output() {
             ElectricPotential::new::<volt>(115.)
         } else {
             ElectricPotential::new::<volt>(0.)

@@ -7,7 +7,7 @@ mod engine_generator;
 mod external_power_source;
 mod static_inverter;
 mod transformer_rectifier;
-use std::fmt::Display;
+use std::{fmt::Display, hash::Hash};
 
 pub use battery::Battery;
 pub use emergency_generator::EmergencyGenerator;
@@ -28,21 +28,7 @@ pub trait ElectricalSystem {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-/// Within an electrical system, electric potential is made available by an origin.
-/// These origins are listed as part of this type. By knowing the origin of potential
-/// for all power consumers one can determine the amount of electric current provided
-/// by the origin to the whole aircraft.
-///
-/// Note that this type shouldn't be confused with uom's `ElectricPotential`, which provides
-/// the base unit (including volt) for defining the amount of potential.
-///
-/// # TODO
-///
-/// Another PR should add the actual potential (volt) into this enum, as we will
-/// need it for functionality such as: ECAM should indicate DC BAT BUS in amber when V < 25.
-/// However, as currently there is no requirement for now this only indicates the origin
-/// of the potential, not the actual potential.
-pub enum Potential {
+pub enum PotentialOrigin {
     None,
     EngineGenerator(usize),
     ApuGenerator(usize),
@@ -53,36 +39,132 @@ pub enum Potential {
     TransformerRectifier(usize),
     StaticInverter,
 }
+
+/// Within an electrical system, electric potential is made available by an origin.
+/// These origins are contained in this type. By knowing the origin of potential
+/// for all power consumers one can determine the amount of electric current provided
+/// by the origin to the whole aircraft.
+///
+/// Note that this type shouldn't be confused with uom's `ElectricPotential`, which provides
+/// the base unit (including volt) for defining the amount of potential.
+/// The raw `ElectricPotential` is included in this type for presentational purposes, and to
+/// decide between two potential origins in a parallel circuit.
+///
+/// The raw `ElectricPotential` is ignored when determining if the potential
+/// is powered or not. If we wouldn't ignore it, passing electric potential across the
+/// circuit would take multiple simulation ticks, as _V_ for origins (ENG GEN, TR, etc)
+/// can only be calculated when electrical consumption is known, which is the case at
+/// the end of a simulation tick.
+///
+/// As the raw `ElectricPotential` is of less importance for the majority of code,
+/// it is not taken into account when checking for partial equality.
+///
+/// For the reasons outlined above when creating e.g. an engine generator, ensure you
+/// return `Potential::none()` when the generator isn't supplying potential, and
+/// `Potential::engine_generator(usize).with_raw(ElectricPotential)` when it is.
+#[derive(Clone, Copy, Debug)]
+pub struct Potential {
+    origin: PotentialOrigin,
+    raw: ElectricPotential,
+}
 impl Potential {
+    fn new_without_raw(origin: PotentialOrigin) -> Self {
+        Self {
+            origin,
+            raw: ElectricPotential::new::<volt>(0.),
+        }
+    }
+
+    pub fn none() -> Self {
+        Self::new_without_raw(PotentialOrigin::None)
+    }
+
+    pub fn engine_generator(number: usize) -> Self {
+        Self::new_without_raw(PotentialOrigin::EngineGenerator(number))
+    }
+
+    pub fn apu_generator(number: usize) -> Self {
+        Self::new_without_raw(PotentialOrigin::ApuGenerator(number))
+    }
+
+    pub fn external() -> Self {
+        Self::new_without_raw(PotentialOrigin::External)
+    }
+
+    pub fn emergency_generator() -> Self {
+        Self::new_without_raw(PotentialOrigin::EmergencyGenerator)
+    }
+
+    pub fn battery(number: usize) -> Self {
+        Self::new_without_raw(PotentialOrigin::Battery(number))
+    }
+
+    pub fn batteries() -> Self {
+        Self::new_without_raw(PotentialOrigin::Batteries)
+    }
+
+    pub fn transformer_rectifier(number: usize) -> Self {
+        Self::new_without_raw(PotentialOrigin::TransformerRectifier(number))
+    }
+
+    pub fn static_inverter() -> Self {
+        Self::new_without_raw(PotentialOrigin::StaticInverter)
+    }
+
+    pub fn with_raw(mut self, potential: ElectricPotential) -> Self {
+        debug_assert!(self.origin != PotentialOrigin::None);
+
+        self.raw = potential;
+        self
+    }
+
     /// Indicates if the instance provides electric potential.
     pub fn is_powered(&self) -> bool {
-        *self != Potential::None
+        self.origin != PotentialOrigin::None
     }
 
     /// Indicates if the instance does not provide electric potential.
     pub fn is_unpowered(&self) -> bool {
-        *self == Potential::None
+        self.origin == PotentialOrigin::None
+    }
+
+    pub fn origin(&self) -> PotentialOrigin {
+        self.origin
+    }
+
+    pub fn raw(&self) -> ElectricPotential {
+        self.raw
+    }
+}
+impl PartialEq for Potential {
+    fn eq(&self, other: &Self) -> bool {
+        self.origin.eq(&other.origin)
+    }
+}
+impl PartialOrd for Potential {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.raw.get::<volt>().partial_cmp(&other.raw.get::<volt>())
     }
 }
 impl Default for Potential {
     fn default() -> Self {
-        Potential::None
+        Potential::none()
     }
 }
 
 /// A source of electric potential. A source is not necessarily the
 /// origin of the potential. It can also be a conductor.
 pub trait PotentialSource {
-    fn output_potential(&self) -> Potential;
+    fn output(&self) -> Potential;
 
     /// Indicates if the instance provides electric potential.
     fn is_powered(&self) -> bool {
-        self.output_potential().is_powered()
+        self.output().is_powered()
     }
 
     /// Indicates if the instance does not provide electric potential.
     fn is_unpowered(&self) -> bool {
-        self.output_potential().is_unpowered()
+        self.output().is_unpowered()
     }
 }
 
@@ -100,7 +182,7 @@ pub trait PotentialSource {
 /// # }
 /// impl PotentialTarget for MyType {
 ///     fn powered_by<T: PotentialSource + ?Sized>(&mut self, source: &T) {
-///         self.input = source.output_potential();
+///         self.input = source.output();
 ///     }
 ///
 ///     fn or_powered_by<T: PotentialSource + ?Sized>(&mut self, source: &T) {
@@ -111,12 +193,12 @@ pub trait PotentialSource {
 /// }
 /// ```
 pub trait PotentialTarget {
-    /// Powers the instance with the given source's potential. When the given source is unpowered
-    /// the instance also becomes unpowered.
+    /// Powers the instance with the given source's potential. When the given source has no potential
+    /// the instance also won't have potential.
     fn powered_by<T: PotentialSource + ?Sized>(&mut self, source: &T);
 
-    /// Powers the instance with the given source's potential. When the given source is unpowered
-    /// the instance keeps its existing potential if powered.
+    /// Powers the instance with the given source's potential. When the given source has no potential
+    /// the instance keeps its existing potential.
     fn or_powered_by<T: PotentialSource + ?Sized>(&mut self, source: &T);
 }
 
@@ -133,7 +215,7 @@ impl Contactor {
         Contactor {
             closed_id: format!("ELEC_CONTACTOR_{}_IS_CLOSED", id),
             closed: false,
-            input: Potential::None,
+            input: Potential::none(),
         }
     }
 
@@ -151,11 +233,11 @@ impl Contactor {
 }
 potential_target!(Contactor);
 impl PotentialSource for Contactor {
-    fn output_potential(&self) -> Potential {
+    fn output(&self) -> Potential {
         if self.closed {
             self.input
         } else {
-            Potential::None
+            Potential::none()
         }
     }
 }
@@ -166,7 +248,8 @@ impl SimulationElement for Contactor {
 }
 
 /// Combines multiple sources of potential, such that they can be passed
-/// to a target of potential as a single unit.
+/// to a target of potential as a single unit. The potential origin with the highest
+/// voltage is returned.
 ///
 /// # Examples
 ///
@@ -200,8 +283,10 @@ impl SimulationElement for Contactor {
 ///
 /// ac_bus_1.powered_by(&main_power_sources.ac_bus_1_electric_sources());
 /// ```
-/// When a potential target can be powered by multiple sources in the same struct, prefer using
-/// the `powered_by` and `or_powered_by` functions as follows:
+/// When a potential target can be powered by multiple sources in the same struct and
+/// the potential origin doesn't matter as you don't expect the sources to be powered
+/// by different potential origins, prefer using the `powered_by` and `or_powered_by`
+/// functions as follows:
 /// ```rust
 /// # use systems::electrical::{Contactor, ElectricalBus,
 /// #     ElectricalBusType, PotentialTarget};
@@ -224,20 +309,24 @@ pub struct CombinedPotentialSource {
 }
 impl CombinedPotentialSource {
     fn new<T: PotentialSource>(sources: Vec<&T>) -> Self {
-        let x = sources
+        let mut sources: Vec<_> = sources
             .iter()
-            .map(|x| x.output_potential())
-            .find(|x| x.is_powered());
+            .map(|x| x.output())
+            .filter(|x| x.is_powered())
+            .collect();
+        sources.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let x = sources.last();
         CombinedPotentialSource {
             potential: match x {
-                Some(potential) => potential,
-                None => Potential::None,
+                Some(potential) => *potential,
+                None => Potential::none(),
             },
         }
     }
 }
 impl PotentialSource for CombinedPotentialSource {
-    fn output_potential(&self) -> Potential {
+    fn output(&self) -> Potential {
         self.potential
     }
 }
@@ -281,7 +370,7 @@ impl ElectricalBus {
     pub fn new(bus_type: ElectricalBusType) -> ElectricalBus {
         ElectricalBus {
             bus_powered_id: format!("ELEC_{}_BUS_IS_POWERED", bus_type.to_string()),
-            input: Potential::None,
+            input: Potential::none(),
             bus_type,
         }
     }
@@ -301,24 +390,29 @@ impl ElectricalBus {
         battery_2_contactor: &Contactor,
     ) {
         if self.input.is_unpowered() {
-            let is_battery_1_powered = battery_1_contactor.is_powered();
-            let is_battery_2_powered = battery_2_contactor.is_powered();
-
-            self.input = if is_battery_1_powered && is_battery_2_powered {
-                Potential::Batteries
-            } else if is_battery_1_powered {
-                Potential::Battery(10)
-            } else if is_battery_2_powered {
-                Potential::Battery(11)
+            self.input = if ElectricalBus::batteries_have_equal_potential(
+                battery_1_contactor,
+                battery_2_contactor,
+            ) {
+                Potential::batteries().with_raw(battery_1_contactor.output().raw())
             } else {
-                Potential::None
-            };
+                combine_potential_sources(vec![battery_1_contactor, battery_2_contactor]).output()
+            }
         }
+    }
+
+    fn batteries_have_equal_potential(
+        battery_1_contactor: &Contactor,
+        battery_2_contactor: &Contactor,
+    ) -> bool {
+        battery_1_contactor.is_powered()
+            && battery_2_contactor.is_powered()
+            && battery_1_contactor.output().raw() == battery_2_contactor.output().raw()
     }
 }
 potential_target!(ElectricalBus);
 impl PotentialSource for ElectricalBus {
-    fn output_potential(&self) -> Potential {
+    fn output(&self) -> Potential {
         self.input
     }
 }
@@ -427,15 +521,15 @@ mod tests {
     use super::*;
     struct Powerless {}
     impl PotentialSource for Powerless {
-        fn output_potential(&self) -> Potential {
-            Potential::None
+        fn output(&self) -> Potential {
+            Potential::none()
         }
     }
 
     struct StubApuGenerator {}
     impl PotentialSource for StubApuGenerator {
-        fn output_potential(&self) -> Potential {
-            Potential::ApuGenerator(1)
+        fn output(&self) -> Potential {
+            Potential::apu_generator(1).with_raw(ElectricPotential::new::<volt>(115.))
         }
     }
 
@@ -501,12 +595,48 @@ mod tests {
             assert_eq!(none_potential().is_unpowered(), true);
         }
 
+        #[test]
+        fn equality_is_based_on_potential_origin_and_ignores_electric_potential() {
+            assert_eq!(Potential::none(), Potential::none());
+            assert_eq!(
+                Potential::engine_generator(1),
+                Potential::engine_generator(1)
+            );
+            assert_eq!(Potential::apu_generator(1), Potential::apu_generator(1));
+            assert_eq!(Potential::external(), Potential::external());
+            assert_eq!(
+                Potential::emergency_generator(),
+                Potential::emergency_generator()
+            );
+            assert_eq!(Potential::battery(1), Potential::battery(1));
+            assert_eq!(Potential::batteries(), Potential::batteries());
+            assert_eq!(
+                Potential::transformer_rectifier(1),
+                Potential::transformer_rectifier(1)
+            );
+            assert_eq!(Potential::static_inverter(), Potential::static_inverter());
+        }
+
+        #[test]
+        fn not_equal_when_numbered_potential_origin_is_different() {
+            assert_ne!(
+                Potential::engine_generator(1),
+                Potential::engine_generator(2)
+            );
+            assert_ne!(Potential::apu_generator(1), Potential::apu_generator(2));
+            assert_ne!(Potential::battery(1), Potential::battery(2));
+            assert_ne!(
+                Potential::transformer_rectifier(1),
+                Potential::transformer_rectifier(2)
+            );
+        }
+
         fn some_potential() -> Potential {
-            Potential::ApuGenerator(1)
+            Potential::apu_generator(1)
         }
 
         fn none_potential() -> Potential {
-            Potential::None
+            Potential::none()
         }
     }
 
@@ -574,17 +704,18 @@ mod tests {
         }
 
         impl PotentialSource for BatteryStub {
-            fn output_potential(&self) -> Potential {
+            fn output(&self) -> Potential {
                 self.potential
             }
         }
 
         #[test]
-        fn or_powered_by_both_batteries_results_in_both_when_both_connected() {
-            let bat_1 = BatteryStub::new(Potential::Battery(10));
-            let bat_2 = BatteryStub::new(Potential::Battery(11));
+        fn or_powered_by_both_batteries_results_in_both_when_both_connected_with_equal_voltage() {
+            let potential = ElectricPotential::new::<volt>(28.);
+            let bat_1 = BatteryStub::new(Potential::battery(10).with_raw(potential));
+            let bat_2 = BatteryStub::new(Potential::battery(11).with_raw(potential));
 
-            let expected = Potential::Batteries;
+            let expected = Potential::batteries().with_raw(potential);
 
             let mut bus = electrical_bus();
 
@@ -599,26 +730,59 @@ mod tests {
             bus.or_powered_by_both_batteries(&contactor_1, &contactor_2);
 
             assert_eq!(bus.input_potential(), expected);
+            assert_eq!(bus.input_potential().raw(), expected.raw());
+        }
+
+        #[test]
+        fn or_powered_by_battery_1_with_higher_voltage_results_in_bat_1_output() {
+            let expected = Potential::battery(10).with_raw(ElectricPotential::new::<volt>(28.));
+
+            let bat_1 = BatteryStub::new(expected);
+            let bat_2 = BatteryStub::new(
+                Potential::battery(11).with_raw(ElectricPotential::new::<volt>(25.)),
+            );
+
+            or_powered_by_battery_results_in_expected_output(bat_1, bat_2, expected);
         }
 
         #[test]
         fn or_powered_by_battery_1_results_in_bat_1_output() {
-            let expected = Potential::Battery(10);
+            let expected = Potential::battery(10).with_raw(ElectricPotential::new::<volt>(28.));
 
             let bat_1 = BatteryStub::new(expected);
-            let bat_2 = BatteryStub::new(Potential::None);
+            let bat_2 = BatteryStub::new(Potential::none());
+
+            or_powered_by_battery_results_in_expected_output(bat_1, bat_2, expected);
+        }
+
+        #[test]
+        fn or_powered_by_battery_2_with_higher_voltage_results_in_bat_2_output() {
+            let expected = Potential::battery(11).with_raw(ElectricPotential::new::<volt>(28.));
+
+            let bat_1 = BatteryStub::new(
+                Potential::battery(10).with_raw(ElectricPotential::new::<volt>(25.)),
+            );
+            let bat_2 = BatteryStub::new(expected);
 
             or_powered_by_battery_results_in_expected_output(bat_1, bat_2, expected);
         }
 
         #[test]
         fn or_powered_by_battery_2_results_in_bat_2_output() {
-            let expected = Potential::Battery(11);
+            let expected = Potential::battery(11).with_raw(ElectricPotential::new::<volt>(28.));
 
-            let bat_1 = BatteryStub::new(Potential::None);
+            let bat_1 = BatteryStub::new(Potential::none());
             let bat_2 = BatteryStub::new(expected);
 
             or_powered_by_battery_results_in_expected_output(bat_1, bat_2, expected);
+        }
+
+        #[test]
+        fn or_powered_by_none_results_in_none_output() {
+            let bat_1 = BatteryStub::new(Potential::none());
+            let bat_2 = BatteryStub::new(Potential::none());
+
+            or_powered_by_battery_results_in_expected_output(bat_1, bat_2, Potential::none());
         }
 
         fn or_powered_by_battery_results_in_expected_output(
@@ -639,6 +803,7 @@ mod tests {
             bus.or_powered_by_both_batteries(&contactor_1, &contactor_2);
 
             assert_eq!(bus.input_potential(), expected);
+            assert_eq!(bus.input_potential().raw(), expected.raw());
         }
 
         fn electrical_bus() -> ElectricalBus {
