@@ -43,14 +43,19 @@ impl Battery {
             writer: ElectricalStateWriter::new(&format!("BAT_{}", number)),
             input: Potential::none(),
             charge,
-            potential: ElectricPotential::new::<volt>(0.),
+            potential: ElectricPotential::new::<volt>(
+                if charge > ElectricCharge::new::<ampere_hour>(0.) {
+                    28.
+                } else {
+                    0.
+                },
+            ),
             current: ElectricCurrent::new::<ampere>(0.),
             current_direction: None,
         }
     }
 
     pub fn needs_charging(&self) -> bool {
-        // TODO: Get info from komp; from which Ah should we start charging?
         self.charge >= ElectricCharge::new::<ampere_hour>(Battery::MAX_ELECTRIC_CHARGE_AMPERE_HOURS)
     }
 

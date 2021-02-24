@@ -1574,6 +1574,22 @@ mod a320_electrical_circuit_tests {
         assert!(!test_bed.gen_2_has_fault());
     }
 
+    #[test]
+    #[ignore]
+    fn battery_1_charges_battery_2() {
+        let test_bed = test_bed_with().empty_battery_2().run();
+
+        assert_eq!(test_bed.battery_2_input(), Potential::battery(10));
+    }
+
+    #[test]
+    #[ignore]
+    fn battery_2_charges_battery_1() {
+        let test_bed = test_bed_with().empty_battery_1().run();
+
+        assert_eq!(test_bed.battery_1_input(), Potential::battery(11));
+    }
+
     fn test_bed_with() -> A320ElectricalTestBed {
         test_bed()
     }

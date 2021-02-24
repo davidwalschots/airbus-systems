@@ -24,8 +24,8 @@ pub(super) struct A320DirectCurrentElectrical {
     battery_1_contactor: Contactor,
     battery_2: Battery,
     battery_2_contactor: Contactor,
-    battery_2_to_dc_ess_bus_contactor: Contactor,
-    battery_1_to_static_inv_contactor: Contactor,
+    hot_bus_2_to_dc_ess_bus_contactor: Contactor,
+    hot_bus_1_to_static_inv_contactor: Contactor,
     static_inverter: StaticInverter,
     hot_bus_1: ElectricalBus,
     hot_bus_2: ElectricalBus,
@@ -49,8 +49,8 @@ impl A320DirectCurrentElectrical {
             battery_1_contactor: Contactor::new("6PB1"),
             battery_2: Battery::full(11),
             battery_2_contactor: Contactor::new("6PB2"),
-            battery_2_to_dc_ess_bus_contactor: Contactor::new("2XB2"),
-            battery_1_to_static_inv_contactor: Contactor::new("2XB1"),
+            hot_bus_2_to_dc_ess_bus_contactor: Contactor::new("2XB2"),
+            hot_bus_1_to_static_inv_contactor: Contactor::new("2XB1"),
             static_inverter: StaticInverter::new(),
             hot_bus_1: ElectricalBus::new(ElectricalBusType::DirectCurrentHot(1)),
             hot_bus_2: ElectricalBus::new(ElectricalBusType::DirectCurrentHot(2)),
@@ -121,40 +121,45 @@ impl A320DirectCurrentElectrical {
         self.dc_bat_bus
             .or_powered_by_both_batteries(&self.battery_1_contactor, &self.battery_2_contactor);
 
+        // Power the contactors and batteries again, for situations
+        // where BAT 1 powers BAT 2 or vice versa.
+        self.battery_1_contactor.or_powered_by(&self.dc_bat_bus);
+        self.battery_2_contactor.or_powered_by(&self.dc_bat_bus);
+        self.battery_1.or_powered_by(&self.battery_1_contactor);
+        self.battery_2.or_powered_by(&self.battery_2_contactor);
+
         self.hot_bus_1.powered_by(&self.battery_1_contactor);
         self.hot_bus_1.or_powered_by(&self.battery_1);
         self.hot_bus_2.powered_by(&self.battery_2_contactor);
         self.hot_bus_2.or_powered_by(&self.battery_2);
 
+        let should_close_2xb_contactor = self.should_close_2xb_contactors(context, ac_state);
+        self.hot_bus_1_to_static_inv_contactor
+            .close_when(should_close_2xb_contactor);
+        self.hot_bus_1_to_static_inv_contactor
+            .powered_by(&self.hot_bus_1);
+        self.static_inverter
+            .powered_by(&self.hot_bus_1_to_static_inv_contactor);
+
+        self.hot_bus_2_to_dc_ess_bus_contactor
+            .close_when(should_close_2xb_contactor);
+        self.hot_bus_2_to_dc_ess_bus_contactor
+            .powered_by(&self.hot_bus_2);
+
         self.dc_bat_bus_to_dc_ess_bus_contactor
             .powered_by(&self.dc_bat_bus);
         self.dc_bat_bus_to_dc_ess_bus_contactor
             .close_when(ac_state.tr_1_and_2_available());
-        self.battery_2_to_dc_ess_bus_contactor
-            .powered_by(&self.battery_2);
-
-        let should_close_2xb_contactor = self.should_close_2xb_contactors(context, ac_state);
-        self.battery_2_to_dc_ess_bus_contactor
-            .close_when(should_close_2xb_contactor);
-
-        self.battery_1_to_static_inv_contactor
-            .close_when(should_close_2xb_contactor);
-
-        self.battery_1_to_static_inv_contactor
-            .powered_by(&self.battery_1);
-
-        self.static_inverter
-            .powered_by(&self.battery_1_to_static_inv_contactor);
 
         self.dc_ess_bus
             .powered_by(&self.dc_bat_bus_to_dc_ess_bus_contactor);
         self.dc_ess_bus.or_powered_by(&self.tr_ess_contactor);
         self.dc_ess_bus
-            .or_powered_by(&self.battery_2_to_dc_ess_bus_contactor);
+            .or_powered_by(&self.hot_bus_2_to_dc_ess_bus_contactor);
 
         self.dc_ess_shed_contactor.powered_by(&self.dc_ess_bus);
         self.dc_ess_shed_contactor
-            .close_when(self.battery_2_to_dc_ess_bus_contactor.is_open());
+            .close_when(self.hot_bus_2_to_dc_ess_bus_contactor.is_open());
         self.dc_ess_shed_bus.powered_by(&self.dc_ess_shed_contactor);
     }
 
@@ -188,15 +193,15 @@ impl A320DirectCurrentElectrical {
     }
 
     fn battery_never_powers_dc_ess_shed(&self) -> bool {
-        !(self.battery_2_to_dc_ess_bus_contactor.is_closed()
+        !(self.hot_bus_2_to_dc_ess_bus_contactor.is_closed()
             && self.dc_ess_shed_contactor.is_closed())
     }
 
     fn max_one_source_powers_dc_ess_bus(&self) -> bool {
-        (!self.battery_2_to_dc_ess_bus_contactor.is_closed()
+        (!self.hot_bus_2_to_dc_ess_bus_contactor.is_closed()
             && !self.dc_bat_bus_to_dc_ess_bus_contactor.is_closed()
             && !self.tr_ess_contactor.is_closed())
-            || (self.battery_2_to_dc_ess_bus_contactor.is_closed()
+            || (self.hot_bus_2_to_dc_ess_bus_contactor.is_closed()
                 ^ self.dc_bat_bus_to_dc_ess_bus_contactor.is_closed()
                 ^ self.tr_ess_contactor.is_closed())
     }
@@ -204,8 +209,8 @@ impl A320DirectCurrentElectrical {
     fn batteries_power_both_static_inv_and_dc_ess_bus_at_the_same_time_or_not_at_all(
         &self,
     ) -> bool {
-        self.battery_1_to_static_inv_contactor.is_closed()
-            == self.battery_2_to_dc_ess_bus_contactor.is_closed()
+        self.hot_bus_1_to_static_inv_contactor.is_closed()
+            == self.hot_bus_2_to_dc_ess_bus_contactor.is_closed()
     }
 
     pub fn dc_bus_1(&self) -> &ElectricalBus {
@@ -273,8 +278,8 @@ impl SimulationElement for A320DirectCurrentElectrical {
         self.dc_ess_shed_contactor.accept(visitor);
         self.battery_1_contactor.accept(visitor);
         self.battery_2_contactor.accept(visitor);
-        self.battery_2_to_dc_ess_bus_contactor.accept(visitor);
-        self.battery_1_to_static_inv_contactor.accept(visitor);
+        self.hot_bus_2_to_dc_ess_bus_contactor.accept(visitor);
+        self.hot_bus_1_to_static_inv_contactor.accept(visitor);
         self.tr_1_contactor.accept(visitor);
         self.tr_2_contactor.accept(visitor);
         self.tr_ess_contactor.accept(visitor);
