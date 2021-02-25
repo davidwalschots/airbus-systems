@@ -38,7 +38,7 @@ impl DelayedTrueLogicGate {
 
     pub fn update(&mut self, context: &UpdateContext, expression_result: bool) {
         if expression_result {
-            self.true_duration += context.delta;
+            self.true_duration += context.delta();
         } else {
             self.true_duration = Duration::from_millis(0);
         }

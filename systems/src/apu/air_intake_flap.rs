@@ -60,7 +60,7 @@ impl AirIntakeFlap {
     }
 
     fn get_flap_change_for_delta(&self, context: &UpdateContext) -> f64 {
-        100. * (context.delta.as_secs_f64() / self.delay.as_secs_f64())
+        100. * (context.delta().as_secs_f64() / self.delay.as_secs_f64())
     }
 
     pub fn is_fully_open(&self) -> bool {

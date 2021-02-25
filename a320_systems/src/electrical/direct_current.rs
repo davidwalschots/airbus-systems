@@ -189,7 +189,7 @@ impl A320DirectCurrentElectrical {
         &self,
         context: &UpdateContext,
     ) -> bool {
-        context.indicated_airspeed < Velocity::new::<knot>(50.)
+        context.indicated_airspeed() < Velocity::new::<knot>(50.)
             && self.battery_1_contactor.is_closed()
             && self.battery_2_contactor.is_closed()
     }

@@ -157,7 +157,8 @@ impl IntegratedDriveGenerator {
             && self.time_above_threshold_in_milliseconds
                 < IntegratedDriveGenerator::STABILIZATION_TIME_IN_MILLISECONDS
         {
-            new_time = self.time_above_threshold_in_milliseconds + context.delta.as_millis() as u64;
+            new_time =
+                self.time_above_threshold_in_milliseconds + context.delta().as_millis() as u64;
         } else if corrected_n2
             <= Ratio::new::<percent>(
                 IntegratedDriveGenerator::ENGINE_N2_POWER_DOWN_OUTPUT_THRESHOLD,
@@ -166,7 +167,7 @@ impl IntegratedDriveGenerator {
         {
             new_time = self.time_above_threshold_in_milliseconds
                 - min(
-                    context.delta.as_millis() as u64,
+                    context.delta().as_millis() as u64,
                     self.time_above_threshold_in_milliseconds,
                 );
         }
@@ -190,7 +191,7 @@ impl IntegratedDriveGenerator {
             } else {
                 IDG_COOLING_COEFFICIENT
             },
-            context.delta,
+            context.delta(),
         );
     }
 
@@ -200,11 +201,11 @@ impl IntegratedDriveGenerator {
         corrected_n2: Ratio,
     ) -> ThermodynamicTemperature {
         if !self.connected {
-            return context.ambient_temperature;
+            return context.ambient_temperature();
         }
 
         let mut target_idg = corrected_n2.get::<percent>() * 1.8;
-        let ambient_temperature = context.ambient_temperature.get::<degree_celsius>();
+        let ambient_temperature = context.ambient_temperature().get::<degree_celsius>();
         target_idg += ambient_temperature;
 
         // TODO improve this function with feedback @komp provides.

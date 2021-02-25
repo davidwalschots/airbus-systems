@@ -65,7 +65,7 @@ impl A320AlternatingCurrentElectrical {
             // ON GROUND BAT ONLY SPEED <= 100 kts scenario. We'll probably need to move this logic into
             // the ram air turbine, emergency generator and hydraulic implementation.
             arguments.is_blue_hydraulic_circuit_pressurised()
-                && context.indicated_airspeed > Velocity::new::<knot>(100.),
+                && context.indicated_airspeed() > Velocity::new::<knot>(100.),
         );
 
         self.main_power_sources
@@ -253,7 +253,7 @@ impl AlternatingCurrentState for A320AlternatingCurrentElectrical {
         context: &UpdateContext,
     ) -> bool {
         self.ac_1_and_2_and_emergency_gen_unpowered()
-            && context.indicated_airspeed >= Velocity::new::<knot>(50.)
+            && context.indicated_airspeed() >= Velocity::new::<knot>(50.)
     }
 
     fn tr_1(&self) -> &TransformerRectifier {

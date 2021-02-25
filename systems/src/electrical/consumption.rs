@@ -169,14 +169,14 @@ impl FlightPhasePowerConsumer {
     }
 
     pub fn update(&mut self, context: &UpdateContext) {
-        if self.update_after <= context.delta {
+        if self.update_after <= context.delta() {
             self.update_after = Duration::from_secs_f64(5. + ((random_number() % 26) as f64));
             let base_demand = self.base_demand[self.current_flight_phase as usize].get::<watt>();
             self.consumer.demand(Power::new::<watt>(
                 base_demand * ((90. + ((random_number() % 21) as f64)) / 100.),
             ));
         } else {
-            self.update_after -= context.delta;
+            self.update_after -= context.delta();
         }
     }
 

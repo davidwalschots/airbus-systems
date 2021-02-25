@@ -7,11 +7,11 @@ use super::SimulatorReader;
 /// for the purpose of handling a simulation tick.
 #[derive(Debug)]
 pub struct UpdateContext {
-    pub delta: Duration,
-    pub indicated_airspeed: Velocity,
-    pub indicated_altitude: Length,
-    pub ambient_temperature: ThermodynamicTemperature,
-    pub is_on_ground: bool,
+    delta: Duration,
+    indicated_airspeed: Velocity,
+    indicated_altitude: Length,
+    ambient_temperature: ThermodynamicTemperature,
+    is_on_ground: bool,
 }
 impl UpdateContext {
     pub(crate) const AMBIENT_TEMPERATURE_KEY: &'static str = "AMBIENT TEMPERATURE";
@@ -54,5 +54,25 @@ impl UpdateContext {
 
     pub fn is_in_flight(&self) -> bool {
         !self.is_on_ground
+    }
+
+    pub fn delta(&self) -> Duration {
+        self.delta
+    }
+
+    pub fn indicated_airspeed(&self) -> Velocity {
+        self.indicated_airspeed
+    }
+
+    pub fn indicated_altitude(&self) -> Length {
+        self.indicated_altitude
+    }
+
+    pub fn ambient_temperature(&self) -> ThermodynamicTemperature {
+        self.ambient_temperature
+    }
+
+    pub fn is_on_ground(&self) -> bool {
+        self.is_on_ground
     }
 }

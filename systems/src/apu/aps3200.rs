@@ -184,7 +184,7 @@ impl Turbine for Starting {
         _: bool,
         controller: &dyn TurbineController,
     ) -> Box<dyn Turbine> {
-        self.since += context.delta;
+        self.since += context.delta();
         self.n = self.calculate_n();
         self.egt = self.calculate_egt(context);
 
@@ -247,7 +247,7 @@ impl Running {
             target_temperature += self.apu_gen_in_use_delta_temperature;
         }
 
-        calculate_towards_target_temperature(self.egt, target_temperature, 0.4, context.delta)
+        calculate_towards_target_temperature(self.egt, target_temperature, 0.4, context.delta())
     }
 }
 impl Turbine for Running {
@@ -301,7 +301,7 @@ impl Stopping {
     fn calculate_n(&self, context: &UpdateContext) -> Ratio {
         const SPOOL_DOWN_COEFFICIENT: f64 = 2.;
         let mut n = self.n.get::<percent>();
-        n = (n - (context.delta.as_secs_f64() * SPOOL_DOWN_COEFFICIENT)).max(0.);
+        n = (n - (context.delta().as_secs_f64() * SPOOL_DOWN_COEFFICIENT)).max(0.);
 
         Ratio::new::<percent>(n)
     }
@@ -314,7 +314,7 @@ impl Turbine for Stopping {
         _: bool,
         _: &dyn TurbineController,
     ) -> Box<dyn Turbine> {
-        self.since += context.delta;
+        self.since += context.delta();
         self.n = self.calculate_n(context);
         self.egt = calculate_towards_ambient_egt(self.egt, context);
 
@@ -345,9 +345,9 @@ fn calculate_towards_ambient_egt(
     const APU_AMBIENT_COEFFICIENT: f64 = 2.;
     calculate_towards_target_temperature(
         current_egt,
-        context.ambient_temperature,
+        context.ambient_temperature(),
         APU_AMBIENT_COEFFICIENT,
-        context.delta,
+        context.delta(),
     )
 }
 

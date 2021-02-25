@@ -40,7 +40,7 @@ impl BatteryChargeLimiter {
     ) {
         self.should_close_contactor = battery.needs_charging()
             || (arguments.ac_buses_unpowered()
-                && context.indicated_airspeed < Velocity::new::<knot>(100.))
+                && context.indicated_airspeed() < Velocity::new::<knot>(100.))
     }
 
     pub fn should_close_contactor(&self) -> bool {

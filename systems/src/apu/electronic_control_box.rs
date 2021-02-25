@@ -84,7 +84,7 @@ impl ElectronicControlBox {
             ElectronicControlBox::calculate_egt_warning_temperature(context, &self.turbine_state);
 
         if self.n.get::<percent>() > 95. {
-            self.n_above_95_duration += context.delta;
+            self.n_above_95_duration += context.delta();
         } else {
             self.n_above_95_duration = Duration::from_secs(0);
         }
@@ -104,7 +104,7 @@ impl ElectronicControlBox {
         if bleed_air_valve.is_open() {
             self.bleed_air_valve_last_open_time_ago = Duration::from_secs(0);
         } else {
-            self.bleed_air_valve_last_open_time_ago += context.delta;
+            self.bleed_air_valve_last_open_time_ago += context.delta();
         }
     }
 
@@ -129,7 +129,7 @@ impl ElectronicControlBox {
             TurbineState::Starting => {
                 const STARTING_WARNING_EGT_BELOW_25000_FEET: f64 = 900.;
                 const STARTING_WARNING_EGT_AT_OR_ABOVE_25000_FEET: f64 = 982.;
-                if context.indicated_altitude.get::<foot>() < 25_000. {
+                if context.indicated_altitude().get::<foot>() < 25_000. {
                     ThermodynamicTemperature::new::<degree_celsius>(
                         STARTING_WARNING_EGT_BELOW_25000_FEET,
                     )
