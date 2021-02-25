@@ -37,8 +37,7 @@ impl DelayedTrueLogicGate {
     }
 
     pub fn update(&mut self, context: &UpdateContext, expression_result: bool) {
-        // We do not include the delta representing the moment before the expression_result became true.
-        if self.expression_result && expression_result {
+        if expression_result {
             self.true_duration += context.delta;
         } else {
             self.true_duration = Duration::from_millis(0);
@@ -164,21 +163,6 @@ mod delayed_true_logic_gate_tests {
         aircraft.set_expression(false);
         test_bed.set_delta(Duration::from_millis(100));
         test_bed.run_aircraft(&mut aircraft);
-        test_bed.set_delta(Duration::from_millis(200));
-        test_bed.run_aircraft(&mut aircraft);
-
-        assert_eq!(aircraft.gate_output(), false);
-    }
-
-    #[test]
-    fn does_not_include_delta_at_the_moment_of_expression_becoming_true() {
-        let mut aircraft =
-            TestAircraft::new(DelayedTrueLogicGate::new(Duration::from_millis(1_000)));
-        let mut test_bed = SimulationTestBed::new_with_delta(Duration::from_millis(900));
-
-        aircraft.set_expression(true);
-        test_bed.run_aircraft(&mut aircraft);
-
         test_bed.set_delta(Duration::from_millis(200));
         test_bed.run_aircraft(&mut aircraft);
 
