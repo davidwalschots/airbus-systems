@@ -3,8 +3,8 @@ use super::{A320ElectricalOverheadPanel, AlternatingCurrentState, DirectCurrentS
 use systems::electrical::Potential;
 use systems::{
     electrical::{
-        Battery, Contactor, ElectricalBus, ElectricalBusType, PotentialSource, PotentialTarget,
-        StaticInverter,
+        Battery, BatteryChargeLimiter, BatteryChargeLimiterArguments, Contactor, ElectricalBus,
+        ElectricalBusType, PotentialSource, PotentialTarget, StaticInverter,
     },
     simulation::{SimulationElement, SimulationElementVisitor, UpdateContext},
 };
@@ -22,8 +22,10 @@ pub(super) struct A320DirectCurrentElectrical {
     dc_ess_shed_contactor: Contactor,
     battery_1: Battery,
     battery_1_contactor: Contactor,
+    battery_1_charge_limiter: BatteryChargeLimiter,
     battery_2: Battery,
     battery_2_contactor: Contactor,
+    battery_2_charge_limiter: BatteryChargeLimiter,
     hot_bus_2_to_dc_ess_bus_contactor: Contactor,
     hot_bus_1_to_static_inv_contactor: Contactor,
     static_inverter: StaticInverter,
@@ -47,8 +49,10 @@ impl A320DirectCurrentElectrical {
             dc_ess_shed_contactor: Contactor::new("8PH"),
             battery_1: Battery::full(10),
             battery_1_contactor: Contactor::new("6PB1"),
+            battery_1_charge_limiter: BatteryChargeLimiter::new(),
             battery_2: Battery::full(11),
             battery_2_contactor: Contactor::new("6PB2"),
+            battery_2_charge_limiter: BatteryChargeLimiter::new(),
             hot_bus_2_to_dc_ess_bus_contactor: Contactor::new("2XB2"),
             hot_bus_1_to_static_inv_contactor: Contactor::new("2XB1"),
             static_inverter: StaticInverter::new(),
@@ -100,16 +104,22 @@ impl A320DirectCurrentElectrical {
         self.battery_1_contactor.powered_by(&self.dc_bat_bus);
         self.battery_2_contactor.powered_by(&self.dc_bat_bus);
 
-        let airspeed_below_100_knots = context.indicated_airspeed < Velocity::new::<knot>(100.);
-        let batteries_should_supply_bat_bus =
-            ac_state.ac_bus_1_and_2_unpowered() && airspeed_below_100_knots;
+        self.battery_1_charge_limiter.update(
+            context,
+            &self.battery_1,
+            &BatteryChargeLimiterArguments::new(ac_state.ac_bus_1_and_2_unpowered()),
+        );
         self.battery_1_contactor.close_when(
-            overhead.bat_1_is_auto()
-                && (!self.battery_1.needs_charging() || batteries_should_supply_bat_bus),
+            overhead.bat_1_is_auto() && self.battery_1_charge_limiter.should_close_contactor(),
+        );
+
+        self.battery_2_charge_limiter.update(
+            context,
+            &self.battery_2,
+            &BatteryChargeLimiterArguments::new(ac_state.ac_bus_1_and_2_unpowered()),
         );
         self.battery_2_contactor.close_when(
-            overhead.bat_2_is_auto()
-                && (!self.battery_2.needs_charging() || batteries_should_supply_bat_bus),
+            overhead.bat_2_is_auto() && self.battery_2_charge_limiter.should_close_contactor(),
         );
 
         self.battery_1.powered_by(&self.battery_1_contactor);

@@ -9,7 +9,7 @@ mod static_inverter;
 mod transformer_rectifier;
 use std::{fmt::Display, hash::Hash};
 
-pub use battery::Battery;
+pub use battery::{Battery, BatteryChargeLimiter, BatteryChargeLimiterArguments};
 pub use emergency_generator::EmergencyGenerator;
 pub use engine_generator::{EngineGenerator, EngineGeneratorUpdateArguments};
 pub use external_power_source::ExternalPowerSource;
