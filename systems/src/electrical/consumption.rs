@@ -24,7 +24,7 @@ use crate::{
     simulation::{SimulationElement, SimulationElementVisitor, SimulatorReader, UpdateContext},
 };
 use num_traits::FromPrimitive;
-use uom::si::{f64::*, power::watt};
+use uom::si::{electric_potential::volt, f64::*, power::watt};
 
 pub(crate) struct ElectricPower {
     supplied_power: SuppliedPower,
@@ -145,8 +145,8 @@ impl SimulationElement for PowerConsumer {
             .unwrap_or_default();
     }
 
-    fn consume_power(&mut self, state: &mut PowerConsumption) {
-        state.add(&self.provided_potential, self.demand);
+    fn consume_power(&mut self, consumption: &mut PowerConsumption) {
+        consumption.add(&self.provided_potential, self.demand);
     }
 }
 
@@ -234,13 +234,13 @@ impl From<FwcFlightPhase> for PowerConsumerFlightPhase {
 }
 
 pub trait PowerConsumptionReport {
-    fn total_consumption_of(&self, potential: &Potential) -> Power;
+    fn total_consumption_of(&self, potential_origin: PotentialOrigin) -> Power;
     fn delta(&self) -> Duration;
 }
 
 pub struct PowerConsumption {
     consumption: HashMap<PotentialOrigin, Power>,
-    /// The duration the power consumption applies to.
+    /// The simulation tick's duration.
     delta: Duration,
 }
 impl PowerConsumption {
@@ -252,18 +252,27 @@ impl PowerConsumption {
     }
 
     pub fn add(&mut self, potential: &Potential, power: Power) {
-        match potential.origin() {
-            PotentialOrigin::None => {}
-            origin => {
-                let x = self.consumption.entry(origin).or_default();
-                *x += power;
+        let total_potential = potential
+            .origins_with_raw_potential()
+            .iter()
+            .filter_map(|&x| x)
+            .fold(ElectricPotential::new::<volt>(0.), |acc, x| acc + x.raw());
+
+        if total_potential > ElectricPotential::new::<volt>(0.) {
+            for pair in potential
+                .origins_with_raw_potential()
+                .iter()
+                .filter_map(|&x| x)
+            {
+                let y = self.consumption.entry(pair.origin()).or_default();
+                *y += (power / total_potential) * pair.raw();
             }
-        };
+        }
     }
 }
 impl PowerConsumptionReport for PowerConsumption {
-    fn total_consumption_of(&self, potential: &Potential) -> Power {
-        match self.consumption.get(&potential.origin()) {
+    fn total_consumption_of(&self, potential_origin: PotentialOrigin) -> Power {
+        match self.consumption.get(&potential_origin) {
             Some(power) => *power,
             None => Power::new::<watt>(0.),
         }
@@ -348,12 +357,15 @@ mod tests {
     }
     impl PotentialSource for ApuStub {
         fn output(&self) -> Potential {
-            Potential::apu_generator(1).with_raw(ElectricPotential::new::<volt>(115.))
+            Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(115.),
+            )
         }
     }
     impl SimulationElement for ApuStub {
         fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
-            self.consumed_power = report.total_consumption_of(&Potential::apu_generator(1));
+            self.consumed_power = report.total_consumption_of(PotentialOrigin::ApuGenerator(1));
         }
     }
 
@@ -456,7 +468,7 @@ mod tests {
             consumer.consume_power(&mut consumption);
 
             assert_eq!(
-                consumption.total_consumption_of(&Potential::apu_generator(1)),
+                consumption.total_consumption_of(PotentialOrigin::ApuGenerator(1)),
                 expected
             );
         }
@@ -470,7 +482,7 @@ mod tests {
             consumer.consume_power(&mut consumption);
 
             assert_eq!(
-                consumption.total_consumption_of(&Potential::apu_generator(1)),
+                consumption.total_consumption_of(PotentialOrigin::ApuGenerator(1)),
                 Power::new::<watt>(0.)
             );
         }
@@ -546,7 +558,7 @@ mod tests {
 
             fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
                 self.apu_generator_consumption =
-                    Some(report.total_consumption_of(&Potential::apu_generator(1)));
+                    Some(report.total_consumption_of(PotentialOrigin::ApuGenerator(1)));
             }
         }
 
@@ -654,7 +666,7 @@ mod tests {
             let expected = Power::new::<watt>(0.);
 
             assert_eq!(
-                consumption.total_consumption_of(&Potential::apu_generator(1)),
+                consumption.total_consumption_of(PotentialOrigin::ApuGenerator(1)),
                 expected
             );
         }
@@ -664,11 +676,24 @@ mod tests {
             let mut consumption = power_consumption();
             let expected = Power::new::<watt>(600.);
 
-            consumption.add(&Potential::apu_generator(1), expected);
-            consumption.add(&Potential::engine_generator(1), Power::new::<watt>(400.));
+            consumption.add(
+                &Potential::single(
+                    PotentialOrigin::ApuGenerator(1),
+                    ElectricPotential::new::<volt>(115.),
+                ),
+                expected,
+            );
+
+            consumption.add(
+                &Potential::single(
+                    PotentialOrigin::EngineGenerator(1),
+                    ElectricPotential::new::<volt>(115.),
+                ),
+                Power::new::<watt>(400.),
+            );
 
             assert_eq!(
-                consumption.total_consumption_of(&Potential::apu_generator(1)),
+                consumption.total_consumption_of(PotentialOrigin::ApuGenerator(1)),
                 expected
             );
         }
@@ -678,12 +703,107 @@ mod tests {
             let mut consumption = power_consumption();
             let expected = Power::new::<watt>(1100.);
 
-            consumption.add(&Potential::apu_generator(1), Power::new::<watt>(400.));
-            consumption.add(&Potential::apu_generator(1), Power::new::<watt>(700.));
+            consumption.add(
+                &Potential::single(
+                    PotentialOrigin::ApuGenerator(1),
+                    ElectricPotential::new::<volt>(115.),
+                ),
+                Power::new::<watt>(400.),
+            );
+
+            consumption.add(
+                &Potential::single(
+                    PotentialOrigin::ApuGenerator(1),
+                    ElectricPotential::new::<volt>(115.),
+                ),
+                Power::new::<watt>(700.),
+            );
 
             assert_eq!(
-                consumption.total_consumption_of(&Potential::apu_generator(1)),
+                consumption.total_consumption_of(PotentialOrigin::ApuGenerator(1)),
                 expected
+            );
+        }
+
+        #[test]
+        fn when_multiple_origins_with_same_voltage_total_consumption_of_returns_the_equally_divided_consumption(
+        ) {
+            let mut consumption = power_consumption();
+
+            consumption.add(
+                &Potential::single(
+                    PotentialOrigin::Battery(1),
+                    ElectricPotential::new::<volt>(28.),
+                )
+                .merge(&Potential::single(
+                    PotentialOrigin::Battery(2),
+                    ElectricPotential::new::<volt>(28.),
+                )),
+                Power::new::<watt>(400.),
+            );
+
+            assert_eq!(
+                consumption.total_consumption_of(PotentialOrigin::Battery(1)),
+                Power::new::<watt>(200.)
+            );
+
+            assert_eq!(
+                consumption.total_consumption_of(PotentialOrigin::Battery(2)),
+                Power::new::<watt>(200.)
+            );
+        }
+
+        #[test]
+        fn when_multiple_origins_with_different_voltage_total_consumption_of_returns_the_proportionally_divided_consumption(
+        ) {
+            let mut consumption = power_consumption();
+
+            consumption.add(
+                &Potential::single(
+                    PotentialOrigin::Battery(1),
+                    ElectricPotential::new::<volt>(24.),
+                )
+                .merge(&Potential::single(
+                    PotentialOrigin::Battery(2),
+                    ElectricPotential::new::<volt>(28.),
+                )),
+                Power::new::<watt>(400.),
+            );
+
+            assert_eq!(
+                consumption.total_consumption_of(PotentialOrigin::Battery(1)),
+                Power::new::<watt>(184.6153846153846)
+            );
+            assert_eq!(
+                consumption.total_consumption_of(PotentialOrigin::Battery(2)),
+                Power::new::<watt>(215.3846153846154)
+            );
+        }
+
+        #[test]
+        fn when_multiple_origins_some_without_voltage_total_consumption_of_returns_consumption_on_for_those_origins_with_potential(
+        ) {
+            let mut consumption = power_consumption();
+
+            consumption.add(
+                &Potential::single(
+                    PotentialOrigin::Battery(1),
+                    ElectricPotential::new::<volt>(0.),
+                )
+                .merge(&Potential::single(
+                    PotentialOrigin::Battery(2),
+                    ElectricPotential::new::<volt>(28.),
+                )),
+                Power::new::<watt>(400.),
+            );
+
+            assert_eq!(
+                consumption.total_consumption_of(PotentialOrigin::Battery(1)),
+                Power::new::<watt>(0.)
+            );
+            assert_eq!(
+                consumption.total_consumption_of(PotentialOrigin::Battery(2)),
+                Power::new::<watt>(400.)
             );
         }
     }

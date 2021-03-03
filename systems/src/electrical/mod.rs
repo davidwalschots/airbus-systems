@@ -13,6 +13,7 @@ pub use battery::{Battery, BatteryChargeLimiter, BatteryChargeLimiterArguments};
 pub use emergency_generator::EmergencyGenerator;
 pub use engine_generator::{EngineGenerator, EngineGeneratorUpdateArguments};
 pub use external_power_source::ExternalPowerSource;
+use itertools::Itertools;
 pub use static_inverter::StaticInverter;
 pub use transformer_rectifier::TransformerRectifier;
 
@@ -35,9 +36,38 @@ pub enum PotentialOrigin {
     External,
     EmergencyGenerator,
     Battery(usize),
-    Batteries,
     TransformerRectifier(usize),
     StaticInverter,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct OriginWithRawPotentialPair {
+    origin: PotentialOrigin,
+    raw: ElectricPotential,
+}
+impl OriginWithRawPotentialPair {
+    fn new(origin: PotentialOrigin, raw: ElectricPotential) -> Self {
+        Self { origin, raw }
+    }
+
+    pub fn origin(&self) -> PotentialOrigin {
+        self.origin
+    }
+
+    pub fn raw(&self) -> ElectricPotential {
+        self.raw
+    }
+}
+impl PartialEq for OriginWithRawPotentialPair {
+    fn eq(&self, other: &Self) -> bool {
+        self.origin == other.origin
+    }
+}
+impl Eq for OriginWithRawPotentialPair {}
+impl Hash for OriginWithRawPotentialPair {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.origin.hash(state);
+    }
 }
 
 /// Within an electrical system, electric potential is made available by an origin.
@@ -47,8 +77,7 @@ pub enum PotentialOrigin {
 ///
 /// Note that this type shouldn't be confused with uom's `ElectricPotential`, which provides
 /// the base unit (including volt) for defining the amount of potential.
-/// The raw `ElectricPotential` is included in this type for presentational purposes, and to
-/// decide between two potential origins in a parallel circuit.
+/// The raw `ElectricPotential` is included in this type.
 ///
 /// The raw `ElectricPotential` is ignored when determining if the potential
 /// is powered or not. If we wouldn't ignore it, passing electric potential across the
@@ -61,89 +90,102 @@ pub enum PotentialOrigin {
 ///
 /// For the reasons outlined above when creating e.g. an engine generator, ensure you
 /// return `Potential::none()` when the generator isn't supplying potential, and
-/// `Potential::engine_generator(usize).with_raw(ElectricPotential)` when it is.
+/// `Potential::some(PotentialOrigin::EngineGenerator(1), ElectricPotential::new::<volt>(115.))`
+/// when it is.
 #[derive(Clone, Copy, Debug)]
 pub struct Potential {
-    origin: PotentialOrigin,
-    raw: ElectricPotential,
+    // As this struct is passed around quite a bit, we use a fixed sized
+    // array so copying is cheaper. Creation of Potential, with two merges
+    // and a clone is much cheaper: 286ns instead of 500ns with a HashSet.
+    // Three elements is the maximum we expect in the A320 (BAT1, BAT2,
+    // and TR1 or TR2). Should another aircraft require more one can simply
+    // increase the number here and in the code below.
+    elements: [Option<OriginWithRawPotentialPair>; 3],
 }
 impl Potential {
-    fn new_without_raw(origin: PotentialOrigin) -> Self {
+    pub fn none() -> Self {
         Self {
-            origin,
-            raw: ElectricPotential::new::<volt>(0.),
+            elements: [None, None, None],
         }
     }
 
-    pub fn none() -> Self {
-        Self::new_without_raw(PotentialOrigin::None)
+    pub fn single(origin: PotentialOrigin, raw: ElectricPotential) -> Self {
+        Self {
+            elements: [
+                Some(OriginWithRawPotentialPair::new(origin, raw)),
+                None,
+                None,
+            ],
+        }
     }
 
-    pub fn engine_generator(number: usize) -> Self {
-        Self::new_without_raw(PotentialOrigin::EngineGenerator(number))
+    pub fn merge(&self, other: &Potential) -> Self {
+        let mut elements = self
+            .elements
+            .iter()
+            .filter_map(|&x| x)
+            .chain(other.elements.iter().filter_map(|&x| x))
+            .unique();
+
+        let merged = Self {
+            elements: [elements.next(), elements.next(), elements.next()],
+        };
+
+        debug_assert!(elements.count() == 0);
+
+        merged
     }
 
-    pub fn apu_generator(number: usize) -> Self {
-        Self::new_without_raw(PotentialOrigin::ApuGenerator(number))
+    pub fn is_single(&self, origin: PotentialOrigin) -> bool {
+        self.elements.iter().filter_map(|&x| x).count() == 1
+            && self
+                .elements
+                .iter()
+                .filter_map(|&x| x)
+                .filter(|&x| x.origin == origin)
+                .count()
+                == 1
     }
 
-    pub fn external() -> Self {
-        Self::new_without_raw(PotentialOrigin::External)
+    pub fn is_single_engine_generator(&self) -> bool {
+        self.elements.iter().filter_map(|&x| x).count() == 1
+            && self
+                .elements
+                .iter()
+                .filter_map(|&x| x)
+                .filter(|&x| matches!(x.origin, PotentialOrigin::EngineGenerator(_)))
+                .count()
+                == 1
     }
 
-    pub fn emergency_generator() -> Self {
-        Self::new_without_raw(PotentialOrigin::EmergencyGenerator)
-    }
-
-    pub fn battery(number: usize) -> Self {
-        Self::new_without_raw(PotentialOrigin::Battery(number))
-    }
-
-    pub fn batteries() -> Self {
-        Self::new_without_raw(PotentialOrigin::Batteries)
-    }
-
-    pub fn transformer_rectifier(number: usize) -> Self {
-        Self::new_without_raw(PotentialOrigin::TransformerRectifier(number))
-    }
-
-    pub fn static_inverter() -> Self {
-        Self::new_without_raw(PotentialOrigin::StaticInverter)
-    }
-
-    pub fn with_raw(mut self, potential: ElectricPotential) -> Self {
-        debug_assert!(self.origin != PotentialOrigin::None);
-
-        self.raw = potential;
-        self
+    pub fn is_pair(&self, a: PotentialOrigin, b: PotentialOrigin) -> bool {
+        self.elements.iter().filter_map(|&x| x).count() == 2
+            && self
+                .elements
+                .iter()
+                .filter_map(|&x| x)
+                .filter(|&x| x.origin == a || x.origin == b)
+                .count()
+                == 2
     }
 
     /// Indicates if the instance provides electric potential.
     pub fn is_powered(&self) -> bool {
-        self.origin != PotentialOrigin::None
+        self.elements.iter().filter_map(|&x| x).count() > 0
     }
 
     /// Indicates if the instance does not provide electric potential.
     pub fn is_unpowered(&self) -> bool {
-        self.origin == PotentialOrigin::None
+        !self.is_powered()
     }
 
-    pub fn origin(&self) -> PotentialOrigin {
-        self.origin
-    }
-
-    pub fn raw(&self) -> ElectricPotential {
-        self.raw
+    pub fn origins_with_raw_potential(&self) -> &[Option<OriginWithRawPotentialPair>] {
+        &self.elements
     }
 }
-impl PartialEq for Potential {
-    fn eq(&self, other: &Self) -> bool {
-        self.origin.eq(&other.origin)
-    }
-}
-impl PartialOrd for Potential {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.raw.get::<volt>().partial_cmp(&other.raw.get::<volt>())
+impl PotentialSource for Potential {
+    fn output(&self) -> Potential {
+        self.clone()
     }
 }
 impl Default for Potential {
@@ -247,90 +289,6 @@ impl SimulationElement for Contactor {
     }
 }
 
-/// Combines multiple sources of potential, such that they can be passed
-/// to a target of potential as a single unit. The potential origin with the highest
-/// voltage is returned.
-///
-/// # Examples
-///
-/// This function is most useful when combining sources that are in one
-/// struct for use in another struct.
-/// ```rust
-/// # use systems::electrical::{Contactor, combine_potential_sources, ElectricalBus,
-/// #     ElectricalBusType, PotentialTarget, CombinedPotentialSource};
-/// struct MainPowerSources {
-///     engine_1_gen_contactor: Contactor,
-///     bus_tie_1_contactor: Contactor,
-/// }
-/// impl MainPowerSources {
-///     fn new() -> Self {
-///         Self {
-///             engine_1_gen_contactor: Contactor::new("9XU1"),
-///             bus_tie_1_contactor: Contactor::new("11XU1"),
-///         }
-///     }
-///
-///     fn ac_bus_1_electric_sources(&self) -> CombinedPotentialSource {
-///         combine_potential_sources(vec![
-///             &self.engine_1_gen_contactor,
-///             &self.bus_tie_1_contactor,
-///         ])
-///     }
-/// }
-///
-/// let mut ac_bus_1 = ElectricalBus::new(ElectricalBusType::AlternatingCurrent(1));
-/// let main_power_sources = MainPowerSources::new();
-///
-/// ac_bus_1.powered_by(&main_power_sources.ac_bus_1_electric_sources());
-/// ```
-/// When a potential target can be powered by multiple sources in the same struct and
-/// the potential origin doesn't matter as you don't expect the sources to be powered
-/// by different potential origins, prefer using the `powered_by` and `or_powered_by`
-/// functions as follows:
-/// ```rust
-/// # use systems::electrical::{Contactor, ElectricalBus,
-/// #     ElectricalBusType, PotentialTarget};
-/// let mut ac_bus_1 = ElectricalBus::new(ElectricalBusType::AlternatingCurrent(1));
-/// let engine_1_gen_contactor = Contactor::new("9XU1");
-/// let bus_tie_1_contactor = Contactor::new("11XU1");
-///
-/// ac_bus_1.powered_by(&engine_1_gen_contactor);
-/// ac_bus_1.or_powered_by(&bus_tie_1_contactor);
-/// ```
-pub fn combine_potential_sources<T: PotentialSource>(sources: Vec<&T>) -> CombinedPotentialSource {
-    CombinedPotentialSource::new(sources)
-}
-
-/// Refer to [`combine_potential_sources`] for details.
-///
-/// [`combine_potential_sources`]: fn.combine_potential_sources.html
-pub struct CombinedPotentialSource {
-    potential: Potential,
-}
-impl CombinedPotentialSource {
-    fn new<T: PotentialSource>(sources: Vec<&T>) -> Self {
-        let mut sources: Vec<_> = sources
-            .iter()
-            .map(|x| x.output())
-            .filter(|x| x.is_powered())
-            .collect();
-        sources.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        let x = sources.last();
-        CombinedPotentialSource {
-            potential: match x {
-                Some(potential) => *potential,
-                None => Potential::none(),
-            },
-        }
-    }
-}
-impl PotentialSource for CombinedPotentialSource {
-    fn output(&self) -> Potential {
-        self.potential
-    }
-}
-
 /// The common types of electrical buses within Airbus aircraft.
 /// These include types such as AC, DC, AC ESS, etc.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -389,25 +347,10 @@ impl ElectricalBus {
         battery_1_contactor: &Contactor,
         battery_2_contactor: &Contactor,
     ) {
-        if self.input.is_unpowered() {
-            self.input = if ElectricalBus::batteries_have_equal_potential(
-                battery_1_contactor,
-                battery_2_contactor,
-            ) {
-                Potential::batteries().with_raw(battery_1_contactor.output().raw())
-            } else {
-                combine_potential_sources(vec![battery_1_contactor, battery_2_contactor]).output()
-            }
-        }
-    }
-
-    fn batteries_have_equal_potential(
-        battery_1_contactor: &Contactor,
-        battery_2_contactor: &Contactor,
-    ) -> bool {
-        battery_1_contactor.is_powered()
-            && battery_2_contactor.is_powered()
-            && battery_1_contactor.output().raw() == battery_2_contactor.output().raw()
+        self.input = self
+            .input
+            .merge(&battery_1_contactor.output())
+            .merge(&battery_2_contactor.output())
     }
 }
 potential_target!(ElectricalBus);
@@ -529,7 +472,10 @@ mod tests {
     struct StubApuGenerator {}
     impl PotentialSource for StubApuGenerator {
         fn output(&self) -> Potential {
-            Potential::apu_generator(1).with_raw(ElectricPotential::new::<volt>(115.))
+            Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(115.),
+            )
         }
     }
 
@@ -596,47 +542,277 @@ mod tests {
         }
 
         #[test]
+        fn merge_combines_different_potentials() {
+            let result = Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(115.),
+            )
+            .merge(&Potential::single(
+                PotentialOrigin::EngineGenerator(1),
+                ElectricPotential::new::<volt>(115.),
+            ));
+
+            assert!(result.is_pair(
+                PotentialOrigin::ApuGenerator(1),
+                PotentialOrigin::EngineGenerator(1)
+            ));
+        }
+
+        #[test]
+        fn merge_combines_similar_potentials() {
+            let result = Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(115.),
+            )
+            .merge(&Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(115.),
+            ));
+
+            assert!(result.is_single(PotentialOrigin::ApuGenerator(1)));
+        }
+
+        #[test]
+        fn merge_ignores_none() {
+            let result = Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(115.),
+            )
+            .merge(&Potential::none());
+
+            assert!(result.is_single(PotentialOrigin::ApuGenerator(1)));
+        }
+
+        #[test]
+        fn merge_keeps_the_left_side_raw_potential() {
+            let result = Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(115.),
+            )
+            .merge(&Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(10.),
+            ));
+
+            assert!(if let Some(pair) = result
+                .origins_with_raw_potential()
+                .iter()
+                .filter_map(|&x| x)
+                .next()
+            {
+                pair.raw() == ElectricPotential::new::<volt>(115.)
+            } else {
+                false
+            });
+        }
+
+        #[test]
+        #[should_panic]
+        fn merge_panics_when_merging_more_than_three_origins() {
+            Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(115.),
+            )
+            .merge(&Potential::single(
+                PotentialOrigin::EngineGenerator(1),
+                ElectricPotential::new::<volt>(115.),
+            ))
+            .merge(&Potential::single(
+                PotentialOrigin::EngineGenerator(2),
+                ElectricPotential::new::<volt>(115.),
+            ))
+            .merge(&Potential::single(
+                PotentialOrigin::EngineGenerator(3),
+                ElectricPotential::new::<volt>(115.),
+            ));
+        }
+
+        #[test]
+        fn is_single_returns_false_when_none() {
+            assert!(!Potential::none().is_single(PotentialOrigin::External));
+        }
+
+        #[test]
+        fn is_single_returns_false_when_single_of_different_origin() {
+            assert!(!Potential::single(
+                PotentialOrigin::EngineGenerator(1),
+                ElectricPotential::new::<volt>(115.)
+            )
+            .is_single(PotentialOrigin::External));
+        }
+
+        #[test]
+        fn is_single_returns_true_when_single_of_given_origin() {
+            assert!(Potential::single(
+                PotentialOrigin::External,
+                ElectricPotential::new::<volt>(115.)
+            )
+            .is_single(PotentialOrigin::External));
+        }
+
+        #[test]
+        fn is_single_returns_false_when_pair() {
+            assert!(!Potential::single(
+                PotentialOrigin::External,
+                ElectricPotential::new::<volt>(115.)
+            )
+            .merge(&Potential::single(
+                PotentialOrigin::EngineGenerator(1),
+                ElectricPotential::new::<volt>(115.)
+            ))
+            .is_single(PotentialOrigin::External));
+        }
+
+        #[test]
+        fn is_single_engine_generator_returns_false_when_none() {
+            assert!(!Potential::none().is_single_engine_generator());
+        }
+
+        #[test]
+        fn is_single_engine_generator_returns_false_when_different_origin() {
+            assert!(!Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(115.)
+            )
+            .is_single_engine_generator());
+        }
+
+        #[test]
+        fn is_single_engine_generator_returns_true_when_engine_generator() {
+            assert!(Potential::single(
+                PotentialOrigin::EngineGenerator(2),
+                ElectricPotential::new::<volt>(115.)
+            )
+            .is_single_engine_generator());
+        }
+
+        #[test]
+        fn is_single_engine_generator_returns_false_when_pair_of_engine_generators() {
+            assert!(!Potential::single(
+                PotentialOrigin::EngineGenerator(1),
+                ElectricPotential::new::<volt>(115.)
+            )
+            .merge(&Potential::single(
+                PotentialOrigin::EngineGenerator(2),
+                ElectricPotential::new::<volt>(115.)
+            ))
+            .is_single_engine_generator());
+        }
+
+        #[test]
+        fn is_pair_returns_false_when_none() {
+            assert!(!Potential::none().is_pair(
+                PotentialOrigin::EngineGenerator(2),
+                PotentialOrigin::EngineGenerator(1)
+            ));
+        }
+
+        #[test]
+        fn is_pair_returns_false_when_single() {
+            assert!(!Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(115.)
+            )
+            .is_pair(
+                PotentialOrigin::EngineGenerator(2),
+                PotentialOrigin::EngineGenerator(1)
+            ));
+        }
+
+        #[test]
+        fn is_pair_returns_false_when_pair_with_different_origins() {
+            assert!(!Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(115.)
+            )
+            .merge(&Potential::single(
+                PotentialOrigin::EngineGenerator(2),
+                ElectricPotential::new::<volt>(115.)
+            ))
+            .is_pair(
+                PotentialOrigin::EngineGenerator(2),
+                PotentialOrigin::EngineGenerator(1)
+            ));
+        }
+
+        #[test]
+        fn is_pair_returns_true_when_pair_of_given_origins_irregardless_of_order() {
+            assert!(Potential::single(
+                PotentialOrigin::EngineGenerator(1),
+                ElectricPotential::new::<volt>(115.)
+            )
+            .merge(&Potential::single(
+                PotentialOrigin::EngineGenerator(2),
+                ElectricPotential::new::<volt>(115.)
+            ))
+            .is_pair(
+                PotentialOrigin::EngineGenerator(2),
+                PotentialOrigin::EngineGenerator(1)
+            ));
+        }
+
+        fn some_potential() -> Potential {
+            Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(115.),
+            )
+        }
+
+        fn none_potential() -> Potential {
+            Potential::none()
+        }
+    }
+
+    #[cfg(test)]
+    mod origin_with_raw_potential_pair_tests {
+        use super::*;
+        use std::{collections::hash_map::DefaultHasher, hash::Hasher};
+
+        #[test]
         fn equality_is_based_on_potential_origin_and_ignores_electric_potential() {
-            assert_eq!(Potential::none(), Potential::none());
             assert_eq!(
-                Potential::engine_generator(1),
-                Potential::engine_generator(1)
+                OriginWithRawPotentialPair::new(
+                    PotentialOrigin::EngineGenerator(1),
+                    ElectricPotential::new::<volt>(50.),
+                ),
+                OriginWithRawPotentialPair::new(
+                    PotentialOrigin::EngineGenerator(1),
+                    ElectricPotential::new::<volt>(115.),
+                )
             );
-            assert_eq!(Potential::apu_generator(1), Potential::apu_generator(1));
-            assert_eq!(Potential::external(), Potential::external());
-            assert_eq!(
-                Potential::emergency_generator(),
-                Potential::emergency_generator()
-            );
-            assert_eq!(Potential::battery(1), Potential::battery(1));
-            assert_eq!(Potential::batteries(), Potential::batteries());
-            assert_eq!(
-                Potential::transformer_rectifier(1),
-                Potential::transformer_rectifier(1)
-            );
-            assert_eq!(Potential::static_inverter(), Potential::static_inverter());
         }
 
         #[test]
         fn not_equal_when_numbered_potential_origin_is_different() {
             assert_ne!(
-                Potential::engine_generator(1),
-                Potential::engine_generator(2)
-            );
-            assert_ne!(Potential::apu_generator(1), Potential::apu_generator(2));
-            assert_ne!(Potential::battery(1), Potential::battery(2));
-            assert_ne!(
-                Potential::transformer_rectifier(1),
-                Potential::transformer_rectifier(2)
+                OriginWithRawPotentialPair::new(
+                    PotentialOrigin::EngineGenerator(1),
+                    ElectricPotential::new::<volt>(115.),
+                ),
+                OriginWithRawPotentialPair::new(
+                    PotentialOrigin::EngineGenerator(2),
+                    ElectricPotential::new::<volt>(115.),
+                )
             );
         }
 
-        fn some_potential() -> Potential {
-            Potential::apu_generator(1)
-        }
+        #[test]
+        fn hashes_only_potential_origin() {
+            let mut first_item_hasher = DefaultHasher::new();
+            OriginWithRawPotentialPair::new(
+                PotentialOrigin::EngineGenerator(1),
+                ElectricPotential::new::<volt>(115.),
+            )
+            .hash(&mut first_item_hasher);
 
-        fn none_potential() -> Potential {
-            Potential::none()
+            let mut second_item_hasher = DefaultHasher::new();
+            OriginWithRawPotentialPair::new(
+                PotentialOrigin::EngineGenerator(1),
+                ElectricPotential::new::<volt>(40.),
+            )
+            .hash(&mut second_item_hasher);
+
+            assert_eq!(first_item_hasher.finish(), second_item_hasher.finish());
         }
     }
 
@@ -710,12 +886,12 @@ mod tests {
         }
 
         #[test]
-        fn or_powered_by_both_batteries_results_in_both_when_both_connected_with_equal_voltage() {
+        fn or_powered_by_both_batteries_results_in_both() {
             let potential = ElectricPotential::new::<volt>(28.);
-            let bat_1 = BatteryStub::new(Potential::battery(10).with_raw(potential));
-            let bat_2 = BatteryStub::new(Potential::battery(11).with_raw(potential));
-
-            let expected = Potential::batteries().with_raw(potential);
+            let bat_1 =
+                BatteryStub::new(Potential::single(PotentialOrigin::Battery(10), potential));
+            let bat_2 =
+                BatteryStub::new(Potential::single(PotentialOrigin::Battery(11), potential));
 
             let mut bus = electrical_bus();
 
@@ -729,69 +905,78 @@ mod tests {
 
             bus.or_powered_by_both_batteries(&contactor_1, &contactor_2);
 
-            assert_eq!(bus.input_potential(), expected);
-            assert_eq!(bus.input_potential().raw(), expected.raw());
+            assert!(bus
+                .input_potential()
+                .is_pair(PotentialOrigin::Battery(10), PotentialOrigin::Battery(11)));
         }
 
         #[test]
-        fn or_powered_by_battery_1_with_higher_voltage_results_in_bat_1_output() {
-            let expected = Potential::battery(10).with_raw(ElectricPotential::new::<volt>(28.));
+        fn or_powered_by_both_batteries_results_in_both_irregardless_of_voltage() {
+            let bat_1 = BatteryStub::new(Potential::single(
+                PotentialOrigin::Battery(10),
+                ElectricPotential::new::<volt>(28.),
+            ));
+            let bat_2 = BatteryStub::new(Potential::single(
+                PotentialOrigin::Battery(11),
+                ElectricPotential::new::<volt>(25.),
+            ));
 
-            let bat_1 = BatteryStub::new(expected);
-            let bat_2 = BatteryStub::new(
-                Potential::battery(11).with_raw(ElectricPotential::new::<volt>(25.)),
-            );
+            let mut bus = electrical_bus();
+            execute_or_powered_by_both_batteries(&mut bus, bat_1, bat_2);
 
-            or_powered_by_battery_results_in_expected_output(bat_1, bat_2, expected);
+            assert!(bus
+                .input_potential()
+                .is_pair(PotentialOrigin::Battery(10), PotentialOrigin::Battery(11)));
         }
 
         #[test]
         fn or_powered_by_battery_1_results_in_bat_1_output() {
-            let expected = Potential::battery(10).with_raw(ElectricPotential::new::<volt>(28.));
-
-            let bat_1 = BatteryStub::new(expected);
+            let bat_1 = BatteryStub::new(Potential::single(
+                PotentialOrigin::Battery(10),
+                ElectricPotential::new::<volt>(28.),
+            ));
             let bat_2 = BatteryStub::new(Potential::none());
 
-            or_powered_by_battery_results_in_expected_output(bat_1, bat_2, expected);
-        }
+            let mut bus = electrical_bus();
+            execute_or_powered_by_both_batteries(&mut bus, bat_1, bat_2);
 
-        #[test]
-        fn or_powered_by_battery_2_with_higher_voltage_results_in_bat_2_output() {
-            let expected = Potential::battery(11).with_raw(ElectricPotential::new::<volt>(28.));
-
-            let bat_1 = BatteryStub::new(
-                Potential::battery(10).with_raw(ElectricPotential::new::<volt>(25.)),
-            );
-            let bat_2 = BatteryStub::new(expected);
-
-            or_powered_by_battery_results_in_expected_output(bat_1, bat_2, expected);
+            assert!(bus
+                .input_potential()
+                .is_single(PotentialOrigin::Battery(10)));
         }
 
         #[test]
         fn or_powered_by_battery_2_results_in_bat_2_output() {
-            let expected = Potential::battery(11).with_raw(ElectricPotential::new::<volt>(28.));
-
             let bat_1 = BatteryStub::new(Potential::none());
-            let bat_2 = BatteryStub::new(expected);
+            let bat_2 = BatteryStub::new(Potential::single(
+                PotentialOrigin::Battery(11),
+                ElectricPotential::new::<volt>(28.),
+            ));
 
-            or_powered_by_battery_results_in_expected_output(bat_1, bat_2, expected);
+            let mut bus = electrical_bus();
+            execute_or_powered_by_both_batteries(&mut bus, bat_1, bat_2);
+
+            assert!(bus
+                .input_potential()
+                .is_single(PotentialOrigin::Battery(11)));
         }
 
         #[test]
-        fn or_powered_by_none_results_in_none_output() {
+        fn or_powered_by_none_results_in_unpowered_output() {
             let bat_1 = BatteryStub::new(Potential::none());
             let bat_2 = BatteryStub::new(Potential::none());
 
-            or_powered_by_battery_results_in_expected_output(bat_1, bat_2, Potential::none());
+            let mut bus = electrical_bus();
+            execute_or_powered_by_both_batteries(&mut bus, bat_1, bat_2);
+
+            assert!(bus.input_potential().is_unpowered());
         }
 
-        fn or_powered_by_battery_results_in_expected_output(
+        fn execute_or_powered_by_both_batteries(
+            bus: &mut ElectricalBus,
             bat_1: BatteryStub,
             bat_2: BatteryStub,
-            expected: Potential,
         ) {
-            let mut bus = electrical_bus();
-
             let mut contactor_1 = Contactor::new("BAT1");
             contactor_1.powered_by(&bat_1);
             contactor_1.close_when(true);
@@ -801,9 +986,6 @@ mod tests {
             contactor_2.close_when(true);
 
             bus.or_powered_by_both_batteries(&contactor_1, &contactor_2);
-
-            assert_eq!(bus.input_potential(), expected);
-            assert_eq!(bus.input_potential().raw(), expected.raw());
         }
 
         fn electrical_bus() -> ElectricalBus {

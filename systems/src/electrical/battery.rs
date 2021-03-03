@@ -1,7 +1,7 @@
 use super::{
     consumption::{PowerConsumption, PowerConsumptionReport},
-    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, ProvideCurrent,
-    ProvidePotential,
+    ElectricalStateWriter, Potential, PotentialOrigin, PotentialSource, PotentialTarget,
+    ProvideCurrent, ProvidePotential,
 };
 use crate::simulation::{SimulationElement, SimulatorWriter, UpdateContext};
 use uom::si::{
@@ -228,7 +228,7 @@ potential_target!(Battery);
 impl PotentialSource for Battery {
     fn output(&self) -> Potential {
         if self.should_provide_output() {
-            Potential::battery(self.number).with_raw(self.potential)
+            Potential::single(PotentialOrigin::Battery(self.number), self.potential)
         } else {
             Potential::none()
         }
@@ -265,7 +265,7 @@ impl SimulationElement for Battery {
 
         let time = Time::new::<second>(report.delta().as_secs_f64());
         if self.should_provide_output() {
-            let consumption = report.total_consumption_of(&self.output());
+            let consumption = report.total_consumption_of(PotentialOrigin::Battery(self.number));
             self.current = consumption / self.potential;
 
             if consumption > Power::new::<watt>(0.) {
@@ -301,7 +301,7 @@ mod tests {
     }
     impl PotentialSource for Powered {
         fn output(&self) -> Potential {
-            Potential::transformer_rectifier(1).with_raw(self.potential)
+            Potential::single(PotentialOrigin::TransformerRectifier(1), self.potential)
         }
     }
 
@@ -725,7 +725,10 @@ mod tests {
                 if self.battery.is_powered() {
                     supplied_power.add(
                         ElectricalBusType::DirectCurrentBattery,
-                        Potential::battery(1),
+                        Potential::single(
+                            PotentialOrigin::Battery(1),
+                            ElectricPotential::new::<volt>(28.),
+                        ),
                     );
                 }
 
@@ -741,7 +744,7 @@ mod tests {
             }
 
             fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
-                self.battery_consumption = report.total_consumption_of(&Potential::battery(1));
+                self.battery_consumption = report.total_consumption_of(PotentialOrigin::Battery(1));
             }
         }
 

@@ -1,7 +1,7 @@
 use super::{
     consumption::{PowerConsumption, PowerConsumptionReport},
-    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, ProvideFrequency,
-    ProvidePotential,
+    ElectricalStateWriter, Potential, PotentialOrigin, PotentialSource, PotentialTarget,
+    ProvideFrequency, ProvidePotential,
 };
 use crate::simulation::{SimulationElement, SimulatorWriter};
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
@@ -34,7 +34,7 @@ potential_target!(StaticInverter);
 impl PotentialSource for StaticInverter {
     fn output(&self) -> Potential {
         if self.should_provide_output() {
-            Potential::static_inverter().with_raw(self.potential)
+            Potential::single(PotentialOrigin::StaticInverter, self.potential)
         } else {
             Potential::none()
         }
@@ -48,13 +48,13 @@ impl SimulationElement for StaticInverter {
     }
 
     fn consume_power_in_converters(&mut self, consumption: &mut PowerConsumption) {
-        let ac_consumption = consumption.total_consumption_of(&self.output());
+        let ac_power = consumption.total_consumption_of(PotentialOrigin::StaticInverter);
 
         // Add the AC consumption to the STAT INVs input (DC) consumption.
         // Currently static inverter inefficiency isn't modelled.
         // It is to be expected that DC consumption should actually be somewhat
         // higher than AC consumption.
-        consumption.add(&self.input, ac_consumption);
+        consumption.add(&self.input, ac_power);
     }
 
     fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, _: &T) {
@@ -100,7 +100,10 @@ mod static_inverter_tests {
     struct Powered {}
     impl PotentialSource for Powered {
         fn output(&self) -> Potential {
-            Potential::battery(1).with_raw(ElectricPotential::new::<volt>(28.))
+            Potential::single(
+                PotentialOrigin::Battery(1),
+                ElectricPotential::new::<volt>(28.),
+            )
         }
     }
 
@@ -169,7 +172,10 @@ mod static_inverter_tests {
             if self.static_inverter.is_powered() {
                 supplied_power.add(
                     ElectricalBusType::AlternatingCurrentEssential,
-                    Potential::static_inverter(),
+                    Potential::single(
+                        PotentialOrigin::StaticInverter,
+                        ElectricPotential::new::<volt>(115.),
+                    ),
                 );
             }
 
@@ -186,7 +192,7 @@ mod static_inverter_tests {
 
         fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
             self.static_inverter_consumption =
-                report.total_consumption_of(&Potential::static_inverter());
+                report.total_consumption_of(PotentialOrigin::StaticInverter);
         }
     }
 

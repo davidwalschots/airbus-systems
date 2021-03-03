@@ -2,7 +2,8 @@ use crate::simulation::{SimulationElement, SimulatorReader, SimulatorWriter, Upd
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
 use super::{
-    ElectricalStateWriter, Potential, PotentialSource, ProvideFrequency, ProvidePotential,
+    ElectricalStateWriter, Potential, PotentialOrigin, PotentialSource, ProvideFrequency,
+    ProvidePotential,
 };
 
 pub struct ExternalPowerSource {
@@ -30,7 +31,7 @@ impl ExternalPowerSource {
 impl PotentialSource for ExternalPowerSource {
     fn output(&self) -> Potential {
         if self.should_provide_output() {
-            Potential::external().with_raw(self.potential)
+            Potential::single(PotentialOrigin::External, self.potential)
         } else {
             Potential::none()
         }

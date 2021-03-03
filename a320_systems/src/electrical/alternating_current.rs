@@ -5,9 +5,9 @@ use super::{
 use std::time::Duration;
 use systems::{
     electrical::{
-        combine_potential_sources, CombinedPotentialSource, Contactor, ElectricalBus,
-        ElectricalBusType, EmergencyGenerator, EngineGenerator, ExternalPowerSource,
-        PotentialOrigin, PotentialSource, PotentialTarget, TransformerRectifier,
+        Contactor, ElectricalBus, ElectricalBusType, EmergencyGenerator, EngineGenerator,
+        ExternalPowerSource, Potential, PotentialOrigin, PotentialSource, PotentialTarget,
+        TransformerRectifier,
     },
     shared::DelayedTrueLogicGate,
     simulation::{SimulationElement, SimulationElementVisitor, UpdateContext},
@@ -140,34 +140,48 @@ impl A320AlternatingCurrentElectrical {
     /// generator exclusively. Also returns true when one of the buses is
     /// unpowered and the other bus is powered by an engine generator.
     pub fn main_ac_buses_powered_by_single_engine_generator_only(&self) -> bool {
-        matches!(
-            (
-                self.ac_bus_1.output().origin(),
-                self.ac_bus_2.output().origin(),
-            ),
-            (PotentialOrigin::None, PotentialOrigin::EngineGenerator(_))
-                | (PotentialOrigin::EngineGenerator(_), PotentialOrigin::None)
-                | (PotentialOrigin::EngineGenerator(1), PotentialOrigin::EngineGenerator(1))
-                | (PotentialOrigin::EngineGenerator(2), PotentialOrigin::EngineGenerator(2))
-        )
+        (self.ac_bus_1.is_unpowered() && self.ac_bus_2.output().is_single_engine_generator())
+            || (self.ac_bus_1.output().is_single_engine_generator() && self.ac_bus_2.is_unpowered())
+            || (self
+                .ac_bus_1
+                .output()
+                .is_single(PotentialOrigin::EngineGenerator(1))
+                && self
+                    .ac_bus_2
+                    .output()
+                    .is_single(PotentialOrigin::EngineGenerator(1)))
+            || (self
+                .ac_bus_1
+                .output()
+                .is_single(PotentialOrigin::EngineGenerator(2))
+                && self
+                    .ac_bus_2
+                    .output()
+                    .is_single(PotentialOrigin::EngineGenerator(2)))
     }
 
     /// Whether or not AC BUS 1 and AC BUS 2 are powered by the APU generator
     /// exclusively. Also returns true when one of the buses is unpowered and
     /// the other bus is powered by the APU generator.
     pub fn main_ac_buses_powered_by_apu_generator_only(&self) -> bool {
-        matches!(
-            (
-                self.ac_bus_1.output().origin(),
-                self.ac_bus_2.output().origin(),
-            ),
-            (PotentialOrigin::None, PotentialOrigin::ApuGenerator(1))
-                | (PotentialOrigin::ApuGenerator(1), PotentialOrigin::None)
-                | (
-                    PotentialOrigin::ApuGenerator(1),
-                    PotentialOrigin::ApuGenerator(1)
-                )
-        )
+        (self.ac_bus_1.is_unpowered()
+            && self
+                .ac_bus_2
+                .output()
+                .is_single(PotentialOrigin::ApuGenerator(1)))
+            || (self
+                .ac_bus_1
+                .output()
+                .is_single(PotentialOrigin::ApuGenerator(1))
+                && self.ac_bus_2.is_unpowered())
+            || (self
+                .ac_bus_1
+                .output()
+                .is_single(PotentialOrigin::ApuGenerator(1))
+                && self
+                    .ac_bus_2
+                    .output()
+                    .is_single(PotentialOrigin::ApuGenerator(1)))
     }
 
     /// Whether or not both AC BUS 1 and AC BUS 2 are unpowered.
@@ -380,18 +394,16 @@ impl A320MainPowerSources {
             .or_powered_by(&self.bus_tie_1_contactor);
     }
 
-    fn ac_bus_1_electric_sources(&self) -> CombinedPotentialSource {
-        combine_potential_sources(vec![
-            &self.engine_1_gen_contactor,
-            &self.bus_tie_1_contactor,
-        ])
+    fn ac_bus_1_electric_sources(&self) -> Potential {
+        self.engine_1_gen_contactor
+            .output()
+            .merge(&self.bus_tie_1_contactor.output())
     }
 
-    fn ac_bus_2_electric_sources(&self) -> CombinedPotentialSource {
-        combine_potential_sources(vec![
-            &self.engine_2_gen_contactor,
-            &self.bus_tie_2_contactor,
-        ])
+    fn ac_bus_2_electric_sources(&self) -> Potential {
+        self.engine_2_gen_contactor
+            .output()
+            .merge(&self.bus_tie_2_contactor.output())
     }
 
     pub fn gen_1_contactor_open(&self) -> bool {
@@ -461,11 +473,10 @@ impl A320AcEssFeedContactors {
         self.ac_ess_feed_contactor_2.powered_by(ac_bus_2);
     }
 
-    fn electric_sources(&self) -> CombinedPotentialSource {
-        combine_potential_sources(vec![
-            &self.ac_ess_feed_contactor_1,
-            &self.ac_ess_feed_contactor_2,
-        ])
+    fn electric_sources(&self) -> Potential {
+        self.ac_ess_feed_contactor_1
+            .output()
+            .merge(&self.ac_ess_feed_contactor_2.output())
     }
 
     fn provides_power(&self) -> bool {

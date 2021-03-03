@@ -1,8 +1,8 @@
 use super::{ApuGenerator, Turbine, TurbineController, TurbineState};
 use crate::{
     electrical::{
-        consumption::PowerConsumptionReport, ElectricalStateWriter, Potential, PotentialSource,
-        ProvideFrequency, ProvideLoad, ProvidePotential,
+        consumption::PowerConsumptionReport, ElectricalStateWriter, Potential, PotentialOrigin,
+        PotentialSource, ProvideFrequency, ProvideLoad, ProvidePotential,
     },
     shared::{calculate_towards_target_temperature, random_number},
     simulation::{SimulationElement, SimulatorWriter, UpdateContext},
@@ -618,7 +618,7 @@ provide_load!(Aps3200ApuGenerator);
 impl PotentialSource for Aps3200ApuGenerator {
     fn output(&self) -> Potential {
         if self.should_provide_output() {
-            Potential::apu_generator(self.number).with_raw(self.potential)
+            Potential::single(PotentialOrigin::ApuGenerator(self.number), self.potential)
         } else {
             Potential::none()
         }
@@ -642,7 +642,9 @@ impl SimulationElement for Aps3200ApuGenerator {
             Frequency::new::<hertz>(0.)
         };
 
-        let power_consumption = report.total_consumption_of(&self.output()).get::<watt>();
+        let power_consumption = report
+            .total_consumption_of(PotentialOrigin::ApuGenerator(self.number))
+            .get::<watt>();
         let power_factor_correction = 0.8;
         let maximum_load = 90000.;
         self.load = Ratio::new::<percent>(

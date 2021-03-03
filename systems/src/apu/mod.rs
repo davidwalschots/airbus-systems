@@ -3,7 +3,7 @@ use self::{
     electronic_control_box::ElectronicControlBox,
 };
 use crate::{
-    electrical::{Potential, PotentialSource, ProvideFrequency, ProvidePotential},
+    electrical::{Potential, PotentialOrigin, PotentialSource, ProvideFrequency, ProvidePotential},
     overhead::{FirePushButton, OnOffAvailablePushButton, OnOffFaultPushButton},
     pneumatic::{BleedAirValve, BleedAirValveState, Valve},
     simulation::{SimulationElement, SimulationElementVisitor, SimulatorWriter, UpdateContext},
@@ -47,7 +47,10 @@ impl ApuStartContactor {
 impl PotentialSource for ApuStartContactor {
     fn output(&self) -> Potential {
         if self.closed {
-            Potential::battery(10).with_raw(ElectricPotential::new::<volt>(28.))
+            Potential::single(
+                PotentialOrigin::Battery(10),
+                ElectricPotential::new::<volt>(28.),
+            )
         } else {
             Potential::none()
         }
@@ -337,7 +340,7 @@ pub mod tests {
     use crate::{
         electrical::{
             consumption::{PowerConsumer, SuppliedPower},
-            ElectricalBusType,
+            ElectricalBusType, PotentialOrigin,
         },
         simulation::{test::SimulationTestBed, Aircraft},
     };
@@ -455,7 +458,10 @@ pub mod tests {
             if self.apu.is_powered() {
                 supplied_power.add(
                     ElectricalBusType::AlternatingCurrent(1),
-                    Potential::apu_generator(1),
+                    Potential::single(
+                        PotentialOrigin::ApuGenerator(1),
+                        ElectricPotential::new::<volt>(115.),
+                    ),
                 );
             }
 

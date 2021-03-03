@@ -6,9 +6,7 @@ macro_rules! potential_target {
             }
 
             fn or_powered_by<T: PotentialSource + ?Sized>(&mut self, source: &T) {
-                if self.input.is_unpowered() {
-                    self.powered_by(source);
-                }
+                self.input = self.input.merge(&source.output());
             }
         }
     };

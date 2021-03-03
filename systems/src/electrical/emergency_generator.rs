@@ -1,6 +1,6 @@
 use super::{
-    consumption::PowerConsumptionReport, ElectricalStateWriter, Potential, PotentialSource,
-    ProvideFrequency, ProvidePotential,
+    consumption::PowerConsumptionReport, ElectricalStateWriter, Potential, PotentialOrigin,
+    PotentialSource, ProvideFrequency, ProvidePotential,
 };
 use crate::simulation::{SimulationElement, SimulatorWriter};
 use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
@@ -39,7 +39,7 @@ impl EmergencyGenerator {
 impl PotentialSource for EmergencyGenerator {
     fn output(&self) -> Potential {
         if self.should_provide_output() {
-            Potential::emergency_generator().with_raw(self.potential)
+            Potential::single(PotentialOrigin::EmergencyGenerator, self.potential)
         } else {
             Potential::none()
         }

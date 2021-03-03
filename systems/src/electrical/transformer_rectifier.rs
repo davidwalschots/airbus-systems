@@ -1,7 +1,7 @@
 use super::{
     consumption::{PowerConsumption, PowerConsumptionReport},
-    ElectricalStateWriter, Potential, PotentialSource, PotentialTarget, ProvideCurrent,
-    ProvidePotential,
+    ElectricalStateWriter, Potential, PotentialOrigin, PotentialSource, PotentialTarget,
+    ProvideCurrent, ProvidePotential,
 };
 use crate::simulation::{SimulationElement, SimulatorWriter};
 use uom::si::{electric_current::ampere, electric_potential::volt, f64::*};
@@ -42,8 +42,10 @@ potential_target!(TransformerRectifier);
 impl PotentialSource for TransformerRectifier {
     fn output(&self) -> Potential {
         if self.should_provide_output() {
-            Potential::transformer_rectifier(self.number)
-                .with_raw(ElectricPotential::new::<volt>(28.))
+            Potential::single(
+                PotentialOrigin::TransformerRectifier(self.number),
+                ElectricPotential::new::<volt>(28.),
+            )
         } else {
             Potential::none()
         }
@@ -65,13 +67,14 @@ impl SimulationElement for TransformerRectifier {
     }
 
     fn consume_power_in_converters(&mut self, consumption: &mut PowerConsumption) {
-        let dc_consumption = consumption.total_consumption_of(&self.output());
+        let dc_power =
+            consumption.total_consumption_of(PotentialOrigin::TransformerRectifier(self.number));
 
         // Add the DC consumption to the TRs input (AC) consumption.
         // Currently transformer rectifier inefficiency isn't modelled.
         // It is to be expected that AC consumption should actually be somewhat
         // higher than DC consumption.
-        consumption.add(&self.input, dc_consumption);
+        consumption.add(&self.input, dc_power);
     }
 
     fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
@@ -81,7 +84,8 @@ impl SimulationElement for TransformerRectifier {
             ElectricPotential::new::<volt>(0.)
         };
 
-        let consumption = report.total_consumption_of(&self.output());
+        let consumption =
+            report.total_consumption_of(PotentialOrigin::TransformerRectifier(self.number));
         self.current = consumption / self.potential;
     }
 }
@@ -94,7 +98,7 @@ mod transformer_rectifier_tests {
     use crate::{
         electrical::{
             consumption::{PowerConsumer, SuppliedPower},
-            ElectricalBusType,
+            ElectricalBusType, PotentialOrigin,
         },
         simulation::{test::SimulationTestBed, Aircraft, SimulationElementVisitor},
     };
@@ -172,7 +176,10 @@ mod transformer_rectifier_tests {
             if self.transformer_rectifier.is_powered() {
                 supplied_power.add(
                     ElectricalBusType::DirectCurrent(1),
-                    Potential::transformer_rectifier(1),
+                    Potential::single(
+                        PotentialOrigin::TransformerRectifier(1),
+                        ElectricPotential::new::<volt>(28.),
+                    ),
                 );
             }
 
@@ -189,7 +196,7 @@ mod transformer_rectifier_tests {
 
         fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
             self.transformer_rectifier_consumption =
-                report.total_consumption_of(&Potential::transformer_rectifier(1));
+                report.total_consumption_of(PotentialOrigin::TransformerRectifier(1));
         }
     }
 
@@ -203,7 +210,10 @@ mod transformer_rectifier_tests {
     struct Powered {}
     impl PotentialSource for Powered {
         fn output(&self) -> Potential {
-            Potential::apu_generator(1).with_raw(ElectricPotential::new::<volt>(115.))
+            Potential::single(
+                PotentialOrigin::ApuGenerator(1),
+                ElectricPotential::new::<volt>(115.),
+            )
         }
     }
 

@@ -1,6 +1,6 @@
 use super::{
-    consumption::PowerConsumptionReport, ElectricalStateWriter, Potential, PotentialSource,
-    ProvideFrequency, ProvideLoad, ProvidePotential,
+    consumption::PowerConsumptionReport, ElectricalStateWriter, Potential, PotentialOrigin,
+    PotentialSource, ProvideFrequency, ProvideLoad, ProvidePotential,
 };
 use crate::{
     shared::calculate_towards_target_temperature,
@@ -52,7 +52,10 @@ impl EngineGenerator {
 impl PotentialSource for EngineGenerator {
     fn output(&self) -> Potential {
         if self.should_provide_output() {
-            Potential::engine_generator(self.number).with_raw(self.potential)
+            Potential::single(
+                PotentialOrigin::EngineGenerator(self.number),
+                self.potential,
+            )
         } else {
             Potential::none()
         }
@@ -81,7 +84,9 @@ impl SimulationElement for EngineGenerator {
             ElectricPotential::new::<volt>(0.)
         };
 
-        let power_consumption = report.total_consumption_of(&self.output()).get::<watt>();
+        let power_consumption = report
+            .total_consumption_of(PotentialOrigin::EngineGenerator(self.number))
+            .get::<watt>();
         let power_factor_correction = 0.8;
         let maximum_true_power = 90000.;
         self.load = Ratio::new::<percent>(
@@ -355,7 +360,10 @@ mod tests {
                 if self.engine_gen.is_powered() {
                     supplied_power.add(
                         ElectricalBusType::AlternatingCurrent(1),
-                        Potential::engine_generator(1),
+                        Potential::single(
+                            PotentialOrigin::EngineGenerator(1),
+                            ElectricPotential::new::<volt>(115.),
+                        ),
                     );
                 }
 
