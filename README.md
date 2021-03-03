@@ -1,6 +1,6 @@
 # Airbus Systems
 
-This repository contains code for simulating Airbus aircraft systems. Parts of this code will later be merged into the [FlyByWire Simulations a32nx project](https://github.com/flybywiresim/a32nx).
+This repository contains code for simulating Airbus aircraft systems. Parts of this code have been merged into the [FlyByWire Simulations a32nx project](https://github.com/flybywiresim/a32nx). **I recommend contributing to that project directly whenever possible.** I have by now copied a lot of the code in this repository to the A32NX project repository. This repository is merely here to be used when you want to program with the latest and greatest systems API.
 
 ## Design
 
