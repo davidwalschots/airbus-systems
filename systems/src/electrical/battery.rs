@@ -167,7 +167,7 @@ impl Battery {
         Battery::new(number, ElectricCharge::new::<ampere_hour>(0.))
     }
 
-    fn new(number: usize, charge: ElectricCharge) -> Self {
+    pub fn new(number: usize, charge: ElectricCharge) -> Self {
         Self {
             number,
             writer: ElectricalStateWriter::new(&format!("BAT_{}", number)),
@@ -282,12 +282,17 @@ impl PotentialSource for Battery {
 }
 impl ProvideCurrent for Battery {
     fn current(&self) -> ElectricCurrent {
-        self.charge_current + self.discharge_current
+        if self.charge_current > self.discharge_current {
+            self.charge_current - self.discharge_current
+        } else {
+            self.discharge_current - self.charge_current
+        }
     }
 
     fn current_normal(&self) -> bool {
-        let discharge_current = self.discharge_current.get::<ampere>();
-        self.is_powered_by_other_potential() || (0.0..=5.0).contains(&discharge_current)
+        self.charge_current > self.discharge_current
+            || (ElectricCurrent::new::<ampere>(0.0)..=ElectricCurrent::new::<ampere>(5.0))
+                .contains(&self.current())
     }
 }
 provide_potential!(Battery, (25.0..=31.0));
@@ -716,9 +721,9 @@ mod tests {
                 self.test_bed.read_bool("ELEC_BAT_1_CURRENT_NORMAL")
             }
 
-            // fn current(&mut self) -> ElectricCurrent {
-            //     ElectricCurrent::new::<ampere>(self.test_bed.read_f64("ELEC_BAT_1_CURRENT"))
-            // }
+            fn current(&mut self) -> ElectricCurrent {
+                ElectricCurrent::new::<ampere>(self.test_bed.read_f64("ELEC_BAT_1_CURRENT"))
+            }
 
             fn potential_is_normal(&mut self) -> bool {
                 self.test_bed.read_bool("ELEC_BAT_1_POTENTIAL_NORMAL")
@@ -895,30 +900,30 @@ mod tests {
             assert!(test_bed.current_is_normal());
         }
 
-        // #[test]
-        // fn when_discharging_quickly_current_is_abnormal() {
-        //     let mut aircraft = TestAircraft::with_full_battery();
-        //     let mut test_bed = BatteryTestBed::new();
+        #[test]
+        fn when_discharging_quickly_current_is_abnormal() {
+            let mut aircraft = TestAircraft::with_full_battery();
+            let mut test_bed = BatteryTestBed::new();
 
-        //     aircraft.power_demand(Power::new::<watt>((28. * 5.) + 1.));
-        //     test_bed.run_aircraft(&mut aircraft);
+            aircraft.power_demand(Power::new::<watt>((28. * 5.) + 1.));
+            test_bed.run_aircraft(&mut aircraft);
 
-        //     assert!(!test_bed.current_is_normal());
-        // }
+            assert!(!test_bed.current_is_normal());
+        }
 
-        // #[test]
-        // fn when_discharging_battery_current_is_approximately_discharge_current() {
-        //     let mut aircraft = TestAircraft::with_full_battery();
-        //     let mut test_bed = BatteryTestBed::new();
+        #[test]
+        fn when_discharging_battery_current_is_approximately_discharge_current() {
+            let mut aircraft = TestAircraft::with_full_battery();
+            let mut test_bed = BatteryTestBed::new();
 
-        //     aircraft.power_demand(Power::new::<watt>(140.));
-        //     test_bed.run_aircraft(&mut aircraft);
+            aircraft.power_demand(Power::new::<watt>(140.));
+            test_bed.run_aircraft(&mut aircraft);
 
-        //     assert!(
-        //         ElectricCurrent::new::<ampere>(4.999) < test_bed.current()
-        //             && test_bed.current() < ElectricCurrent::new::<ampere>(5.001)
-        //     )
-        // }
+            assert!(
+                ElectricCurrent::new::<ampere>(4.999) < test_bed.current()
+                    && test_bed.current() < ElectricCurrent::new::<ampere>(5.001)
+            )
+        }
 
         #[test]
         fn when_discharging_loses_charge() {
