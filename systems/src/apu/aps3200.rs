@@ -526,8 +526,8 @@ pub struct Aps3200ApuGenerator {
     number: usize,
     n: Ratio,
     writer: ElectricalStateWriter,
-    frequency: Frequency,
-    potential: ElectricPotential,
+    output_frequency: Frequency,
+    output_potential: ElectricPotential,
     load: Ratio,
     is_emergency_shutdown: bool,
 }
@@ -539,8 +539,8 @@ impl Aps3200ApuGenerator {
             number,
             n: Ratio::new::<percent>(0.),
             writer: ElectricalStateWriter::new(&format!("APU_GEN_{}", number)),
-            potential: ElectricPotential::new::<volt>(0.),
-            frequency: Frequency::new::<hertz>(0.),
+            output_potential: ElectricPotential::new::<volt>(0.),
+            output_frequency: Frequency::new::<hertz>(0.),
             load: Ratio::new::<percent>(0.),
             is_emergency_shutdown: false,
         }
@@ -618,7 +618,10 @@ provide_load!(Aps3200ApuGenerator);
 impl PotentialSource for Aps3200ApuGenerator {
     fn output(&self) -> Potential {
         if self.should_provide_output() {
-            Potential::single(PotentialOrigin::ApuGenerator(self.number), self.potential)
+            Potential::single(
+                PotentialOrigin::ApuGenerator(self.number),
+                self.output_potential,
+            )
         } else {
             Potential::none()
         }
@@ -630,13 +633,13 @@ impl SimulationElement for Aps3200ApuGenerator {
     }
 
     fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
-        self.potential = if self.should_provide_output() {
+        self.output_potential = if self.should_provide_output() {
             self.calculate_potential(self.n)
         } else {
             ElectricPotential::new::<volt>(0.)
         };
 
-        self.frequency = if self.should_provide_output() {
+        self.output_frequency = if self.should_provide_output() {
             self.calculate_frequency(self.n)
         } else {
             Frequency::new::<hertz>(0.)

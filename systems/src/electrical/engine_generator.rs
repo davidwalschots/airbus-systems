@@ -21,8 +21,8 @@ pub struct EngineGenerator {
     writer: ElectricalStateWriter,
     number: usize,
     idg: IntegratedDriveGenerator,
-    frequency: Frequency,
-    potential: ElectricPotential,
+    output_frequency: Frequency,
+    output_potential: ElectricPotential,
     load: Ratio,
 }
 impl EngineGenerator {
@@ -31,8 +31,8 @@ impl EngineGenerator {
             writer: ElectricalStateWriter::new(&format!("ENG_GEN_{}", number)),
             number,
             idg: IntegratedDriveGenerator::new(number),
-            frequency: Frequency::new::<hertz>(0.),
-            potential: ElectricPotential::new::<volt>(0.),
+            output_frequency: Frequency::new::<hertz>(0.),
+            output_potential: ElectricPotential::new::<volt>(0.),
             load: Ratio::new::<percent>(0.),
         }
     }
@@ -54,7 +54,7 @@ impl PotentialSource for EngineGenerator {
         if self.should_provide_output() {
             Potential::single(
                 PotentialOrigin::EngineGenerator(self.number),
-                self.potential,
+                self.output_potential,
             )
         } else {
             Potential::none()
@@ -72,13 +72,13 @@ impl SimulationElement for EngineGenerator {
     }
 
     fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
-        self.frequency = if self.should_provide_output() {
+        self.output_frequency = if self.should_provide_output() {
             Frequency::new::<hertz>(400.)
         } else {
             Frequency::new::<hertz>(0.)
         };
 
-        self.potential = if self.should_provide_output() {
+        self.output_potential = if self.should_provide_output() {
             ElectricPotential::new::<volt>(115.)
         } else {
             ElectricPotential::new::<volt>(0.)

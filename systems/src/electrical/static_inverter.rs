@@ -8,33 +8,33 @@ use uom::si::{electric_potential::volt, f64::*, frequency::hertz};
 
 pub struct StaticInverter {
     writer: ElectricalStateWriter,
-    input: Potential,
-    potential: ElectricPotential,
-    frequency: Frequency,
+    input_potential: Potential,
+    output_potential: ElectricPotential,
+    output_frequency: Frequency,
 }
 impl StaticInverter {
     pub fn new() -> StaticInverter {
         StaticInverter {
             writer: ElectricalStateWriter::new("STAT_INV"),
-            input: Potential::none(),
-            potential: ElectricPotential::new::<volt>(0.),
-            frequency: Frequency::new::<hertz>(0.),
+            input_potential: Potential::none(),
+            output_potential: ElectricPotential::new::<volt>(0.),
+            output_frequency: Frequency::new::<hertz>(0.),
         }
     }
 
     pub fn input_potential(&self) -> Potential {
-        self.input
+        self.input_potential
     }
 
     fn should_provide_output(&self) -> bool {
-        self.input.is_powered()
+        self.input_potential.is_powered()
     }
 }
 potential_target!(StaticInverter);
 impl PotentialSource for StaticInverter {
     fn output(&self) -> Potential {
         if self.should_provide_output() {
-            Potential::single(PotentialOrigin::StaticInverter, self.potential)
+            Potential::single(PotentialOrigin::StaticInverter, self.output_potential)
         } else {
             Potential::none()
         }
@@ -54,17 +54,17 @@ impl SimulationElement for StaticInverter {
         // Currently static inverter inefficiency isn't modelled.
         // It is to be expected that DC consumption should actually be somewhat
         // higher than AC consumption.
-        consumption.add(&self.input, ac_power);
+        consumption.add(&self.input_potential, ac_power);
     }
 
     fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, _: &T) {
-        self.potential = if self.should_provide_output() {
+        self.output_potential = if self.should_provide_output() {
             ElectricPotential::new::<volt>(115.)
         } else {
             ElectricPotential::new::<volt>(0.)
         };
 
-        self.frequency = if self.should_provide_output() {
+        self.output_frequency = if self.should_provide_output() {
             Frequency::new::<hertz>(400.)
         } else {
             Frequency::new::<hertz>(0.)

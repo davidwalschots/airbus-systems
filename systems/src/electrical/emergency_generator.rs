@@ -9,8 +9,8 @@ pub struct EmergencyGenerator {
     writer: ElectricalStateWriter,
     running: bool,
     is_blue_pressurised: bool,
-    frequency: Frequency,
-    potential: ElectricPotential,
+    output_frequency: Frequency,
+    output_potential: ElectricPotential,
 }
 impl EmergencyGenerator {
     pub fn new() -> EmergencyGenerator {
@@ -18,8 +18,8 @@ impl EmergencyGenerator {
             writer: ElectricalStateWriter::new("EMER_GEN"),
             running: false,
             is_blue_pressurised: false,
-            frequency: Frequency::new::<hertz>(0.),
-            potential: ElectricPotential::new::<volt>(0.),
+            output_frequency: Frequency::new::<hertz>(0.),
+            output_potential: ElectricPotential::new::<volt>(0.),
         }
     }
 
@@ -39,7 +39,7 @@ impl EmergencyGenerator {
 impl PotentialSource for EmergencyGenerator {
     fn output(&self) -> Potential {
         if self.should_provide_output() {
-            Potential::single(PotentialOrigin::EmergencyGenerator, self.potential)
+            Potential::single(PotentialOrigin::EmergencyGenerator, self.output_potential)
         } else {
             Potential::none()
         }
@@ -49,13 +49,13 @@ provide_frequency!(EmergencyGenerator, (390.0..=410.0));
 provide_potential!(EmergencyGenerator, (110.0..=120.0));
 impl SimulationElement for EmergencyGenerator {
     fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, _report: &T) {
-        self.frequency = if self.should_provide_output() {
+        self.output_frequency = if self.should_provide_output() {
             Frequency::new::<hertz>(400.)
         } else {
             Frequency::new::<hertz>(0.)
         };
 
-        self.potential = if self.should_provide_output() {
+        self.output_potential = if self.should_provide_output() {
             ElectricPotential::new::<volt>(115.)
         } else {
             ElectricPotential::new::<volt>(0.)

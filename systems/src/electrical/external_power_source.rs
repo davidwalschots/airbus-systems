@@ -9,16 +9,16 @@ use super::{
 pub struct ExternalPowerSource {
     writer: ElectricalStateWriter,
     is_connected: bool,
-    frequency: Frequency,
-    potential: ElectricPotential,
+    output_frequency: Frequency,
+    output_potential: ElectricPotential,
 }
 impl ExternalPowerSource {
     pub fn new() -> ExternalPowerSource {
         ExternalPowerSource {
             writer: ElectricalStateWriter::new("EXT_PWR"),
             is_connected: false,
-            frequency: Frequency::new::<hertz>(0.),
-            potential: ElectricPotential::new::<volt>(0.),
+            output_frequency: Frequency::new::<hertz>(0.),
+            output_potential: ElectricPotential::new::<volt>(0.),
         }
     }
 
@@ -31,7 +31,7 @@ impl ExternalPowerSource {
 impl PotentialSource for ExternalPowerSource {
     fn output(&self) -> Potential {
         if self.should_provide_output() {
-            Potential::single(PotentialOrigin::External, self.potential)
+            Potential::single(PotentialOrigin::External, self.output_potential)
         } else {
             Potential::none()
         }
@@ -52,13 +52,13 @@ impl SimulationElement for ExternalPowerSource {
         &mut self,
         _: &T,
     ) {
-        self.frequency = if self.should_provide_output() {
+        self.output_frequency = if self.should_provide_output() {
             Frequency::new::<hertz>(400.)
         } else {
             Frequency::new::<hertz>(0.)
         };
 
-        self.potential = if self.should_provide_output() {
+        self.output_potential = if self.should_provide_output() {
             ElectricPotential::new::<volt>(115.)
         } else {
             ElectricPotential::new::<volt>(0.)

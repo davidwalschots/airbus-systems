@@ -181,6 +181,30 @@ impl Potential {
     pub fn origins_with_raw_potential(&self) -> &[Option<OriginWithRawPotentialPair>] {
         &self.elements
     }
+
+    pub fn average_without(&self, ignored_origin: PotentialOrigin) -> ElectricPotential {
+        let sum = self
+            .elements
+            .iter()
+            .filter_map(|&x| x)
+            .filter(|&x| x.origin() != ignored_origin)
+            .map(|x| x.raw())
+            .fold(ElectricPotential::new::<volt>(0.), |acc, x| acc + x)
+            .get::<volt>();
+
+        if sum == 0. {
+            ElectricPotential::new::<volt>(0.)
+        } else {
+            ElectricPotential::new::<volt>(
+                sum / self
+                    .elements
+                    .iter()
+                    .filter_map(|&x| x)
+                    .filter(|&x| x.origin() != ignored_origin)
+                    .count() as f64,
+            )
+        }
+    }
 }
 impl PotentialSource for Potential {
     fn output(&self) -> Potential {
@@ -219,15 +243,15 @@ pub trait PotentialSource {
 /// ```rust
 /// # use systems::electrical::{Potential, PotentialSource, PotentialTarget};
 /// # struct MyType {
-/// #     input: Potential,
+/// #     input_potential: Potential,
 /// # }
 /// impl PotentialTarget for MyType {
 ///     fn powered_by<T: PotentialSource + ?Sized>(&mut self, source: &T) {
-///         self.input = source.output();
+///         self.input_potential = source.output();
 ///     }
 ///
 ///     fn or_powered_by<T: PotentialSource + ?Sized>(&mut self, source: &T) {
-///         if self.input.is_unpowered() {
+///         if self.input_potential.is_unpowered() {
 ///             self.powered_by(source);
 ///         }
 ///     }
@@ -249,14 +273,14 @@ pub trait PotentialTarget {
 pub struct Contactor {
     closed_id: String,
     closed: bool,
-    input: Potential,
+    input_potential: Potential,
 }
 impl Contactor {
     pub fn new(id: &str) -> Contactor {
         Contactor {
             closed_id: format!("ELEC_CONTACTOR_{}_IS_CLOSED", id),
             closed: false,
-            input: Potential::none(),
+            input_potential: Potential::none(),
         }
     }
 
@@ -276,7 +300,7 @@ potential_target!(Contactor);
 impl PotentialSource for Contactor {
     fn output(&self) -> Potential {
         if self.closed {
-            self.input
+            self.input_potential
         } else {
             Potential::none()
         }
@@ -320,14 +344,14 @@ impl Display for ElectricalBusType {
 
 pub struct ElectricalBus {
     bus_powered_id: String,
-    input: Potential,
+    input_potential: Potential,
     bus_type: ElectricalBusType,
 }
 impl ElectricalBus {
     pub fn new(bus_type: ElectricalBusType) -> ElectricalBus {
         ElectricalBus {
             bus_powered_id: format!("ELEC_{}_BUS_IS_POWERED", bus_type.to_string()),
-            input: Potential::none(),
+            input_potential: Potential::none(),
             bus_type,
         }
     }
@@ -338,7 +362,7 @@ impl ElectricalBus {
 
     #[cfg(test)]
     fn input_potential(&self) -> Potential {
-        self.input
+        self.input_potential
     }
 
     pub fn or_powered_by_both_batteries(
@@ -346,8 +370,8 @@ impl ElectricalBus {
         battery_1_contactor: &Contactor,
         battery_2_contactor: &Contactor,
     ) {
-        self.input = self
-            .input
+        self.input_potential = self
+            .input_potential
             .merge(&battery_1_contactor.output())
             .merge(&battery_2_contactor.output())
     }
@@ -355,7 +379,7 @@ impl ElectricalBus {
 potential_target!(ElectricalBus);
 impl PotentialSource for ElectricalBus {
     fn output(&self) -> Potential {
-        self.input
+        self.input_potential
     }
 }
 impl SimulationElement for ElectricalBus {
@@ -748,6 +772,62 @@ mod tests {
                 PotentialOrigin::EngineGenerator(2),
                 PotentialOrigin::EngineGenerator(1)
             ));
+        }
+
+        #[test]
+        fn average_without_returns_zero_when_no_potential() {
+            assert_eq!(
+                Potential::none().average_without(PotentialOrigin::Battery(1)),
+                ElectricPotential::new::<volt>(0.)
+            );
+        }
+
+        #[test]
+        fn average_without_returns_zero_when_only_potential_of_ignored_origin() {
+            assert_eq!(
+                Potential::single(
+                    PotentialOrigin::Battery(1),
+                    ElectricPotential::new::<volt>(28.)
+                )
+                .average_without(PotentialOrigin::Battery(1)),
+                ElectricPotential::new::<volt>(0.)
+            );
+        }
+
+        #[test]
+        fn average_without_returns_the_other_when_pair_of_ignored_and_other_origin() {
+            assert_eq!(
+                Potential::single(
+                    PotentialOrigin::Battery(1),
+                    ElectricPotential::new::<volt>(28.)
+                )
+                .merge(&Potential::single(
+                    PotentialOrigin::Battery(2),
+                    ElectricPotential::new::<volt>(27.)
+                ))
+                .average_without(PotentialOrigin::Battery(1)),
+                ElectricPotential::new::<volt>(27.)
+            );
+        }
+
+        #[test]
+        fn average_without_returns_the_average_of_other_potentials() {
+            assert_eq!(
+                Potential::single(
+                    PotentialOrigin::Battery(1),
+                    ElectricPotential::new::<volt>(28.)
+                )
+                .merge(&Potential::single(
+                    PotentialOrigin::Battery(2),
+                    ElectricPotential::new::<volt>(27.)
+                ))
+                .merge(&Potential::single(
+                    PotentialOrigin::TransformerRectifier(1),
+                    ElectricPotential::new::<volt>(28.)
+                ))
+                .average_without(PotentialOrigin::Battery(1)),
+                ElectricPotential::new::<volt>(27.5)
+            );
         }
 
         fn some_potential() -> Potential {

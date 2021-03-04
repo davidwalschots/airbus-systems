@@ -9,20 +9,20 @@ use uom::si::{electric_current::ampere, electric_potential::volt, f64::*};
 pub struct TransformerRectifier {
     writer: ElectricalStateWriter,
     number: usize,
-    input: Potential,
+    input_potential: Potential,
     failed: bool,
-    potential: ElectricPotential,
-    current: ElectricCurrent,
+    output_potential: ElectricPotential,
+    output_current: ElectricCurrent,
 }
 impl TransformerRectifier {
     pub fn new(number: usize) -> TransformerRectifier {
         TransformerRectifier {
             writer: ElectricalStateWriter::new(&format!("TR_{}", number)),
             number,
-            input: Potential::none(),
+            input_potential: Potential::none(),
             failed: false,
-            potential: ElectricPotential::new::<volt>(0.),
-            current: ElectricCurrent::new::<ampere>(0.),
+            output_potential: ElectricPotential::new::<volt>(0.),
+            output_current: ElectricCurrent::new::<ampere>(0.),
         }
     }
 
@@ -31,11 +31,11 @@ impl TransformerRectifier {
     }
 
     pub fn input_potential(&self) -> Potential {
-        self.input
+        self.input_potential
     }
 
     fn should_provide_output(&self) -> bool {
-        !self.failed && self.input.is_powered()
+        !self.failed && self.input_potential.is_powered()
     }
 }
 potential_target!(TransformerRectifier);
@@ -53,11 +53,11 @@ impl PotentialSource for TransformerRectifier {
 }
 impl ProvideCurrent for TransformerRectifier {
     fn current(&self) -> ElectricCurrent {
-        self.current
+        self.output_current
     }
 
     fn current_normal(&self) -> bool {
-        self.current > ElectricCurrent::new::<ampere>(5.)
+        self.output_current > ElectricCurrent::new::<ampere>(5.)
     }
 }
 provide_potential!(TransformerRectifier, (25.0..=31.0));
@@ -74,11 +74,11 @@ impl SimulationElement for TransformerRectifier {
         // Currently transformer rectifier inefficiency isn't modelled.
         // It is to be expected that AC consumption should actually be somewhat
         // higher than DC consumption.
-        consumption.add(&self.input, dc_power);
+        consumption.add(&self.input_potential, dc_power);
     }
 
     fn process_power_consumption_report<T: PowerConsumptionReport>(&mut self, report: &T) {
-        self.potential = if self.should_provide_output() {
+        self.output_potential = if self.should_provide_output() {
             ElectricPotential::new::<volt>(28.)
         } else {
             ElectricPotential::new::<volt>(0.)
@@ -86,7 +86,7 @@ impl SimulationElement for TransformerRectifier {
 
         let consumption =
             report.total_consumption_of(PotentialOrigin::TransformerRectifier(self.number));
-        self.current = consumption / self.potential;
+        self.output_current = consumption / self.output_potential;
     }
 }
 
