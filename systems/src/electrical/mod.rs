@@ -30,7 +30,6 @@ pub trait ElectricalSystem {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PotentialOrigin {
-    None,
     EngineGenerator(usize),
     ApuGenerator(usize),
     External,
