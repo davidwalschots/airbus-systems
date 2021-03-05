@@ -754,10 +754,6 @@ mod tests {
                 self.battery.powered_by(&Powered::new(potential));
             }
 
-            fn battery_is_powered(&self) -> bool {
-                self.battery.is_powered()
-            }
-
             fn power_demand(&mut self, power: Power) {
                 self.consumer.demand(power);
             }
@@ -803,23 +799,13 @@ mod tests {
         }
 
         #[test]
-        fn when_full_has_potential_output() {
+        fn when_full_has_potential() {
             let mut aircraft = TestAircraft::with_full_battery();
             let mut test_bed = BatteryTestBed::new();
 
             test_bed.run_aircraft(&mut aircraft);
 
-            assert!(aircraft.battery_is_powered());
-        }
-
-        #[test]
-        fn when_empty_has_no_potential_output() {
-            let mut aircraft = TestAircraft::with_empty_battery();
-            let mut test_bed = BatteryTestBed::new();
-
-            test_bed.run_aircraft(&mut aircraft);
-
-            assert!(!aircraft.battery_is_powered());
+            assert!(test_bed.potential() > ElectricPotential::new::<volt>(0.));
         }
 
         #[test]
