@@ -24,7 +24,7 @@ use crate::{
     simulation::{SimulationElement, SimulationElementVisitor, SimulatorReader, UpdateContext},
 };
 use num_traits::FromPrimitive;
-use uom::si::{electric_potential::volt, f64::*, power::watt};
+use uom::si::{f64::*, power::watt};
 
 pub(crate) struct ElectricPower {
     supplied_power: SuppliedPower,
@@ -252,36 +252,9 @@ impl PowerConsumption {
     }
 
     pub fn add(&mut self, potential: &Potential, power: Power) {
-        self.add_inner(None, potential, power);
-    }
-
-    pub fn add_ignoring(&mut self, ignoring: PotentialOrigin, potential: &Potential, power: Power) {
-        self.add_inner(Some(ignoring), potential, power);
-    }
-
-    fn add_inner(
-        &mut self,
-        ignored_origin: Option<PotentialOrigin>,
-        potential: &Potential,
-        power: Power,
-    ) {
-        let total_potential = potential
-            .origins_with_raw_potential()
-            .iter()
-            .filter_map(|&x| x)
-            .filter(|&x| ignored_origin == None || Some(x.origin()) != ignored_origin)
-            .fold(ElectricPotential::new::<volt>(0.), |acc, x| acc + x.raw());
-
-        if total_potential > ElectricPotential::new::<volt>(0.) {
-            for pair in potential
-                .origins_with_raw_potential()
-                .iter()
-                .filter_map(|&x| x)
-                .filter(|&x| ignored_origin == None || Some(x.origin()) != ignored_origin)
-            {
-                let y = self.consumption.entry(pair.origin()).or_default();
-                *y += (power / total_potential) * pair.raw();
-            }
+        for origin in potential.origins().filter_map(|&x| x) {
+            let y = self.consumption.entry(origin).or_default();
+            *y += power / potential.count() as f64;
         }
     }
 }
@@ -741,8 +714,7 @@ mod tests {
         }
 
         #[test]
-        fn when_multiple_origins_with_same_voltage_total_consumption_of_returns_the_equally_divided_consumption(
-        ) {
+        fn consumption_is_equally_divided_between_all_potential_origins() {
             let mut consumption = power_consumption();
 
             consumption.add(
@@ -764,97 +736,6 @@ mod tests {
 
             assert_eq!(
                 consumption.total_consumption_of(PotentialOrigin::Battery(2)),
-                Power::new::<watt>(200.)
-            );
-        }
-
-        #[test]
-        fn when_multiple_origins_with_different_voltage_total_consumption_of_returns_the_proportionally_divided_consumption(
-        ) {
-            let mut consumption = power_consumption();
-
-            consumption.add(
-                &Potential::single(
-                    PotentialOrigin::Battery(1),
-                    ElectricPotential::new::<volt>(24.),
-                )
-                .merge(&Potential::single(
-                    PotentialOrigin::Battery(2),
-                    ElectricPotential::new::<volt>(28.),
-                )),
-                Power::new::<watt>(400.),
-            );
-
-            assert_eq!(
-                consumption.total_consumption_of(PotentialOrigin::Battery(1)),
-                Power::new::<watt>(184.6153846153846)
-            );
-            assert_eq!(
-                consumption.total_consumption_of(PotentialOrigin::Battery(2)),
-                Power::new::<watt>(215.3846153846154)
-            );
-        }
-
-        #[test]
-        fn when_multiple_origins_some_without_voltage_total_consumption_of_returns_consumption_on_for_those_origins_with_potential(
-        ) {
-            let mut consumption = power_consumption();
-
-            consumption.add(
-                &Potential::single(
-                    PotentialOrigin::Battery(1),
-                    ElectricPotential::new::<volt>(0.),
-                )
-                .merge(&Potential::single(
-                    PotentialOrigin::Battery(2),
-                    ElectricPotential::new::<volt>(28.),
-                )),
-                Power::new::<watt>(400.),
-            );
-
-            assert_eq!(
-                consumption.total_consumption_of(PotentialOrigin::Battery(1)),
-                Power::new::<watt>(0.)
-            );
-            assert_eq!(
-                consumption.total_consumption_of(PotentialOrigin::Battery(2)),
-                Power::new::<watt>(400.)
-            );
-        }
-
-        #[test]
-        fn add_ignoring_does_not_add_to_the_consumption_of_the_ignored_origin() {
-            let mut consumption = power_consumption();
-
-            consumption.add_ignoring(
-                PotentialOrigin::Battery(1),
-                &Potential::single(
-                    PotentialOrigin::Battery(1),
-                    ElectricPotential::new::<volt>(28.),
-                )
-                .merge(&Potential::single(
-                    PotentialOrigin::Battery(2),
-                    ElectricPotential::new::<volt>(28.),
-                ))
-                .merge(&Potential::single(
-                    PotentialOrigin::TransformerRectifier(1),
-                    ElectricPotential::new::<volt>(28.),
-                )),
-                Power::new::<watt>(400.),
-            );
-
-            assert_eq!(
-                consumption.total_consumption_of(PotentialOrigin::Battery(1)),
-                Power::new::<watt>(0.)
-            );
-
-            assert_eq!(
-                consumption.total_consumption_of(PotentialOrigin::Battery(2)),
-                Power::new::<watt>(200.)
-            );
-
-            assert_eq!(
-                consumption.total_consumption_of(PotentialOrigin::TransformerRectifier(1)),
                 Power::new::<watt>(200.)
             );
         }
