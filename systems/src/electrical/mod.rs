@@ -315,6 +315,7 @@ impl Display for ElectricalBusType {
 
 pub struct ElectricalBus {
     bus_powered_id: String,
+    bus_potential_normal_id: String,
     input_potential: Potential,
     bus_type: ElectricalBusType,
 }
@@ -322,6 +323,7 @@ impl ElectricalBus {
     pub fn new(bus_type: ElectricalBusType) -> ElectricalBus {
         ElectricalBus {
             bus_powered_id: format!("ELEC_{}_BUS_IS_POWERED", bus_type.to_string()),
+            bus_potential_normal_id: format!("ELEC_{}_BUS_POTENTIAL_NORMAL", bus_type.to_string()),
             input_potential: Potential::none(),
             bus_type,
         }
@@ -346,6 +348,10 @@ impl ElectricalBus {
             .merge(&battery_1_contactor.output())
             .merge(&battery_2_contactor.output())
     }
+
+    fn potential_normal(&self) -> bool {
+        self.input_potential.raw() > ElectricPotential::new::<volt>(25.0)
+    }
 }
 potential_target!(ElectricalBus);
 impl PotentialSource for ElectricalBus {
@@ -356,6 +362,9 @@ impl PotentialSource for ElectricalBus {
 impl SimulationElement for ElectricalBus {
     fn write(&self, writer: &mut SimulatorWriter) {
         writer.write_bool(&self.bus_powered_id, self.is_powered());
+        if self.bus_type == ElectricalBusType::DirectCurrentBattery {
+            writer.write_bool(&self.bus_potential_normal_id, self.potential_normal())
+        }
     }
 }
 
@@ -876,7 +885,7 @@ mod tests {
     #[cfg(test)]
     mod electrical_bus_tests {
         use super::*;
-        use crate::simulation::test::SimulationTestBed;
+        use crate::simulation::{test::SimulationTestBed, Aircraft};
 
         #[test]
         fn writes_its_state() {
@@ -890,16 +899,39 @@ mod tests {
         struct BatteryStub {
             potential: Potential,
         }
-
         impl BatteryStub {
             fn new(potential: Potential) -> BatteryStub {
                 BatteryStub { potential }
             }
         }
-
         impl PotentialSource for BatteryStub {
             fn output(&self) -> Potential {
                 self.potential
+            }
+        }
+
+        struct ElectricalBusTestAircraft {
+            bus: ElectricalBus,
+        }
+        impl ElectricalBusTestAircraft {
+            fn new(bus_type: ElectricalBusType) -> Self {
+                Self {
+                    bus: ElectricalBus::new(bus_type),
+                }
+            }
+
+            fn powered_by_battery_at(&mut self, potential: ElectricPotential) {
+                self.bus.powered_by(&BatteryStub::new(Potential::single(
+                    PotentialOrigin::Battery(10),
+                    potential,
+                )));
+            }
+        }
+        impl Aircraft for ElectricalBusTestAircraft {}
+        impl SimulationElement for ElectricalBusTestAircraft {
+            fn accept<T: crate::simulation::SimulationElementVisitor>(&mut self, visitor: &mut T) {
+                self.bus.accept(visitor);
+                visitor.visit(self);
             }
         }
 
@@ -988,6 +1020,53 @@ mod tests {
             execute_or_powered_by_both_batteries(&mut bus, bat_1, bat_2);
 
             assert!(bus.input_potential().is_unpowered());
+        }
+
+        #[test]
+        fn bat_bus_at_25_volt_is_abnormal() {
+            let mut aircraft =
+                ElectricalBusTestAircraft::new(ElectricalBusType::DirectCurrentBattery);
+            let mut test_bed = SimulationTestBed::new();
+
+            aircraft.powered_by_battery_at(ElectricPotential::new::<volt>(25.));
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert_eq!(
+                test_bed.read_bool("ELEC_DC_BAT_BUS_POTENTIAL_NORMAL"),
+                false
+            );
+        }
+
+        #[test]
+        fn bat_bus_above_25_volt_is_abnormal() {
+            let mut aircraft =
+                ElectricalBusTestAircraft::new(ElectricalBusType::DirectCurrentBattery);
+            let mut test_bed = SimulationTestBed::new();
+
+            aircraft.powered_by_battery_at(ElectricPotential::new::<volt>(25.01));
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert_eq!(test_bed.read_bool("ELEC_DC_BAT_BUS_POTENTIAL_NORMAL"), true);
+        }
+
+        #[test]
+        fn writes_potential_normal_when_bat_bus() {
+            let mut bus = ElectricalBus::new(ElectricalBusType::DirectCurrentBattery);
+
+            let mut test_bed = SimulationTestBed::new();
+            test_bed.run_without_update(&mut bus);
+
+            assert!(test_bed.contains_key("ELEC_DC_BAT_BUS_POTENTIAL_NORMAL"));
+        }
+
+        #[test]
+        fn does_not_write_potential_normal_when_not_bat_bus() {
+            let mut bus = ElectricalBus::new(ElectricalBusType::AlternatingCurrentEssential);
+
+            let mut test_bed = SimulationTestBed::new();
+            test_bed.run_without_update(&mut bus);
+
+            assert!(!test_bed.contains_key("ELEC_DC_BAT_BUS_POTENTIAL_NORMAL"));
         }
 
         fn execute_or_powered_by_both_batteries(
