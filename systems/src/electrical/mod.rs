@@ -103,7 +103,7 @@ impl Potential {
         // As a given simulation tick is not of infinitely small delta time. We need to give
         // "equality" some slack. This prevents continuously switching between potential
         // sources, such as the battery.
-        if (self.raw - other.raw).abs() <= ElectricPotential::new::<volt>(0.1) {
+        if (self.raw - other.raw).abs() <= ElectricPotential::new::<volt>(0.00001) {
             let mut elements = self
                 .origins
                 .iter()
@@ -113,7 +113,7 @@ impl Potential {
 
             let merged = Self {
                 origins: [elements.next(), elements.next(), elements.next()],
-                // Here we take the lowest of the potentials. To understand why consider
+                // Here we take the average of the potentials. To understand why consider
                 // two batteries providing potential. BAT1 at 27.05V and BAT2 at 27.1V.
                 // If we would return the higher potential, BAT1 would start charging itself.
                 raw: self.raw.min(other.raw),
@@ -620,14 +620,14 @@ mod tests {
         }
 
         #[test]
-        fn merge_considers_potential_within_0_point_1_volt_equal() {
+        fn merge_considers_miniscule_potential_differences_equal() {
             let potential = Potential::single(
                 PotentialOrigin::EngineGenerator(1),
-                ElectricPotential::new::<volt>(114.9),
+                ElectricPotential::new::<volt>(115.000011),
             )
             .merge(&Potential::single(
                 PotentialOrigin::ApuGenerator(1),
-                ElectricPotential::new::<volt>(115.),
+                ElectricPotential::new::<volt>(115.00002),
             ));
 
             assert!(potential.is_pair(
@@ -637,34 +637,31 @@ mod tests {
         }
 
         #[test]
-        fn merge_considers_potential_outside_of_0_point_1_volt_inequal() {
+        fn merge_considers_larger_potential_differences_inequal() {
             let potential = Potential::single(
                 PotentialOrigin::EngineGenerator(1),
-                ElectricPotential::new::<volt>(114.89),
+                ElectricPotential::new::<volt>(115.00001),
             )
             .merge(&Potential::single(
                 PotentialOrigin::ApuGenerator(1),
-                ElectricPotential::new::<volt>(115.),
+                ElectricPotential::new::<volt>(115.00002),
             ));
 
             assert!(potential.is_single(PotentialOrigin::ApuGenerator(1)));
-            assert_eq!(potential.raw(), ElectricPotential::new::<volt>(115.));
         }
 
         #[test]
         fn merge_takes_the_lowest_raw_potential_from_two_potentials_it_considers_equal() {
-            // By taking the lowest, we ensure that e.g. a battery won't be charging itself
-            // due to having a slightly lower potential than the combined potential.
             let potential = Potential::single(
                 PotentialOrigin::EngineGenerator(1),
-                ElectricPotential::new::<volt>(114.9),
+                ElectricPotential::new::<volt>(115.000011),
             )
             .merge(&Potential::single(
                 PotentialOrigin::ApuGenerator(1),
-                ElectricPotential::new::<volt>(115.),
+                ElectricPotential::new::<volt>(115.00002),
             ));
 
-            assert_eq!(potential.raw(), ElectricPotential::new::<volt>(114.9));
+            assert_eq!(potential.raw(), ElectricPotential::new::<volt>(115.000011));
         }
 
         #[test]
