@@ -29,6 +29,8 @@ pub(super) struct A320ElectricalUpdateArguments<'a> {
     idg_push_buttons_released: [bool; 2],
     apu: &'a dyn PotentialSource,
     is_blue_hydraulic_circuit_pressurised: bool,
+    apu_master_sw_pb_on: bool,
+    apu_start_pb_on: bool,
 }
 impl<'a> A320ElectricalUpdateArguments<'a> {
     pub fn new(
@@ -36,17 +38,29 @@ impl<'a> A320ElectricalUpdateArguments<'a> {
         idg_push_buttons_released: [bool; 2],
         apu: &'a dyn PotentialSource,
         is_blue_hydraulic_circuit_pressurised: bool,
+        apu_master_sw_pb_on: bool,
+        apu_start_pb_on: bool,
     ) -> Self {
         Self {
             engine_corrected_n2,
             idg_push_buttons_released,
             apu,
             is_blue_hydraulic_circuit_pressurised,
+            apu_master_sw_pb_on,
+            apu_start_pb_on,
         }
     }
 
     fn apu(&self) -> &dyn PotentialSource {
         self.apu
+    }
+
+    fn apu_master_sw_pb_on(&self) -> bool {
+        self.apu_master_sw_pb_on
+    }
+
+    fn apu_start_pb_on(&self) -> bool {
+        self.apu_start_pb_on
     }
 
     fn is_blue_hydraulic_circuit_pressurised(&self) -> bool {
@@ -93,6 +107,7 @@ impl A320Electrical {
             context,
             overhead,
             &self.alternating_current,
+            &arguments,
         );
 
         self.alternating_current
@@ -1270,7 +1285,7 @@ mod a320_electrical_circuit_tests {
     }
 
     #[test]
-    fn bat_only_low_airspeed_when_both_battery_contactors_closed_static_inverter_has_input() {
+    fn bat_only_low_airspeed_static_inverter_has_input() {
         let test_bed = test_bed_with()
             .bat_1_auto()
             .bat_2_auto()
@@ -1280,7 +1295,7 @@ mod a320_electrical_circuit_tests {
 
         assert!(test_bed
             .static_inverter_input()
-            .is_pair(PotentialOrigin::Battery(10), PotentialOrigin::Battery(11)));
+            .is_single(PotentialOrigin::Battery(10)));
     }
 
     #[test]
@@ -1292,7 +1307,7 @@ mod a320_electrical_circuit_tests {
 
         assert!(test_bed
             .static_inverter_input()
-            .is_pair(PotentialOrigin::Battery(10), PotentialOrigin::Battery(11)));
+            .is_single(PotentialOrigin::Battery(10)));
         assert!(test_bed
             .ac_ess_bus_output()
             .is_single(PotentialOrigin::StaticInverter));
@@ -1730,26 +1745,6 @@ mod a320_electrical_circuit_tests {
         assert!(!test_bed.gen_2_has_fault());
     }
 
-    #[test]
-    #[ignore]
-    fn battery_1_charges_battery_2() {
-        let test_bed = test_bed_with().empty_battery_2().run();
-
-        assert!(test_bed
-            .battery_2_input()
-            .is_single(PotentialOrigin::Battery(10)));
-    }
-
-    #[test]
-    #[ignore]
-    fn battery_2_charges_battery_1() {
-        let test_bed = test_bed_with().empty_battery_1().run();
-
-        assert!(test_bed
-            .battery_1_input()
-            .is_single(PotentialOrigin::Battery(11)));
-    }
-
     fn test_bed_with() -> A320ElectricalTestBed {
         test_bed()
     }
@@ -1872,6 +1867,8 @@ mod a320_electrical_circuit_tests {
                     ],
                     &TestApu::new(self.apu_running),
                     true,
+                    false,
+                    false,
                 ),
             );
             self.overhead.update_after_elec(&self.elec);

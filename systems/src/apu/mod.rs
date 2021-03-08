@@ -313,11 +313,11 @@ impl AuxiliaryPowerUnitOverheadPanel {
         self.master.set_fault(apu.has_fault());
     }
 
-    fn master_is_on(&self) -> bool {
+    pub fn master_is_on(&self) -> bool {
         self.master.is_on()
     }
 
-    fn start_is_on(&self) -> bool {
+    pub fn start_is_on(&self) -> bool {
         self.start.is_on()
     }
 }

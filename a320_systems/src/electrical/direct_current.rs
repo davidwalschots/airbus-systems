@@ -1,4 +1,7 @@
-use super::{A320ElectricalOverheadPanel, AlternatingCurrentState, DirectCurrentState};
+use super::{
+    A320ElectricalOverheadPanel, A320ElectricalUpdateArguments, AlternatingCurrentState,
+    DirectCurrentState,
+};
 #[cfg(test)]
 use systems::electrical::Potential;
 use systems::{
@@ -64,11 +67,12 @@ impl A320DirectCurrentElectrical {
         }
     }
 
-    pub fn update_with_alternating_current_state<T: AlternatingCurrentState>(
+    pub fn update_with_alternating_current_state<'a, T: AlternatingCurrentState>(
         &mut self,
         context: &UpdateContext,
         overhead: &A320ElectricalOverheadPanel,
         ac_state: &T,
+        arguments: &A320ElectricalUpdateArguments<'a>,
     ) {
         self.tr_1_contactor.close_when(ac_state.tr_1().is_powered());
         self.tr_1_contactor.powered_by(ac_state.tr_1());
@@ -106,8 +110,13 @@ impl A320DirectCurrentElectrical {
 
         self.battery_1_charge_limiter.update(
             context,
-            &self.battery_1,
-            &BatteryChargeLimiterArguments::new(ac_state.ac_bus_1_and_2_unpowered()),
+            &BatteryChargeLimiterArguments::new(
+                ac_state.ac_bus_1_and_2_unpowered(),
+                &self.battery_1,
+                &self.dc_bat_bus,
+                arguments.apu_master_sw_pb_on(),
+                arguments.apu_start_pb_on(),
+            ),
         );
         self.battery_1_contactor.close_when(
             overhead.bat_1_is_auto() && self.battery_1_charge_limiter.should_close_contactor(),
@@ -115,8 +124,13 @@ impl A320DirectCurrentElectrical {
 
         self.battery_2_charge_limiter.update(
             context,
-            &self.battery_2,
-            &BatteryChargeLimiterArguments::new(ac_state.ac_bus_1_and_2_unpowered()),
+            &BatteryChargeLimiterArguments::new(
+                ac_state.ac_bus_1_and_2_unpowered(),
+                &self.battery_2,
+                &self.dc_bat_bus,
+                arguments.apu_master_sw_pb_on(),
+                arguments.apu_start_pb_on(),
+            ),
         );
         self.battery_2_contactor.close_when(
             overhead.bat_2_is_auto() && self.battery_2_charge_limiter.should_close_contactor(),
@@ -143,7 +157,8 @@ impl A320DirectCurrentElectrical {
         self.hot_bus_2.powered_by(&self.battery_2_contactor);
         self.hot_bus_2.or_powered_by(&self.battery_2);
 
-        let should_close_2xb_contactor = self.should_close_2xb_contactors(context, ac_state);
+        let should_close_2xb_contactor =
+            A320DirectCurrentElectrical::should_close_2xb_contactors(context, ac_state, overhead);
         self.hot_bus_1_to_static_inv_contactor
             .close_when(should_close_2xb_contactor);
         self.hot_bus_1_to_static_inv_contactor
@@ -176,22 +191,22 @@ impl A320DirectCurrentElectrical {
     /// Determines if the 2XB contactors should be closed. 2XB are the two contactors
     /// which connect BAT2 to DC ESS BUS; and BAT 1 to the static inverter.
     fn should_close_2xb_contactors<T: AlternatingCurrentState>(
-        &self,
         context: &UpdateContext,
         ac_state: &T,
+        overhead: &A320ElectricalOverheadPanel,
     ) -> bool {
-        (self.battery_contactors_closed_and_speed_less_than_50_knots(context)
+        (A320DirectCurrentElectrical::batteries_auto_and_speed_less_than_50_knots(context, overhead)
             && ac_state.ac_1_and_2_and_emergency_gen_unpowered())
             || ac_state.ac_1_and_2_and_emergency_gen_unpowered_and_velocity_equal_to_or_greater_than_50_knots(context)
     }
 
-    fn battery_contactors_closed_and_speed_less_than_50_knots(
-        &self,
+    fn batteries_auto_and_speed_less_than_50_knots(
         context: &UpdateContext,
+        overhead: &A320ElectricalOverheadPanel,
     ) -> bool {
         context.indicated_airspeed() < Velocity::new::<knot>(50.)
-            && self.battery_1_contactor.is_closed()
-            && self.battery_2_contactor.is_closed()
+            && overhead.bat_1_is_auto()
+            && overhead.bat_2_is_auto()
     }
 
     pub fn debug_assert_invariants(&self) {
