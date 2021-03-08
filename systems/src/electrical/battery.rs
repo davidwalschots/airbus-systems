@@ -1,9 +1,14 @@
+use std::time::Duration;
+
 use super::{
     consumption::{PowerConsumption, PowerConsumptionReport},
     ElectricalStateWriter, Potential, PotentialOrigin, PotentialSource, PotentialTarget,
     ProvideCurrent, ProvidePotential,
 };
-use crate::simulation::{SimulationElement, SimulatorWriter, UpdateContext};
+use crate::{
+    shared::DelayedTrueLogicGate,
+    simulation::{SimulationElement, SimulatorWriter, UpdateContext},
+};
 use uom::si::{
     electric_charge::ampere_hour, electric_current::ampere, electric_potential::volt,
     electrical_resistance::ohm, f64::*, time::second, velocity::knot,
@@ -23,12 +28,21 @@ impl BatteryChargeLimiterArguments {
 }
 
 pub struct BatteryChargeLimiter {
+    should_show_arrow_when_contactor_closed_id: String,
     should_close_contactor: bool,
+    discharging_for_15_seconds_or_more: DelayedTrueLogicGate,
+    charging_for_15_seconds_or_more: DelayedTrueLogicGate,
 }
 impl BatteryChargeLimiter {
-    pub fn new() -> Self {
+    pub fn new(contactor_id: &str) -> Self {
         Self {
+            should_show_arrow_when_contactor_closed_id: format!(
+                "ELEC_CONTACTOR_{}_SHOW_ARROW_WHEN_CLOSED",
+                contactor_id
+            ),
             should_close_contactor: false,
+            discharging_for_15_seconds_or_more: DelayedTrueLogicGate::new(Duration::from_secs(15)),
+            charging_for_15_seconds_or_more: DelayedTrueLogicGate::new(Duration::from_secs(15)),
         }
     }
 
@@ -38,6 +52,15 @@ impl BatteryChargeLimiter {
         battery: &Battery,
         arguments: &BatteryChargeLimiterArguments,
     ) {
+        self.discharging_for_15_seconds_or_more.update(
+            context,
+            battery.current() < ElectricCurrent::new::<ampere>(-1.),
+        );
+        self.charging_for_15_seconds_or_more.update(
+            context,
+            battery.current() > ElectricCurrent::new::<ampere>(1.),
+        );
+
         self.should_close_contactor = battery.needs_charging()
             || (arguments.ac_buses_unpowered()
                 && context.indicated_airspeed() < Velocity::new::<knot>(100.))
@@ -45,6 +68,15 @@ impl BatteryChargeLimiter {
 
     pub fn should_close_contactor(&self) -> bool {
         self.should_close_contactor
+    }
+}
+impl SimulationElement for BatteryChargeLimiter {
+    fn write(&self, writer: &mut SimulatorWriter) {
+        writer.write_bool(
+            &self.should_show_arrow_when_contactor_closed_id,
+            self.discharging_for_15_seconds_or_more.output()
+                || self.charging_for_15_seconds_or_more.output(),
+        );
     }
 }
 
@@ -195,45 +227,41 @@ impl Battery {
     }
 
     fn calculate_output_potential_for_charge(charge: ElectricCharge) -> ElectricPotential {
-        let mut charge = charge.get::<ampere_hour>();
-        if charge > 23.34 {
-            charge = 23.34;
-        }
-
         // There are four distinct charges, being:
         // 1. No charge, giving no potential.
         // 2. Low charge, rapidly decreasing from 26.578V.
         // 3. Regular charge, linear from 26.578V to 27.33V.
         // 4. High charge, rapidly increasing from 27.33V to 28.958V.
         // Refer to Battery.md for details.
+        let charge = charge.get::<ampere_hour>();
         ElectricPotential::new::<volt>(if charge <= 0. {
             0.
-        } else if charge <= 2.0522 {
-            (12.3 * charge.powi(3)) + (-4.49512 * charge.powi(4))
-        } else if charge < 21.83 {
-            26.5 + 0.038 * charge
+        } else if charge <= 3.488 {
+            (13.95303731988 * charge) - 2. * charge.powi(2)
+        } else if charge < 22.449 {
+            23.85 + 0.14 * charge
         } else {
-            8483302.40715524
+            8483298.
                 + (-2373273.312763873 * charge)
                 + (276476.10619333945 * charge.powi(2))
                 + (-17167.409762003314 * charge.powi(3))
                 + (599.2597390001015 * charge.powi(4))
                 + (-11.149802489333474 * charge.powi(5))
-                + (0.08638807019787154 * charge.powi(6))
+                + (0.08638809969727154 * charge.powi(6))
         })
     }
 
     fn calculate_charging_current(
-        charge: ElectricCharge,
         input: ElectricPotential,
         output: ElectricPotential,
     ) -> ElectricCurrent {
-        if charge >= ElectricCharge::new::<ampere_hour>(Battery::RATED_CAPACITY_AMPERE_HOURS) {
-            return ElectricCurrent::new::<ampere>(0.01);
-        }
-
-        let resistance = ElectricalResistance::new::<ohm>(0.011);
-        ((input - output) / resistance).min(ElectricCurrent::new::<ampere>(10.))
+        // Internal resistance = 0.011 ohm. However that would make current go through the roof.
+        // Thus we add some fake wire resistance here too. If needed, later one can
+        // add resistance of wires between buses to calculate correct values.
+        let resistance = ElectricalResistance::new::<ohm>(0.15);
+        ((input - output) / resistance)
+            .min(ElectricCurrent::new::<ampere>(10.))
+            .max(ElectricCurrent::new::<ampere>(0.))
     }
 }
 potential_target!(Battery);
@@ -274,7 +302,6 @@ impl SimulationElement for Battery {
     fn consume_power(&mut self, consumption: &mut PowerConsumption) {
         if self.is_powered_by_other_potential() {
             self.current = Battery::calculate_charging_current(
-                self.charge,
                 self.input_potential.raw(),
                 self.output_potential,
             );
@@ -312,151 +339,224 @@ impl SimulationElement for Battery {
 mod tests {
     use super::*;
 
-    // #[cfg(test)]
-    // mod battery_charge_limiter_tests {
-    //     use std::time::Duration;
+    #[cfg(test)]
+    mod battery_charge_limiter_tests {
+        use super::*;
+        use crate::{
+            electrical::{
+                consumption::{PowerConsumer, SuppliedPower},
+                Contactor, ElectricalBus, ElectricalBusType,
+            },
+            simulation::{test::SimulationTestBed, Aircraft, SimulationElementVisitor},
+        };
+        use std::time::Duration;
+        use uom::si::power::watt;
 
-    //     use crate::{
-    //         electrical::{Contactor, ElectricalBus, ElectricalBusType},
-    //         simulation::{test::SimulationTestBed, Aircraft, SimulationElementVisitor},
-    //     };
+        struct BatteryChargeLimiterTestBed {
+            test_bed: SimulationTestBed,
+            delta: Duration,
+        }
+        impl BatteryChargeLimiterTestBed {
+            // fn new() -> Self {
+            //     Self::new_with_delta(Duration::from_secs(1))
+            // }
 
-    //     use super::*;
+            fn new_with_delta(delta: Duration) -> Self {
+                Self {
+                    test_bed: SimulationTestBed::new_with_delta(delta),
+                    delta,
+                }
+            }
 
-    //     struct BatteryChargeLimiterUpdateArgs {
-    //         apu_started: bool,
-    //     }
-    //     impl BatteryChargeLimiterUpdateArgs {
-    //         fn new(apu_started: bool) -> Self {
-    //             Self { apu_started }
-    //         }
-    //     }
-    //     impl BatteryChargeLimiterUpdateArguments for BatteryChargeLimiterUpdateArgs {
-    //         fn apu_started(&self) -> bool {
-    //             self.apu_started
-    //         }
-    //     }
+            // fn set_delta(&mut self, delta: Duration) {
+            //     self.delta = delta;
+            // }
 
-    //     struct BatteryChargeLimiterTestBed {
-    //         test_bed: SimulationTestBed,
-    //         delta: Duration,
-    //     }
-    //     impl BatteryChargeLimiterTestBed {
-    //         fn new() -> Self {
-    //             Self::new_with_delta(Duration::from_secs(1))
-    //         }
+            // pub fn set_on_ground(&mut self, on_ground: bool) {
+            //     self.test_bed.set_on_ground(on_ground);
+            // }
 
-    //         fn new_with_delta(delta: Duration) -> Self {
-    //             Self {
-    //                 test_bed: SimulationTestBed::new_with_delta(delta),
-    //                 delta,
-    //             }
-    //         }
+            fn run_aircraft<T: Aircraft>(&mut self, aircraft: &mut T) {
+                // The battery's current is updated after the BCL, thus we need two ticks.
+                self.test_bed.set_delta(Duration::from_secs(0));
+                self.test_bed.run_aircraft(aircraft);
 
-    //         fn set_delta(&mut self, delta: Duration) {
-    //             self.delta = delta;
-    //         }
+                self.test_bed.set_delta(self.delta);
+                self.test_bed.run_aircraft(aircraft);
+            }
 
-    //         pub fn set_on_ground(&mut self, on_ground: bool) {
-    //             self.test_bed.set_on_ground(on_ground);
-    //         }
+            // fn with_charging_battery(mut self, aircraft: &mut TestAircraft) -> Self {
+            //     self.set_delta(Duration::from_millis(225));
 
-    //         fn run_aircraft<T: Aircraft>(&mut self, aircraft: &mut T) {
-    //             // Firstly run without any time passing at all, such that if the DelayedTrueLogicGate reaches
-    //             // the true state after waiting for the given time it will be reflected in its output.
-    //             self.test_bed.set_delta(Duration::from_secs(0));
-    //             self.test_bed.run_aircraft(aircraft);
+            //     aircraft.power_battery_bus();
+            //     self.run_aircraft(aircraft);
 
-    //             self.test_bed.set_delta(Duration::from_secs(0));
-    //             self.test_bed.run_aircraft(aircraft);
+            //     self
+            // }
 
-    //             self.test_bed.set_delta(self.delta);
-    //             self.test_bed.run_aircraft(aircraft);
-    //         }
+            fn should_show_arrow_when_contactor_closed(&mut self) -> bool {
+                self.test_bed
+                    .read_bool("ELEC_CONTACTOR_TEST_SHOW_ARROW_WHEN_CLOSED")
+            }
+        }
 
-    //         fn with_charging_battery(mut self, aircraft: &mut TestAircraft) -> Self {
-    //             self.set_delta(Duration::from_millis(225));
+        struct TestAircraft {
+            battery: Battery,
+            battery_charge_limiter: BatteryChargeLimiter,
+            battery_bus: ElectricalBus,
+            battery_contactor: Contactor,
+            consumer: PowerConsumer,
+        }
+        impl TestAircraft {
+            fn new(battery: Battery) -> Self {
+                Self {
+                    battery: battery,
+                    battery_charge_limiter: BatteryChargeLimiter::new("TEST"),
+                    battery_bus: ElectricalBus::new(ElectricalBusType::DirectCurrentBattery),
+                    battery_contactor: Contactor::new("TEST"),
+                    consumer: PowerConsumer::from(ElectricalBusType::DirectCurrentBattery),
+                }
+            }
 
-    //             aircraft.power_battery_bus();
-    //             self.run_aircraft(aircraft);
+            fn with_full_battery() -> Self {
+                Self::new(Battery::full(1))
+            }
 
-    //             self
-    //         }
-    //     }
+            fn with_empty_battery() -> Self {
+                Self::new(Battery::empty(1))
+            }
 
-    //     struct TestAircraft {
-    //         battery: Battery,
-    //         battery_charge_limiter: BatteryChargeLimiter,
-    //         battery_bus: ElectricalBus,
-    //         battery_contactor: Contactor,
-    //         running_apu: bool,
-    //     }
-    //     impl TestAircraft {
-    //         fn new(battery: Battery) -> Self {
-    //             Self {
-    //                 battery: battery,
-    //                 battery_charge_limiter: BatteryChargeLimiter::new(),
-    //                 battery_bus: ElectricalBus::new(ElectricalBusType::DirectCurrentBattery),
-    //                 battery_contactor: Contactor::new("TEST"),
-    //                 running_apu: false,
-    //             }
-    //         }
+            fn power_battery_bus(&mut self) {
+                self.battery_bus.powered_by(&Potential::single(
+                    PotentialOrigin::TransformerRectifier(1),
+                    ElectricPotential::new::<volt>(28.),
+                ))
+            }
 
-    //         fn with_full_battery() -> Self {
-    //             Self::new(Battery::full(1))
-    //         }
+            fn power_demand(&mut self, power: Power) {
+                self.consumer.demand(power);
+            }
 
-    //         fn with_empty_battery() -> Self {
-    //             Self::new(Battery::empty(1))
-    //         }
+            fn close_battery_contactor(&mut self) {
+                self.battery_contactor.close_when(true);
+            }
+        }
+        impl Aircraft for TestAircraft {
+            fn update_before_power_distribution(&mut self, context: &UpdateContext) {
+                self.battery_charge_limiter.update(
+                    context,
+                    &self.battery,
+                    &BatteryChargeLimiterArguments::new(true),
+                );
 
-    //         fn power_battery_bus(&mut self) {
-    //             self.battery_bus
-    //                 .powered_by(&Powered::new(ElectricPotential::new::<volt>(28.)))
-    //         }
+                self.battery_contactor.powered_by(&self.battery_bus);
+                self.battery.powered_by(&self.battery_contactor);
+                self.battery_contactor.or_powered_by(&self.battery);
+                self.battery_bus.or_powered_by(&self.battery_contactor);
+            }
 
-    //         fn should_close_battery_contactor(&self) -> bool {
-    //             self.battery_charge_limiter.should_close_battery_contactor()
-    //         }
+            fn get_supplied_power(&mut self) -> SuppliedPower {
+                let mut supplied_power = SuppliedPower::new();
+                supplied_power.add(
+                    ElectricalBusType::DirectCurrentBattery,
+                    self.battery_bus.output(),
+                );
 
-    //         fn set_full_battery(&mut self) {
-    //             self.battery.fully_charge();
-    //         }
+                supplied_power
+            }
+        }
+        impl SimulationElement for TestAircraft {
+            fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
+                self.battery.accept(visitor);
+                self.battery_bus.accept(visitor);
+                self.battery_contactor.accept(visitor);
+                self.battery_charge_limiter.accept(visitor);
+                self.consumer.accept(visitor);
 
-    //         fn start_apu(&mut self) {
-    //             self.running_apu = true;
-    //         }
+                visitor.visit(self);
+            }
+        }
 
-    //         fn stop_apu(&mut self) {
-    //             self.running_apu = false;
-    //         }
-    //     }
-    //     impl Aircraft for TestAircraft {
-    //         fn update_before_power_distribution(&mut self, context: &UpdateContext) {
-    //             self.battery_charge_limiter.update(
-    //                 context,
-    //                 &self.battery,
-    //                 &self.battery_bus,
-    //                 &BatteryChargeLimiterUpdateArgs::new(self.running_apu),
-    //             );
-    //             self.battery_contactor
-    //                 .close_when(self.battery_charge_limiter.should_close_battery_contactor());
+        #[test]
+        fn should_show_arrow_when_contactor_closed_returns_true_when_15_seconds_have_passed_charging_above_1_a(
+        ) {
+            let mut aircraft = TestAircraft::with_empty_battery();
+            let mut test_bed = BatteryChargeLimiterTestBed::new_with_delta(Duration::from_secs(15));
 
-    //             self.battery_contactor.powered_by(&self.battery_bus);
-    //             self.battery.powered_by(&self.battery_contactor);
-    //             self.battery_contactor.or_powered_by(&self.battery);
-    //             self.battery_bus.or_powered_by(&self.battery_contactor);
-    //         }
-    //     }
-    //     impl SimulationElement for TestAircraft {
-    //         fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
-    //             self.battery.accept(visitor);
-    //             self.battery_bus.accept(visitor);
-    //             self.battery_contactor.accept(visitor);
+            aircraft.power_battery_bus();
+            aircraft.close_battery_contactor();
+            test_bed.run_aircraft(&mut aircraft);
 
-    //             visitor.visit(self);
-    //         }
-    //     }
+            assert!(test_bed.should_show_arrow_when_contactor_closed())
+        }
+
+        #[test]
+        fn should_show_arrow_when_contactor_closed_returns_false_almost_15_seconds_have_passed_charging_above_1_a(
+        ) {
+            let mut aircraft = TestAircraft::with_empty_battery();
+            let mut test_bed =
+                BatteryChargeLimiterTestBed::new_with_delta(Duration::from_millis(14999));
+
+            aircraft.power_battery_bus();
+            aircraft.close_battery_contactor();
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(!test_bed.should_show_arrow_when_contactor_closed())
+        }
+
+        #[test]
+        fn should_show_arrow_when_contactor_closed_returns_false_when_charging_below_1_a() {
+            let mut aircraft = TestAircraft::with_full_battery();
+            let mut test_bed =
+                BatteryChargeLimiterTestBed::new_with_delta(Duration::from_millis(14999));
+
+            aircraft.power_battery_bus();
+            aircraft.close_battery_contactor();
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(!test_bed.should_show_arrow_when_contactor_closed())
+        }
+
+        #[test]
+        fn should_show_arrow_when_contactor_closed_returns_true_when_15_seconds_have_passed_discharging_above_1_a(
+        ) {
+            let mut aircraft = TestAircraft::with_full_battery();
+            let mut test_bed = BatteryChargeLimiterTestBed::new_with_delta(Duration::from_secs(15));
+
+            aircraft.power_demand(Power::new::<watt>(30.));
+            aircraft.close_battery_contactor();
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(test_bed.should_show_arrow_when_contactor_closed())
+        }
+
+        #[test]
+        fn should_show_arrow_when_contactor_closed_returns_false_almost_15_seconds_have_passed_discharging_above_1_a(
+        ) {
+            let mut aircraft = TestAircraft::with_full_battery();
+            let mut test_bed =
+                BatteryChargeLimiterTestBed::new_with_delta(Duration::from_millis(14999));
+
+            aircraft.power_demand(Power::new::<watt>(30.));
+            aircraft.close_battery_contactor();
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(!test_bed.should_show_arrow_when_contactor_closed())
+        }
+
+        #[test]
+        fn should_show_arrow_when_contactor_closed_returns_false_when_discharging_below_1_a() {
+            let mut aircraft = TestAircraft::with_full_battery();
+            let mut test_bed =
+                BatteryChargeLimiterTestBed::new_with_delta(Duration::from_millis(14999));
+
+            aircraft.power_demand(Power::new::<watt>(1.));
+            aircraft.close_battery_contactor();
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(!test_bed.should_show_arrow_when_contactor_closed())
+        }
+    }
 
     //     #[test]
     //     fn should_close_contactor_when_battery_needs_charging_and_225_ms_passed() {
@@ -693,10 +793,6 @@ mod tests {
                         .read_f64(&format!("ELEC_BAT_{}_POTENTIAL", number)),
                 )
             }
-
-            fn set_delta(&mut self, delta: Duration) {
-                self.test_bed.set_delta(delta);
-            }
         }
 
         struct TestAircraft {
@@ -875,7 +971,7 @@ mod tests {
         }
 
         #[test]
-        fn when_input_potential_is_higher_than_output_potential_returns_input_potential_for_ecam_and_overhead_indication(
+        fn when_input_potential_is_greater_than_output_potential_returns_input_potential_for_ecam_and_overhead_indication(
         ) {
             let mut aircraft = TestAircraft::with_half_charged_batteries();
             let mut test_bed = BatteryTestBed::new();
@@ -929,8 +1025,7 @@ mod tests {
             aircraft.supply_input_potential(ElectricPotential::new::<volt>(28.));
             test_bed.run_aircraft(&mut aircraft);
 
-            let x = test_bed.current(1);
-            assert!(test_bed.current(1) > ElectricCurrent::new::<ampere>(9.));
+            assert!(test_bed.current(1) > ElectricCurrent::new::<ampere>(0.));
         }
 
         #[test]
@@ -938,7 +1033,7 @@ mod tests {
             let mut aircraft = TestAircraft::with_full_batteries();
             let mut test_bed = BatteryTestBed::new();
 
-            aircraft.power_demand(Power::new::<watt>(28. * 5.));
+            aircraft.power_demand(Power::new::<watt>(40.));
             test_bed.run_aircraft(&mut aircraft);
 
             assert!(test_bed.current_is_normal(1));
@@ -949,7 +1044,7 @@ mod tests {
             let mut aircraft = TestAircraft::with_full_batteries();
             let mut test_bed = BatteryTestBed::new();
 
-            aircraft.power_demand(Power::new::<watt>((28. * 5.) + 1.));
+            aircraft.power_demand(Power::new::<watt>(500.));
             test_bed.run_aircraft(&mut aircraft);
 
             assert!(!test_bed.current_is_normal(1));
@@ -960,13 +1055,10 @@ mod tests {
             let mut aircraft = TestAircraft::with_full_batteries();
             let mut test_bed = BatteryTestBed::new();
 
-            aircraft.power_demand(Power::new::<watt>(140.));
+            aircraft.power_demand(Power::new::<watt>(100.));
             test_bed.run_aircraft(&mut aircraft);
 
-            assert!(
-                ElectricCurrent::new::<ampere>(-5.1) < test_bed.current(1)
-                    && test_bed.current(1) < ElectricCurrent::new::<ampere>(-4.9)
-            )
+            assert!(test_bed.current(1) < ElectricCurrent::new::<ampere>(0.))
         }
 
         #[test]
@@ -1002,7 +1094,7 @@ mod tests {
 
             let charge_prior_to_run = aircraft.battery_1_charge();
 
-            aircraft.supply_input_potential(ElectricPotential::new::<volt>(29.));
+            aircraft.supply_input_potential(ElectricPotential::new::<volt>(28.));
             test_bed.run_aircraft(&mut aircraft);
 
             assert!(aircraft.battery_1_charge() > charge_prior_to_run);
@@ -1065,7 +1157,7 @@ mod tests {
             aircraft.power_demand(Power::new::<watt>(10.));
             aircraft.close_battery_2_contactor();
 
-            for _ in 0..10 {
+            for _ in 0..15 {
                 test_bed.run_aircraft(&mut aircraft);
             }
 
@@ -1087,30 +1179,15 @@ mod tests {
                 test_bed.run_aircraft(&mut aircraft);
             }
 
-            test_bed.run_aircraft(&mut aircraft);
-
             // For now we assume the batteries are perfect at charging and discharging without any power loss.
             assert!(
                 (aircraft.battery_1_charge() - aircraft.battery_2_charge()).abs()
-                    < ElectricCharge::new::<ampere_hour>(0.001)
+                    < ElectricCharge::new::<ampere_hour>(0.1)
             );
             assert!(
                 (aircraft.battery_1_charge() + aircraft.battery_2_charge() - original_charge).abs()
                     < ElectricCharge::new::<ampere_hour>(0.001)
             );
-        }
-
-        #[test]
-        fn writes_its_state() {
-            let mut aircraft = TestAircraft::with_full_batteries();
-            let mut test_bed = SimulationTestBed::new();
-
-            test_bed.run_aircraft(&mut aircraft);
-
-            assert!(test_bed.contains_key("ELEC_BAT_1_CURRENT"));
-            assert!(test_bed.contains_key("ELEC_BAT_1_CURRENT_NORMAL"));
-            assert!(test_bed.contains_key("ELEC_BAT_1_POTENTIAL"));
-            assert!(test_bed.contains_key("ELEC_BAT_1_POTENTIAL_NORMAL"));
         }
     }
 }

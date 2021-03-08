@@ -49,10 +49,10 @@ impl A320DirectCurrentElectrical {
             dc_ess_shed_contactor: Contactor::new("8PH"),
             battery_1: Battery::full(10),
             battery_1_contactor: Contactor::new("6PB1"),
-            battery_1_charge_limiter: BatteryChargeLimiter::new(),
+            battery_1_charge_limiter: BatteryChargeLimiter::new("6PB1"),
             battery_2: Battery::full(11),
             battery_2_contactor: Contactor::new("6PB2"),
-            battery_2_charge_limiter: BatteryChargeLimiter::new(),
+            battery_2_charge_limiter: BatteryChargeLimiter::new("6PB2"),
             hot_bus_2_to_dc_ess_bus_contactor: Contactor::new("2XB2"),
             hot_bus_1_to_static_inv_contactor: Contactor::new("2XB1"),
             static_inverter: StaticInverter::new(),
@@ -279,7 +279,9 @@ impl DirectCurrentState for A320DirectCurrentElectrical {
 impl SimulationElement for A320DirectCurrentElectrical {
     fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
         self.battery_1.accept(visitor);
+        self.battery_1_charge_limiter.accept(visitor);
         self.battery_2.accept(visitor);
+        self.battery_2_charge_limiter.accept(visitor);
         self.static_inverter.accept(visitor);
 
         self.dc_bus_1_tie_contactor.accept(visitor);
