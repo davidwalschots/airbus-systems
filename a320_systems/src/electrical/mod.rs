@@ -1968,7 +1968,7 @@ mod a320_electrical_circuit_tests {
 
         fn running_emergency_generator(mut self) -> Self {
             self.aircraft.running_emergency_generator();
-            self
+            self.run_waiting_for(Duration::from_secs(100))
         }
 
         fn gen_1_off(mut self) -> Self {

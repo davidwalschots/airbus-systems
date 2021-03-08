@@ -62,14 +62,19 @@ impl A320AlternatingCurrentElectrical {
         arguments: &A320ElectricalUpdateArguments<'a>,
     ) {
         self.emergency_gen.update(
-            // ON GROUND BAT ONLY SPEED <= 100 kts scenario. We'll probably need to move this logic into
-            // the ram air turbine, emergency generator and hydraulic implementation.
+            context,
             arguments.is_blue_hydraulic_circuit_pressurised()
                 && context.indicated_airspeed() > Velocity::new::<knot>(100.),
         );
 
         self.main_power_sources
             .update(context, ext_pwr, overhead, arguments);
+
+        if self.main_ac_buses_unpowered()
+            && context.indicated_airspeed() > Velocity::new::<knot>(100.)
+        {
+            self.emergency_gen.start();
+        }
 
         self.ac_bus_1
             .powered_by(&self.main_power_sources.ac_bus_1_electric_sources());
@@ -238,7 +243,7 @@ impl A320AlternatingCurrentElectrical {
 
     #[cfg(test)]
     pub fn attempt_emergency_gen_start(&mut self) {
-        self.emergency_gen.attempt_start();
+        self.emergency_gen.start();
     }
 
     pub fn gen_1_contactor_open(&self) -> bool {
