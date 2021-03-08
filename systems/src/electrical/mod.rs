@@ -103,7 +103,7 @@ impl Potential {
         // As a given simulation tick is not of infinitely small delta time. We need to give
         // "equality" some slack. This prevents continuously switching between potential
         // sources, such as the battery.
-        if (self.raw - other.raw).abs() <= ElectricPotential::new::<volt>(0.00001) {
+        if (self.raw - other.raw).abs() <= ElectricPotential::new::<volt>(0.001) {
             let mut elements = self
                 .origins
                 .iter()
@@ -623,11 +623,11 @@ mod tests {
         fn merge_considers_miniscule_potential_differences_equal() {
             let potential = Potential::single(
                 PotentialOrigin::EngineGenerator(1),
-                ElectricPotential::new::<volt>(115.000011),
+                ElectricPotential::new::<volt>(115.0011),
             )
             .merge(&Potential::single(
                 PotentialOrigin::ApuGenerator(1),
-                ElectricPotential::new::<volt>(115.00002),
+                ElectricPotential::new::<volt>(115.002),
             ));
 
             assert!(potential.is_pair(
@@ -640,11 +640,11 @@ mod tests {
         fn merge_considers_larger_potential_differences_inequal() {
             let potential = Potential::single(
                 PotentialOrigin::EngineGenerator(1),
-                ElectricPotential::new::<volt>(115.00001),
+                ElectricPotential::new::<volt>(115.001),
             )
             .merge(&Potential::single(
                 PotentialOrigin::ApuGenerator(1),
-                ElectricPotential::new::<volt>(115.00002),
+                ElectricPotential::new::<volt>(115.0021),
             ));
 
             assert!(potential.is_single(PotentialOrigin::ApuGenerator(1)));
@@ -654,14 +654,14 @@ mod tests {
         fn merge_takes_the_lowest_raw_potential_from_two_potentials_it_considers_equal() {
             let potential = Potential::single(
                 PotentialOrigin::EngineGenerator(1),
-                ElectricPotential::new::<volt>(115.000011),
+                ElectricPotential::new::<volt>(115.0011),
             )
             .merge(&Potential::single(
                 PotentialOrigin::ApuGenerator(1),
-                ElectricPotential::new::<volt>(115.00002),
+                ElectricPotential::new::<volt>(115.002),
             ));
 
-            assert_eq!(potential.raw(), ElectricPotential::new::<volt>(115.000011));
+            assert_eq!(potential.raw(), ElectricPotential::new::<volt>(115.0011));
         }
 
         #[test]
