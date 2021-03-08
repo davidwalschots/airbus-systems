@@ -148,13 +148,10 @@ impl BatteryChargeLimiter {
         context: &UpdateContext,
         arguments: &BatteryChargeLimiterArguments,
     ) -> bool {
-        if arguments.apu_master_sw_pb_on() {
-            return true;
-        }
-
-        if arguments.both_ac_buses_unpowered()
-            && context.is_on_ground()
-            && context.indicated_airspeed() < Velocity::new::<knot>(100.)
+        if arguments.apu_master_sw_pb_on()
+            || BatteryChargeLimiter::on_ground_at_low_speed_with_unpowered_ac_buses(
+                context, arguments,
+            )
         {
             return true;
         }
@@ -180,8 +177,20 @@ impl BatteryChargeLimiter {
         arguments: &BatteryChargeLimiterArguments,
     ) -> bool {
         !arguments.apu_master_sw_pb_on
+            && !BatteryChargeLimiter::on_ground_at_low_speed_with_unpowered_ac_buses(
+                context, arguments,
+            )
             && (self.beyond_charge_duration_on_ground_without_apu_start(context)
                 || self.beyond_charge_duration_above_100_knots_or_after_apu_start(context))
+    }
+
+    fn on_ground_at_low_speed_with_unpowered_ac_buses(
+        context: &UpdateContext,
+        arguments: &BatteryChargeLimiterArguments,
+    ) -> bool {
+        arguments.both_ac_buses_unpowered()
+            && context.is_on_ground()
+            && context.indicated_airspeed() < Velocity::new::<knot>(100.)
     }
 
     fn beyond_charge_duration_on_ground_without_apu_start(&self, context: &UpdateContext) -> bool {
@@ -895,6 +904,26 @@ mod tests {
                 .apu_master_sw_on()
                 .run(Duration::from_secs(
                     BatteryChargeLimiter::BATTERY_CHARGING_OPEN_DELAY_100_KNOTS_OR_AFTER_APU_START_SECONDS,
+                ));
+
+            assert!(test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn charging_cycle_does_not_end_when_bat_only_below_100_knots() {
+            let mut test_bed = test_bed_with()
+                .indicated_airspeed_of(Velocity::new::<knot>(0.))
+                .and()
+                .on_the_ground()
+                .wait_for_closed_contactor();
+
+            assert!(test_bed.current() >= ElectricCurrent::new::<ampere>(4.), "The test assumes that charging current is equal to or greater than 4 at this point.");
+
+            test_bed = test_bed
+                .then_continue_with()
+                .no_power_outside_of_battery()
+                .run(Duration::from_secs(
+                    BatteryChargeLimiter::BATTERY_CHARGING_OPEN_DELAY_ON_GROUND_SECONDS,
                 ));
 
             assert!(test_bed.battery_contactor_is_closed());
