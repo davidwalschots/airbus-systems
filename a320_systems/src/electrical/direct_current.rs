@@ -117,6 +117,7 @@ impl A320DirectCurrentElectrical {
                 arguments.apu_master_sw_pb_on(),
                 arguments.apu_start_pb_on(),
                 arguments.apu_available(),
+                overhead.bat_1_is_auto(),
             ),
         );
         self.battery_1_contactor.close_when(
@@ -132,6 +133,7 @@ impl A320DirectCurrentElectrical {
                 arguments.apu_master_sw_pb_on(),
                 arguments.apu_start_pb_on(),
                 arguments.apu_available(),
+                overhead.bat_2_is_auto(),
             ),
         );
         self.battery_2_contactor.close_when(

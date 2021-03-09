@@ -15,6 +15,7 @@ pub struct BatteryChargeLimiterArguments {
     apu_master_sw_pb_on: bool,
     apu_start_sw_pb_on: bool,
     apu_available: bool,
+    battery_push_button_is_auto: bool,
 }
 impl BatteryChargeLimiterArguments {
     pub fn new<TBat: PotentialSource + ProvideCurrent, TBatBus: PotentialSource>(
@@ -24,6 +25,7 @@ impl BatteryChargeLimiterArguments {
         apu_master_sw_pb_on: bool,
         apu_start_sw_pb_on: bool,
         apu_available: bool,
+        battery_push_button_is_auto: bool,
     ) -> Self {
         Self {
             both_ac_buses_unpowered: ac_buses_unpowered,
@@ -33,6 +35,7 @@ impl BatteryChargeLimiterArguments {
             apu_master_sw_pb_on,
             apu_start_sw_pb_on,
             apu_available,
+            battery_push_button_is_auto,
         }
     }
 
@@ -63,6 +66,10 @@ impl BatteryChargeLimiterArguments {
     fn apu_available(&self) -> bool {
         self.apu_available
     }
+
+    fn battery_push_button_is_auto(&self) -> bool {
+        self.battery_push_button_is_auto
+    }
 }
 
 pub struct BatteryChargeLimiter {
@@ -80,7 +87,7 @@ impl BatteryChargeLimiter {
                 contactor_id
             ),
             arrow: ArrowBetweenBatteryAndBatBus::new(),
-            observer: Some(Box::new(OpenContactorObserver::new())),
+            observer: Some(Box::new(OpenContactorObserver::new(false))),
         }
     }
 
@@ -120,21 +127,43 @@ trait BatteryStateObserver {
 /// to determine if the battery contactor should be closed.
 struct OpenContactorObserver {
     begin_charging_cycle_delay: DelayedTrueLogicGate,
+    open_due_to_discharge_protection: bool,
 }
 impl OpenContactorObserver {
     const CHARGE_BATTERY_BELOW_VOLTAGE: f64 = 26.5;
     const BATTERY_BUS_BELOW_CHARGING_VOLTAGE: f64 = 27.;
     const BATTERY_CHARGING_CLOSE_DELAY_MILLISECONDS: u64 = 225;
 
-    fn new() -> Self {
+    fn new(open_due_to_discharge_protection: bool) -> Self {
         Self {
             begin_charging_cycle_delay: DelayedTrueLogicGate::new(Duration::from_millis(
                 OpenContactorObserver::BATTERY_CHARGING_CLOSE_DELAY_MILLISECONDS,
             )),
+            open_due_to_discharge_protection,
         }
     }
 
     fn observe_system_state(
+        &mut self,
+        context: &UpdateContext,
+        arguments: &BatteryChargeLimiterArguments,
+    ) {
+        self.update_begin_charging_cycle_delay(context, arguments);
+        self.when_battery_push_button_off_reset_discharge_protection(arguments);
+    }
+
+    fn should_close(
+        &self,
+        context: &UpdateContext,
+        arguments: &BatteryChargeLimiterArguments,
+    ) -> bool {
+        !self.open_due_to_discharge_protection
+            && ((arguments.apu_master_sw_pb_on() && !arguments.apu_available())
+                || on_ground_at_low_speed_with_unpowered_ac_buses(context, arguments)
+                || self.begin_charging_cycle_delay.output())
+    }
+
+    fn update_begin_charging_cycle_delay(
         &mut self,
         context: &UpdateContext,
         arguments: &BatteryChargeLimiterArguments,
@@ -152,14 +181,13 @@ impl OpenContactorObserver {
         );
     }
 
-    fn should_close(
-        &self,
-        context: &UpdateContext,
+    fn when_battery_push_button_off_reset_discharge_protection(
+        &mut self,
         arguments: &BatteryChargeLimiterArguments,
-    ) -> bool {
-        (arguments.apu_master_sw_pb_on() && !arguments.apu_available())
-            || on_ground_at_low_speed_with_unpowered_ac_buses(context, arguments)
-            || self.begin_charging_cycle_delay.output()
+    ) {
+        if self.open_due_to_discharge_protection && !arguments.battery_push_button_is_auto() {
+            self.open_due_to_discharge_protection = false;
+        }
     }
 }
 impl BatteryStateObserver for OpenContactorObserver {
@@ -186,15 +214,18 @@ impl BatteryStateObserver for OpenContactorObserver {
 /// to determine if the battery contactor should be opened.
 struct ClosedContactorObserver {
     below_4_ampere_charging_duration: Duration,
+    below_23_volt_duration: Duration,
     had_apu_start: bool,
 }
 impl ClosedContactorObserver {
     const BATTERY_CHARGING_OPEN_DELAY_ON_GROUND_SECONDS: u64 = 10;
     const BATTERY_CHARGING_OPEN_DELAY_100_KNOTS_OR_AFTER_APU_START_SECONDS: u64 = 1800;
+    const BATTERY_DISCHARGE_PROTECTION_DELAY_SECONDS: u64 = 15;
 
     fn new() -> Self {
         Self {
             below_4_ampere_charging_duration: Duration::from_secs(0),
+            below_23_volt_duration: Duration::from_secs(0),
             had_apu_start: false,
         }
     }
@@ -213,6 +244,20 @@ impl ClosedContactorObserver {
         } else {
             self.below_4_ampere_charging_duration = Duration::from_secs(0);
         }
+
+        if arguments.battery_potential() < ElectricPotential::new::<volt>(23.) {
+            self.below_23_volt_duration += context.delta();
+        } else {
+            self.below_23_volt_duration = Duration::from_secs(0);
+        }
+    }
+
+    fn should_open_due_to_discharge_protection(&self, context: &UpdateContext) -> bool {
+        context.is_on_ground()
+            && self.below_23_volt_duration
+                >= Duration::from_secs(
+                    ClosedContactorObserver::BATTERY_DISCHARGE_PROTECTION_DELAY_SECONDS,
+                )
     }
 
     fn should_open(
@@ -257,8 +302,10 @@ impl BatteryStateObserver for ClosedContactorObserver {
     ) -> Box<dyn BatteryStateObserver> {
         self.observe_system_state(context, arguments);
 
-        if self.should_open(context, arguments) {
-            Box::new(OpenContactorObserver::new())
+        if self.should_open_due_to_discharge_protection(context) {
+            Box::new(OpenContactorObserver::new(true))
+        } else if self.should_open(context, arguments) {
+            Box::new(OpenContactorObserver::new(false))
         } else {
             self
         }
@@ -368,10 +415,28 @@ mod tests {
                     OpenContactorObserver::BATTERY_CHARGING_CLOSE_DELAY_MILLISECONDS,
                 ));
 
-                assert!(
-                    self.aircraft.battery_contactor_is_closed(),
-                    "Battery contactor didn't close within the expected time frame. Is the battery bus at a high enough voltage and the battery not full?"
-                );
+                self
+            }
+
+            fn pre_discharge_protection_state(mut self) -> Self {
+                self = self
+                    .indicated_airspeed_of(Velocity::new::<knot>(0.))
+                    .and()
+                    .on_the_ground()
+                    .wait_for_closed_contactor()
+                    .then_continue_with()
+                    .nearly_empty_battery_charge()
+                    .and()
+                    .no_power_outside_of_battery();
+
+                self
+            }
+
+            fn cycle_battery_push_button(mut self) -> Self {
+                self.aircraft.set_battery_push_button_off();
+                self = self.run(Duration::from_secs(0));
+                self.aircraft.set_battery_push_button_auto();
+                self = self.run(Duration::from_secs(0));
 
                 self
             }
@@ -407,6 +472,11 @@ mod tests {
 
             fn full_battery_charge(mut self) -> Self {
                 self.aircraft.set_full_battery_charge();
+                self
+            }
+
+            fn nearly_empty_battery_charge(mut self) -> Self {
+                self.aircraft.set_nearly_empty_battery_charge();
                 self
             }
 
@@ -463,6 +533,7 @@ mod tests {
             apu_master_sw_pb_on: bool,
             apu_start_pb_on: bool,
             apu_available: bool,
+            battery_push_button_auto: bool,
         }
         impl TestAircraft {
             fn new(battery: Battery) -> Self {
@@ -476,11 +547,16 @@ mod tests {
                     apu_master_sw_pb_on: false,
                     apu_start_pb_on: false,
                     apu_available: false,
+                    battery_push_button_auto: true,
                 }
             }
 
             fn set_full_battery_charge(&mut self) {
                 self.battery.set_full_charge()
+            }
+
+            fn set_nearly_empty_battery_charge(&mut self) {
+                self.battery.set_nearly_empty_battery_charge();
             }
 
             fn set_battery_bus_at_minimum_charging_voltage(&mut self) {
@@ -540,6 +616,14 @@ mod tests {
             fn battery_contactor_is_closed(&self) -> bool {
                 self.battery_contactor.is_closed()
             }
+
+            fn set_battery_push_button_auto(&mut self) {
+                self.battery_push_button_auto = true;
+            }
+
+            fn set_battery_push_button_off(&mut self) {
+                self.battery_push_button_auto = false;
+            }
         }
         impl Aircraft for TestAircraft {
             fn update_before_power_distribution(&mut self, context: &UpdateContext) {
@@ -552,6 +636,7 @@ mod tests {
                         self.apu_master_sw_pb_on,
                         self.apu_start_pb_on,
                         self.apu_available,
+                        self.battery_push_button_auto,
                     ),
                 );
 
@@ -933,6 +1018,89 @@ mod tests {
                 .then_continue_with()
                 .apu_master_sw_on()
                 .run(Duration::from_secs(1));
+
+            assert!(!test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn complete_discharge_protection_ensures_the_battery_doesnt_fully_discharge_on_the_ground()
+        {
+            let test_bed =
+                test_bed_with()
+                    .pre_discharge_protection_state()
+                    .run(Duration::from_secs(
+                        ClosedContactorObserver::BATTERY_DISCHARGE_PROTECTION_DELAY_SECONDS,
+                    ));
+
+            assert!(!test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn complete_discharge_protection_is_reset_by_cycling_the_battery_push_button() {
+            let mut test_bed =
+                test_bed_with()
+                    .pre_discharge_protection_state()
+                    .run(Duration::from_secs(
+                        ClosedContactorObserver::BATTERY_DISCHARGE_PROTECTION_DELAY_SECONDS,
+                    ));
+
+            assert!(
+                !test_bed.battery_contactor_is_closed(),
+                "The test assumes discharge protection has kicked in at this point in the test."
+            );
+
+            test_bed = test_bed
+                .then_continue_with()
+                .cycle_battery_push_button()
+                .and()
+                .wait_for_closed_contactor();
+
+            assert!(test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn complete_discharge_protection_doesnt_trigger_too_early() {
+            let test_bed =
+                test_bed_with()
+                    .pre_discharge_protection_state()
+                    .run(Duration::from_secs_f64(
+                        ClosedContactorObserver::BATTERY_DISCHARGE_PROTECTION_DELAY_SECONDS as f64
+                            - 0.0001,
+                    ));
+
+            assert!(test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn complete_discharge_protection_does_not_activate_in_flight() {
+            let test_bed = test_bed()
+                .wait_for_closed_contactor()
+                .then_continue_with()
+                .nearly_empty_battery_charge()
+                .and()
+                .no_power_outside_of_battery()
+                .run(Duration::from_secs(
+                    ClosedContactorObserver::BATTERY_DISCHARGE_PROTECTION_DELAY_SECONDS,
+                ));
+
+            assert!(test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn bat_only_on_ground_doesnt_close_when_discharge_protection_triggered() {
+            let mut test_bed =
+                test_bed_with()
+                    .pre_discharge_protection_state()
+                    .run(Duration::from_secs(
+                        ClosedContactorObserver::BATTERY_DISCHARGE_PROTECTION_DELAY_SECONDS,
+                    ));
+
+            assert!(
+                !test_bed.battery_contactor_is_closed(),
+                "The test assumes discharge protection has kicked in at this point in the test."
+            );
+
+            test_bed = test_bed.then_continue_with().wait_for_closed_contactor();
 
             assert!(!test_bed.battery_contactor_is_closed());
         }

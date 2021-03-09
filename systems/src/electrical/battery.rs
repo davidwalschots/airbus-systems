@@ -72,6 +72,12 @@ impl Battery {
         self.output_potential = Battery::calculate_output_potential_for_charge(self.charge);
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_nearly_empty_battery_charge(&mut self) {
+        self.charge = ElectricCharge::new::<ampere_hour>(1.);
+        self.output_potential = Battery::calculate_output_potential_for_charge(self.charge);
+    }
+
     fn calculate_output_potential_for_charge(charge: ElectricCharge) -> ElectricPotential {
         // There are four distinct charges, being:
         // 1. No charge, giving no potential.
