@@ -120,9 +120,8 @@ impl A320DirectCurrentElectrical {
                 overhead.bat_1_is_auto(),
             ),
         );
-        self.battery_1_contactor.close_when(
-            overhead.bat_1_is_auto() && self.battery_1_charge_limiter.should_close_contactor(),
-        );
+        self.battery_1_contactor
+            .close_when(self.battery_1_charge_limiter.should_close_contactor());
 
         self.battery_2_charge_limiter.update(
             context,
@@ -136,9 +135,8 @@ impl A320DirectCurrentElectrical {
                 overhead.bat_2_is_auto(),
             ),
         );
-        self.battery_2_contactor.close_when(
-            overhead.bat_2_is_auto() && self.battery_2_charge_limiter.should_close_contactor(),
-        );
+        self.battery_2_contactor
+            .close_when(self.battery_2_charge_limiter.should_close_contactor());
 
         self.battery_1.powered_by(&self.battery_1_contactor);
         self.battery_2.powered_by(&self.battery_2_contactor);

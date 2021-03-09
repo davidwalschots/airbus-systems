@@ -157,7 +157,8 @@ impl OpenContactorObserver {
         context: &UpdateContext,
         arguments: &BatteryChargeLimiterArguments,
     ) -> bool {
-        !self.open_due_to_discharge_protection
+        arguments.battery_push_button_is_auto()
+            && !self.open_due_to_discharge_protection
             && ((arguments.apu_master_sw_pb_on() && !arguments.apu_available())
                 || on_ground_at_low_speed_with_unpowered_ac_buses(context, arguments)
                 || self.begin_charging_cycle_delay.output())
@@ -265,10 +266,11 @@ impl ClosedContactorObserver {
         context: &UpdateContext,
         arguments: &BatteryChargeLimiterArguments,
     ) -> bool {
-        (!arguments.apu_master_sw_pb_on || arguments.apu_available())
-            && !on_ground_at_low_speed_with_unpowered_ac_buses(context, arguments)
-            && (self.beyond_charge_duration_on_ground_without_apu_start(context)
-                || self.beyond_charge_duration_above_100_knots_or_after_apu_start(context))
+        !arguments.battery_push_button_is_auto()
+            || ((!arguments.apu_master_sw_pb_on || arguments.apu_available())
+                && !on_ground_at_low_speed_with_unpowered_ac_buses(context, arguments)
+                && (self.beyond_charge_duration_on_ground_without_apu_start(context)
+                    || self.beyond_charge_duration_above_100_knots_or_after_apu_start(context)))
     }
 
     fn beyond_charge_duration_on_ground_without_apu_start(&self, context: &UpdateContext) -> bool {
@@ -409,11 +411,19 @@ mod tests {
                 self
             }
 
-            fn wait_for_closed_contactor(mut self) -> Self {
+            fn wait_for_closed_contactor(mut self, assert_is_closed: bool) -> Self {
                 self.aircraft.set_battery_bus_at_minimum_charging_voltage();
                 self = self.run(Duration::from_millis(
                     OpenContactorObserver::BATTERY_CHARGING_CLOSE_DELAY_MILLISECONDS,
                 ));
+
+                if assert_is_closed {
+                    assert!(
+                        self.aircraft.battery_contactor_is_closed(),
+                        "Battery contactor didn't close within the expected time frame.
+                            Is the battery bus at a high enough voltage and the battery not full?"
+                    );
+                }
 
                 self
             }
@@ -423,7 +433,7 @@ mod tests {
                     .indicated_airspeed_of(Velocity::new::<knot>(0.))
                     .and()
                     .on_the_ground()
-                    .wait_for_closed_contactor()
+                    .wait_for_closed_contactor(true)
                     .then_continue_with()
                     .nearly_empty_battery_charge()
                     .and()
@@ -433,9 +443,16 @@ mod tests {
             }
 
             fn cycle_battery_push_button(mut self) -> Self {
-                self.aircraft.set_battery_push_button_off();
-                self = self.run(Duration::from_secs(0));
+                self = self.battery_push_button_off();
+
                 self.aircraft.set_battery_push_button_auto();
+                self = self.run(Duration::from_secs(0));
+
+                self
+            }
+
+            fn battery_push_button_off(mut self) -> Self {
+                self.aircraft.set_battery_push_button_off();
                 self = self.run(Duration::from_secs(0));
 
                 self
@@ -683,7 +700,7 @@ mod tests {
         fn should_show_arrow_when_contactor_closed_while_15_seconds_have_passed_charging_above_1_a()
         {
             let mut test_bed = test_bed()
-                .wait_for_closed_contactor()
+                .wait_for_closed_contactor(true)
                 .run(Duration::from_secs(
                     BatteryChargeLimiter::CHARGE_DISCHARGE_ARROW_DISPLAYED_AFTER_SECONDS,
                 ));
@@ -694,12 +711,13 @@ mod tests {
         #[test]
         fn should_not_show_arrow_when_contactor_closed_while_almost_15_seconds_have_passed_charging_above_1_a(
         ) {
-            let mut test_bed = test_bed()
-                .wait_for_closed_contactor()
-                .run(Duration::from_secs_f64(
-                    BatteryChargeLimiter::CHARGE_DISCHARGE_ARROW_DISPLAYED_AFTER_SECONDS as f64
-                        - 0.0001,
-                ));
+            let mut test_bed =
+                test_bed()
+                    .wait_for_closed_contactor(true)
+                    .run(Duration::from_secs_f64(
+                        BatteryChargeLimiter::CHARGE_DISCHARGE_ARROW_DISPLAYED_AFTER_SECONDS as f64
+                            - 0.0001,
+                    ));
 
             assert!(!test_bed.should_show_arrow_when_contactor_closed())
         }
@@ -707,7 +725,7 @@ mod tests {
         #[test]
         fn should_not_show_arrow_when_contactor_closed_while_charging_below_1_a() {
             let mut test_bed = test_bed()
-                .wait_for_closed_contactor()
+                .wait_for_closed_contactor(true)
                 .then_continue_with()
                 .full_battery_charge()
                 .run(Duration::from_secs(
@@ -721,7 +739,7 @@ mod tests {
         fn should_show_arrow_when_contactor_closed_while_15_seconds_have_passed_discharging_above_1_a(
         ) {
             let mut test_bed = test_bed()
-                .wait_for_closed_contactor()
+                .wait_for_closed_contactor(true)
                 .then_continue_with()
                 .no_power_outside_of_battery()
                 .and()
@@ -737,7 +755,7 @@ mod tests {
         fn should_not_show_arrow_when_contactor_closed_while_almost_15_seconds_have_passed_discharging_above_1_a(
         ) {
             let mut test_bed = test_bed()
-                .wait_for_closed_contactor()
+                .wait_for_closed_contactor(true)
                 .then_continue_with()
                 .no_power_outside_of_battery()
                 .and()
@@ -753,7 +771,7 @@ mod tests {
         #[test]
         fn should_not_show_arrow_when_contactor_closed_while_discharging_below_1_a() {
             let mut test_bed = test_bed()
-                .wait_for_closed_contactor()
+                .wait_for_closed_contactor(true)
                 .then_continue_with()
                 .no_power_outside_of_battery()
                 .and()
@@ -864,7 +882,7 @@ mod tests {
                 .indicated_airspeed_of(Velocity::new::<knot>(0.))
                 .and()
                 .on_the_ground()
-                .wait_for_closed_contactor();
+                .wait_for_closed_contactor(true);
 
             assert!(test_bed.current() >= ElectricCurrent::new::<ampere>(4.), "The test assumes that charging current is equal to or greater than 4 at this point.");
 
@@ -886,7 +904,7 @@ mod tests {
                 .indicated_airspeed_of(Velocity::new::<knot>(0.))
                 .and()
                 .on_the_ground()
-                .wait_for_closed_contactor();
+                .wait_for_closed_contactor(true);
 
             assert!(test_bed.current() >= ElectricCurrent::new::<ampere>(4.), "The test assumes that charging current is equal to or greater than 4 at this point.");
 
@@ -909,7 +927,7 @@ mod tests {
                 .indicated_airspeed_of(Velocity::new::<knot>(0.))
                 .and()
                 .on_the_ground()
-                .wait_for_closed_contactor();
+                .wait_for_closed_contactor(true);
 
             assert!(test_bed.current() >= ElectricCurrent::new::<ampere>(4.), "The test assumes that charging current is equal to or greater than 4 at this point.");
 
@@ -925,7 +943,7 @@ mod tests {
 
         #[test]
         fn when_above_100_knots_the_charging_cycle_ends_after_30_minutes_below_4_ampere() {
-            let mut test_bed = test_bed().wait_for_closed_contactor();
+            let mut test_bed = test_bed().wait_for_closed_contactor(true);
 
             assert!(test_bed.current() >= ElectricCurrent::new::<ampere>(4.), "The test assumes that charging current is equal to or greater than 4 at this point.");
 
@@ -943,7 +961,7 @@ mod tests {
         #[test]
         fn when_above_100_knots_the_charging_cycle_does_not_end_within_30_minutes_before_below_4_ampere(
         ) {
-            let mut test_bed = test_bed().wait_for_closed_contactor();
+            let mut test_bed = test_bed().wait_for_closed_contactor(true);
 
             assert!(test_bed.current() >= ElectricCurrent::new::<ampere>(4.), "The test assumes that charging current is equal to or greater than 4 at this point.");
 
@@ -1053,7 +1071,7 @@ mod tests {
                 .then_continue_with()
                 .cycle_battery_push_button()
                 .and()
-                .wait_for_closed_contactor();
+                .wait_for_closed_contactor(false);
 
             assert!(test_bed.battery_contactor_is_closed());
         }
@@ -1074,7 +1092,7 @@ mod tests {
         #[test]
         fn complete_discharge_protection_does_not_activate_in_flight() {
             let test_bed = test_bed()
-                .wait_for_closed_contactor()
+                .wait_for_closed_contactor(true)
                 .then_continue_with()
                 .nearly_empty_battery_charge()
                 .and()
@@ -1100,7 +1118,28 @@ mod tests {
                 "The test assumes discharge protection has kicked in at this point in the test."
             );
 
-            test_bed = test_bed.then_continue_with().wait_for_closed_contactor();
+            test_bed = test_bed
+                .then_continue_with()
+                .wait_for_closed_contactor(false);
+
+            assert!(!test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn turning_off_the_battery_while_the_contactor_is_closed_opens_the_contactor() {
+            let test_bed = test_bed()
+                .wait_for_closed_contactor(true)
+                .then_continue_with()
+                .battery_push_button_off();
+
+            assert!(!test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn contactor_doesnt_close_while_the_battery_is_off() {
+            let test_bed = test_bed_with()
+                .battery_push_button_off()
+                .wait_for_closed_contactor(false);
 
             assert!(!test_bed.battery_contactor_is_closed());
         }
