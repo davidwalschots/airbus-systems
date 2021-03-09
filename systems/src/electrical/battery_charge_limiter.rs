@@ -16,7 +16,7 @@ pub struct BatteryChargeLimiterArguments {
     apu_start_sw_pb_on: bool,
     apu_available: bool,
     battery_push_button_is_auto: bool,
-    landing_gear_is_down: bool,
+    landing_gear_is_up_and_locked: bool,
 }
 impl BatteryChargeLimiterArguments {
     pub fn new<TBat: PotentialSource + ProvideCurrent, TBatBus: PotentialSource>(
@@ -27,7 +27,7 @@ impl BatteryChargeLimiterArguments {
         apu_start_sw_pb_on: bool,
         apu_available: bool,
         battery_push_button_is_auto: bool,
-        landing_gear_is_down: bool,
+        landing_gear_is_up_and_locked: bool,
     ) -> Self {
         Self {
             both_ac_buses_unpowered: ac_buses_unpowered,
@@ -38,7 +38,7 @@ impl BatteryChargeLimiterArguments {
             apu_start_sw_pb_on,
             apu_available,
             battery_push_button_is_auto,
-            landing_gear_is_down,
+            landing_gear_is_up_and_locked,
         }
     }
 
@@ -74,8 +74,8 @@ impl BatteryChargeLimiterArguments {
         self.battery_push_button_is_auto
     }
 
-    fn landing_gear_is_down(&self) -> bool {
-        self.landing_gear_is_down
+    fn landing_gear_is_up_and_locked(&self) -> bool {
+        self.landing_gear_is_up_and_locked
     }
 }
 
@@ -130,7 +130,7 @@ fn in_emergency_elec_config_with_gear_down(
     is_emergency_elec_config(
         arguments.both_ac_buses_unpowered(),
         context.indicated_airspeed(),
-    ) && arguments.landing_gear_is_down()
+    ) && !arguments.landing_gear_is_up_and_locked()
 }
 
 /// Observes the battery, battery contactor and related systems
@@ -714,7 +714,7 @@ mod tests {
                         self.apu_start_pb_on,
                         self.apu_available,
                         self.battery_push_button_auto,
-                        self.gear_is_down,
+                        !self.gear_is_down,
                     ),
                 );
 

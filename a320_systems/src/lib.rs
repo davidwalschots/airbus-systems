@@ -90,7 +90,7 @@ impl Aircraft for A320 {
                 self.apu_overhead.master_is_on(),
                 self.apu_overhead.start_is_on(),
                 self.apu.is_available(),
-                self.landing_gear.is_down(),
+                self.landing_gear.is_up_and_locked(),
             ),
         );
         self.electrical_overhead.update_after_elec(&self.electrical);

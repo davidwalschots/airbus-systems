@@ -32,7 +32,7 @@ pub(super) struct A320ElectricalUpdateArguments<'a> {
     apu_master_sw_pb_on: bool,
     apu_start_pb_on: bool,
     apu_is_available: bool,
-    landing_gear_is_down: bool,
+    landing_gear_is_up_and_locked: bool,
 }
 impl<'a> A320ElectricalUpdateArguments<'a> {
     pub fn new(
@@ -43,7 +43,7 @@ impl<'a> A320ElectricalUpdateArguments<'a> {
         apu_master_sw_pb_on: bool,
         apu_start_pb_on: bool,
         apu_is_available: bool,
-        landing_gear_is_down: bool,
+        landing_gear_is_up_and_locked: bool,
     ) -> Self {
         Self {
             engine_corrected_n2,
@@ -53,7 +53,7 @@ impl<'a> A320ElectricalUpdateArguments<'a> {
             apu_master_sw_pb_on,
             apu_start_pb_on,
             apu_is_available,
-            landing_gear_is_down,
+            landing_gear_is_up_and_locked,
         }
     }
 
@@ -77,8 +77,8 @@ impl<'a> A320ElectricalUpdateArguments<'a> {
         self.apu_is_available
     }
 
-    fn landing_gear_is_down(&self) -> bool {
-        self.landing_gear_is_down
+    fn landing_gear_is_up_and_locked(&self) -> bool {
+        self.landing_gear_is_up_and_locked
     }
 }
 impl<'a> EngineGeneratorUpdateArguments for A320ElectricalUpdateArguments<'a> {
@@ -1884,7 +1884,7 @@ mod a320_electrical_circuit_tests {
                     false,
                     false,
                     false,
-                    false,
+                    true,
                 ),
             );
             self.overhead.update_after_elec(&self.elec);
