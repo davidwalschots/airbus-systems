@@ -31,6 +31,7 @@ pub(super) struct A320ElectricalUpdateArguments<'a> {
     is_blue_hydraulic_circuit_pressurised: bool,
     apu_master_sw_pb_on: bool,
     apu_start_pb_on: bool,
+    apu_is_available: bool,
 }
 impl<'a> A320ElectricalUpdateArguments<'a> {
     pub fn new(
@@ -40,6 +41,7 @@ impl<'a> A320ElectricalUpdateArguments<'a> {
         is_blue_hydraulic_circuit_pressurised: bool,
         apu_master_sw_pb_on: bool,
         apu_start_pb_on: bool,
+        apu_is_available: bool,
     ) -> Self {
         Self {
             engine_corrected_n2,
@@ -48,6 +50,7 @@ impl<'a> A320ElectricalUpdateArguments<'a> {
             is_blue_hydraulic_circuit_pressurised,
             apu_master_sw_pb_on,
             apu_start_pb_on,
+            apu_is_available,
         }
     }
 
@@ -65,6 +68,10 @@ impl<'a> A320ElectricalUpdateArguments<'a> {
 
     fn is_blue_hydraulic_circuit_pressurised(&self) -> bool {
         self.is_blue_hydraulic_circuit_pressurised
+    }
+
+    fn apu_available(&self) -> bool {
+        self.apu_is_available
     }
 }
 impl<'a> EngineGeneratorUpdateArguments for A320ElectricalUpdateArguments<'a> {
@@ -1867,6 +1874,7 @@ mod a320_electrical_circuit_tests {
                     ],
                     &TestApu::new(self.apu_running),
                     true,
+                    false,
                     false,
                     false,
                 ),

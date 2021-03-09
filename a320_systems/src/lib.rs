@@ -86,6 +86,7 @@ impl Aircraft for A320 {
                 self.hydraulic.is_blue_pressurised(),
                 self.apu_overhead.master_is_on(),
                 self.apu_overhead.start_is_on(),
+                self.apu.is_available(),
             ),
         );
         self.electrical_overhead.update_after_elec(&self.electrical);

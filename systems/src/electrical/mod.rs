@@ -1,6 +1,7 @@
 //! Provides things one needs for the electrical system of an aircraft.
 
 mod battery;
+mod battery_charge_limiter;
 pub mod consumption;
 mod emergency_generator;
 mod engine_generator;
@@ -9,7 +10,8 @@ mod static_inverter;
 mod transformer_rectifier;
 use std::{cmp::Ordering, fmt::Display, hash::Hash};
 
-pub use battery::{Battery, BatteryChargeLimiter, BatteryChargeLimiterArguments};
+pub use battery::Battery;
+pub use battery_charge_limiter::{BatteryChargeLimiter, BatteryChargeLimiterArguments};
 pub use emergency_generator::EmergencyGenerator;
 pub use engine_generator::{EngineGenerator, EngineGeneratorUpdateArguments};
 pub use external_power_source::ExternalPowerSource;
