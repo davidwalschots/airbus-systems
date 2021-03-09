@@ -118,6 +118,7 @@ impl A320DirectCurrentElectrical {
                 arguments.apu_start_pb_on(),
                 arguments.apu_available(),
                 overhead.bat_1_is_auto(),
+                arguments.landing_gear_is_down(),
             ),
         );
         self.battery_1_contactor
@@ -133,6 +134,7 @@ impl A320DirectCurrentElectrical {
                 arguments.apu_start_pb_on(),
                 arguments.apu_available(),
                 overhead.bat_2_is_auto(),
+                arguments.landing_gear_is_down(),
             ),
         );
         self.battery_2_contactor

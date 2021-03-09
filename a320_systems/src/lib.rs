@@ -15,6 +15,7 @@ use systems::{
     },
     electrical::{consumption::SuppliedPower, ElectricalSystem, ExternalPowerSource},
     engine::Engine,
+    landing_gear::LandingGear,
     simulation::{Aircraft, SimulationElement, SimulationElementVisitor, UpdateContext},
 };
 
@@ -31,6 +32,7 @@ pub struct A320 {
     power_consumption: A320PowerConsumption,
     ext_pwr: ExternalPowerSource,
     hydraulic: A320Hydraulic,
+    landing_gear: LandingGear,
 }
 impl A320 {
     pub fn new() -> A320 {
@@ -47,6 +49,7 @@ impl A320 {
             power_consumption: A320PowerConsumption::new(),
             ext_pwr: ExternalPowerSource::new(),
             hydraulic: A320Hydraulic::new(),
+            landing_gear: LandingGear::new(),
         }
     }
 }
@@ -87,6 +90,7 @@ impl Aircraft for A320 {
                 self.apu_overhead.master_is_on(),
                 self.apu_overhead.start_is_on(),
                 self.apu.is_available(),
+                self.landing_gear.is_down(),
             ),
         );
         self.electrical_overhead.update_after_elec(&self.electrical);
@@ -114,6 +118,7 @@ impl SimulationElement for A320 {
         self.electrical.accept(visitor);
         self.power_consumption.accept(visitor);
         self.ext_pwr.accept(visitor);
+        self.landing_gear.accept(visitor);
 
         visitor.visit(self);
     }

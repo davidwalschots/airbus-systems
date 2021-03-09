@@ -32,6 +32,7 @@ pub(super) struct A320ElectricalUpdateArguments<'a> {
     apu_master_sw_pb_on: bool,
     apu_start_pb_on: bool,
     apu_is_available: bool,
+    landing_gear_is_down: bool,
 }
 impl<'a> A320ElectricalUpdateArguments<'a> {
     pub fn new(
@@ -42,6 +43,7 @@ impl<'a> A320ElectricalUpdateArguments<'a> {
         apu_master_sw_pb_on: bool,
         apu_start_pb_on: bool,
         apu_is_available: bool,
+        landing_gear_is_down: bool,
     ) -> Self {
         Self {
             engine_corrected_n2,
@@ -51,6 +53,7 @@ impl<'a> A320ElectricalUpdateArguments<'a> {
             apu_master_sw_pb_on,
             apu_start_pb_on,
             apu_is_available,
+            landing_gear_is_down,
         }
     }
 
@@ -72,6 +75,10 @@ impl<'a> A320ElectricalUpdateArguments<'a> {
 
     fn apu_available(&self) -> bool {
         self.apu_is_available
+    }
+
+    fn landing_gear_is_down(&self) -> bool {
+        self.landing_gear_is_down
     }
 }
 impl<'a> EngineGeneratorUpdateArguments for A320ElectricalUpdateArguments<'a> {
@@ -1874,6 +1881,7 @@ mod a320_electrical_circuit_tests {
                     ],
                     &TestApu::new(self.apu_running),
                     true,
+                    false,
                     false,
                     false,
                     false,
