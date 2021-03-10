@@ -144,6 +144,33 @@ trait BatteryStateObserver {
     ) -> Box<dyn BatteryStateObserver>;
 }
 
+/// The BCL is not powered when the BAT push button is in the OFF
+/// position. This observer simply watches for the BAT push button to
+/// move to the AUTO position.
+struct OffPushButtonObserver {}
+impl OffPushButtonObserver {
+    fn new() -> Self {
+        Self {}
+    }
+}
+impl BatteryStateObserver for OffPushButtonObserver {
+    fn should_close_contactor(&self) -> bool {
+        false
+    }
+
+    fn update(
+        self: Box<Self>,
+        _: &UpdateContext,
+        arguments: &BatteryChargeLimiterArguments,
+    ) -> Box<dyn BatteryStateObserver> {
+        if arguments.battery_push_button_is_auto() {
+            Box::new(OpenContactorObserver::new(false))
+        } else {
+            self
+        }
+    }
+}
+
 /// Observes the open battery contactor and related systems
 /// to determine if the battery contactor should be closed.
 struct OpenContactorObserver {
@@ -178,8 +205,7 @@ impl OpenContactorObserver {
         context: &UpdateContext,
         arguments: &BatteryChargeLimiterArguments,
     ) -> bool {
-        arguments.battery_push_button_is_auto()
-            && !in_emergency_elec_config_with_gear_down(context, arguments)
+        !in_emergency_elec_config_with_gear_down(context, arguments)
             && !self.open_due_to_discharge_protection
             && (self.should_get_ready_for_apu_start(arguments)
                 || on_ground_at_low_speed_with_unpowered_ac_buses(context, arguments)
@@ -233,7 +259,9 @@ impl BatteryStateObserver for OpenContactorObserver {
     ) -> Box<dyn BatteryStateObserver> {
         self.observe_system_state(context, arguments);
 
-        if self.should_close(context, arguments) {
+        if !arguments.battery_push_button_is_auto() {
+            Box::new(OffPushButtonObserver::new())
+        } else if self.should_close(context, arguments) {
             Box::new(ClosedContactorObserver::new())
         } else {
             self
@@ -296,8 +324,7 @@ impl ClosedContactorObserver {
         context: &UpdateContext,
         arguments: &BatteryChargeLimiterArguments,
     ) -> bool {
-        !arguments.battery_push_button_is_auto()
-            || in_emergency_elec_config_with_gear_down(context, arguments)
+        in_emergency_elec_config_with_gear_down(context, arguments)
             || (!self.awaiting_apu_start(arguments)
                 && !on_ground_at_low_speed_with_unpowered_ac_buses(context, arguments)
                 && (self.beyond_charge_duration_on_ground_without_apu_start(context)
@@ -339,7 +366,9 @@ impl BatteryStateObserver for ClosedContactorObserver {
     ) -> Box<dyn BatteryStateObserver> {
         self.observe_system_state(context, arguments);
 
-        if self.should_open_due_to_discharge_protection(context) {
+        if !arguments.battery_push_button_is_auto() {
+            Box::new(OffPushButtonObserver::new())
+        } else if self.should_open_due_to_discharge_protection(context) {
             Box::new(OpenContactorObserver::new(true))
         } else if self.should_open(context, arguments) {
             Box::new(OpenContactorObserver::new(false))
@@ -479,15 +508,20 @@ mod tests {
 
             fn cycle_battery_push_button(mut self) -> Self {
                 self = self.battery_push_button_off();
-
-                self.aircraft.set_battery_push_button_auto();
-                self = self.run(Duration::from_secs(0));
+                self = self.battery_push_button_auto();
 
                 self
             }
 
             fn battery_push_button_off(mut self) -> Self {
                 self.aircraft.set_battery_push_button_off();
+                self = self.run(Duration::from_secs(0));
+
+                self
+            }
+
+            fn battery_push_button_auto(mut self) -> Self {
+                self.aircraft.set_battery_push_button_auto();
                 self = self.run(Duration::from_secs(0));
 
                 self
@@ -854,6 +888,23 @@ mod tests {
                 ));
 
             assert!(test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn contactor_not_closed_when_battery_voltage_below_charge_threshold_and_battery_bus_above_threshold_for_greater_than_225ms_with_push_button_off(
+        ) {
+            let test_bed = test_bed_with()
+                .battery_bus_at_minimum_charging_voltage()
+                .and()
+                .battery_push_button_off()
+                .run(Duration::from_millis(
+                    OpenContactorObserver::BATTERY_CHARGING_CLOSE_DELAY_MILLISECONDS,
+                ))
+                .then_continue_with()
+                .battery_push_button_auto()
+                .run(Duration::from_millis(0));
+
+            assert!(!test_bed.battery_contactor_is_closed());
         }
 
         #[test]
