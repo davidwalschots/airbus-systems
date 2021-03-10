@@ -60,7 +60,7 @@ impl Default for A320 {
 }
 impl Aircraft for A320 {
     fn update_before_power_distribution(&mut self, context: &UpdateContext) {
-        self.apu.update(
+        self.apu.update_before_electrical(
             context,
             &self.apu_overhead,
             &self.apu_fire_overhead,
@@ -73,7 +73,6 @@ impl Aircraft for A320 {
                     && self.electrical_overhead.external_power_is_available()),
             self.fuel.left_inner_tank_has_fuel_remaining(),
         );
-        self.apu_overhead.update_after_apu(&self.apu);
 
         self.electrical.update(
             context,
@@ -92,7 +91,12 @@ impl Aircraft for A320 {
                 self.landing_gear.is_up_and_locked(),
             ),
         );
-        self.electrical_overhead.update_after_elec(&self.electrical);
+
+        self.apu.update_after_electrical();
+
+        self.electrical_overhead
+            .update_after_electrical(&self.electrical);
+        self.apu_overhead.update_after_apu(&self.apu);
     }
 
     fn update_after_power_distribution(&mut self, context: &UpdateContext) {

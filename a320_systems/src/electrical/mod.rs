@@ -334,7 +334,7 @@ impl A320ElectricalOverheadPanel {
         }
     }
 
-    pub fn update_after_elec(&mut self, electrical: &A320Electrical) {
+    pub fn update_after_electrical(&mut self, electrical: &A320Electrical) {
         self.ac_ess_feed
             .set_fault(electrical.ac_ess_bus().is_unpowered());
 
@@ -443,8 +443,8 @@ mod a320_electrical_circuit_tests {
     use super::*;
     use systems::{
         electrical::{ElectricalBusType, ExternalPowerSource, PotentialOrigin},
+        shared::ApuStartContactorsController,
         simulation::{test::SimulationTestBed, Aircraft},
-        shared::ApuStartContactorsController
     };
     use uom::si::{length::foot, velocity::knot};
 
@@ -1995,7 +1995,7 @@ mod a320_electrical_circuit_tests {
                     true,
                 ),
             );
-            self.overhead.update_after_elec(&self.elec);
+            self.overhead.update_after_electrical(&self.elec);
         }
 
         fn get_supplied_power(&mut self) -> SuppliedPower {

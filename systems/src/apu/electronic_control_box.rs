@@ -75,10 +75,8 @@ impl ElectronicControlBox {
     pub fn update_start_motor_state<T: PotentialSource>(&mut self, start_motor: &T) {
         self.start_motor_is_powered = start_motor.is_powered();
 
-        if self.start_motor_should_be_powered_at_this_point_if_starting()
-            && !self.start_motor_is_powered
-        {
-            self.fault = Some(ApuFault::StartMotorPowerLoss);
+        if self.should_close_start_contactors() && !self.start_motor_is_powered {
+            self.fault = Some(ApuFault::DcPowerLoss);
         }
     }
 
@@ -210,12 +208,6 @@ impl ElectronicControlBox {
     pub fn is_starting(&self) -> bool {
         self.turbine_state == TurbineState::Starting
     }
-
-    fn start_motor_should_be_powered_at_this_point_if_starting(&self) -> bool {
-        const START_MOTOR_POWERED_UNTIL_N: f64 = 55.;
-        self.turbine_state == TurbineState::Starting
-            && self.n.get::<percent>() < START_MOTOR_POWERED_UNTIL_N
-    }
 }
 impl ApuStartContactorsController for ElectronicControlBox {
     /// Indicates if the APU start contactor should be closed.
@@ -223,11 +215,17 @@ impl ApuStartContactorsController for ElectronicControlBox {
         if self.is_inoperable() {
             false
         } else {
-            (self.turbine_state == TurbineState::Shutdown
-                && self.master_is_on
-                && self.start_is_on
-                && self.air_intake_flap_fully_open)
-                || self.start_motor_should_be_powered_at_this_point_if_starting()
+            match self.turbine_state {
+                TurbineState::Shutdown => {
+                    self.master_is_on && self.start_is_on && self.air_intake_flap_fully_open
+                }
+                TurbineState::Starting => {
+                    const START_MOTOR_POWERED_UNTIL_N: f64 = 55.;
+                    self.turbine_state == TurbineState::Starting
+                        && self.n.get::<percent>() < START_MOTOR_POWERED_UNTIL_N
+                }
+                _ => false,
+            }
         }
     }
 }
@@ -273,5 +271,5 @@ impl BleedAirValveController for ElectronicControlBox {
 enum ApuFault {
     ApuFire,
     FuelLowPressure,
-    StartMotorPowerLoss,
+    DcPowerLoss,
 }

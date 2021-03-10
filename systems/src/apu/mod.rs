@@ -110,7 +110,7 @@ impl<T: ApuGenerator> AuxiliaryPowerUnit<T> {
         }
     }
 
-    pub fn update(
+    pub fn update_before_electrical(
         &mut self,
         context: &UpdateContext,
         overhead: &AuxiliaryPowerUnitOverheadPanel,
@@ -121,7 +121,6 @@ impl<T: ApuGenerator> AuxiliaryPowerUnit<T> {
     ) {
         self.ecb
             .update_overhead_panel_state(overhead, fire_overhead, apu_bleed_is_on);
-        self.ecb.update_start_motor_state(&self.start_motor);
         self.fuel_pressure_switch.update(has_fuel_remaining);
         self.ecb
             .update_fuel_pressure_switch_state(&self.fuel_pressure_switch);
@@ -146,6 +145,10 @@ impl<T: ApuGenerator> AuxiliaryPowerUnit<T> {
 
         self.generator
             .update(self.n(), self.is_emergency_shutdown());
+    }
+
+    pub fn update_after_electrical(&mut self) {
+        self.ecb.update_start_motor_state(&self.start_motor);
     }
 
     pub fn n(&self) -> Ratio {
@@ -456,7 +459,7 @@ pub mod tests {
     }
     impl Aircraft for AuxiliaryPowerUnitTestAircraft {
         fn update_before_power_distribution(&mut self, context: &UpdateContext) {
-            self.apu.update(
+            self.apu.update_before_electrical(
                 context,
                 &self.apu_overhead,
                 &self.apu_fire_overhead,
@@ -464,8 +467,6 @@ pub mod tests {
                 self.apu_gen_is_used,
                 self.has_fuel_remaining,
             );
-
-            self.apu_overhead.update_after_apu(&self.apu);
 
             self.apu.start_motor_powered_by(
                 if self.apu.should_close_start_contactors() && !self.cut_start_motor_power {
@@ -477,6 +478,9 @@ pub mod tests {
                     Potential::none()
                 },
             );
+
+            self.apu.update_after_electrical();
+            self.apu_overhead.update_after_apu(&self.apu);
         }
 
         fn get_supplied_power(&mut self) -> SuppliedPower {
@@ -668,7 +672,7 @@ pub mod tests {
             self
         }
 
-        fn unpower_start_motor(mut self) -> Self {
+        fn unpowered_start_motor(mut self) -> Self {
             self.aircraft.cut_start_motor_power();
             self
         }
@@ -1521,7 +1525,7 @@ pub mod tests {
                 let n = test_bed.n().get::<percent>();
 
                 if 20. < n && n < 55. {
-                    test_bed = test_bed.unpower_start_motor();
+                    test_bed = test_bed.then_continue_with().unpowered_start_motor();
                     break;
                 }
             }
@@ -1531,6 +1535,19 @@ pub mod tests {
             }
 
             assert_eq!(test_bed.apu_is_available(), false);
+            assert!(test_bed.master_has_fault());
+            assert!(!test_bed.start_is_on());
+        }
+
+        #[test]
+        fn apu_start_motor_contactor_commanded_vs_reality_disagreement_results_in_fault() {
+            let mut test_bed = test_bed_with()
+                .apu_ready_to_start()
+                .unpowered_start_motor()
+                .and()
+                .start_on()
+                .run(Duration::from_secs(1));
+
             assert!(test_bed.master_has_fault());
             assert!(!test_bed.start_is_on());
         }
