@@ -33,7 +33,7 @@ pub(crate) struct ElectricPower {
 impl ElectricPower {
     pub(crate) fn from(supplied_power: SuppliedPower, delta: Duration) -> Self {
         Self {
-            supplied_power: supplied_power,
+            supplied_power,
             power_consumption: PowerConsumption::new(delta),
         }
     }

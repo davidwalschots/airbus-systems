@@ -181,7 +181,7 @@ impl PartialOrd for Potential {
 }
 impl PotentialSource for Potential {
     fn output(&self) -> Potential {
-        self.clone()
+        *self
     }
 }
 impl Default for Potential {

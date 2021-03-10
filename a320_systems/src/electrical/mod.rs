@@ -35,6 +35,7 @@ pub(super) struct A320ElectricalUpdateArguments<'a> {
     landing_gear_is_up_and_locked: bool,
 }
 impl<'a> A320ElectricalUpdateArguments<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         engine_corrected_n2: [Ratio; 2],
         idg_push_buttons_released: [bool; 2],

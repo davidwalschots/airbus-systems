@@ -30,6 +30,11 @@ impl SimulationElement for LandingGear {
         self.position = Ratio::new::<percent>(reader.read_f64(LandingGear::GEAR_CENTER_POSITION));
     }
 }
+impl Default for LandingGear {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[cfg(test)]
 mod tests {

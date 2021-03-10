@@ -20,6 +20,7 @@ pub struct BatteryChargeLimiterArguments {
     emergency_generator_available: bool,
 }
 impl BatteryChargeLimiterArguments {
+    #[allow(clippy::too_many_arguments)]
     pub fn new<TBat: PotentialSource + ProvideCurrent, TBatBus: PotentialSource>(
         ac_buses_unpowered: bool,
         battery: &TBat,
@@ -690,7 +691,7 @@ mod tests {
         impl TestAircraft {
             fn new(battery: Battery) -> Self {
                 Self {
-                    battery: battery,
+                    battery,
                     battery_charge_limiter: BatteryChargeLimiter::new("TEST"),
                     battery_bus: ElectricalBus::new(ElectricalBusType::DirectCurrentBattery),
                     battery_contactor: Contactor::new("TEST"),

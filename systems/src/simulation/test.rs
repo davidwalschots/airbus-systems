@@ -26,7 +26,7 @@ impl SimulationTestBed {
     pub fn new_with_delta(delta: Duration) -> Self {
         let mut test_bed = Self {
             reader_writer: TestReaderWriter::new(),
-            get_supplied_power_fn: Box::new(|| SuppliedPower::new()),
+            get_supplied_power_fn: Box::new(SuppliedPower::new),
             delta,
         };
 
@@ -186,6 +186,11 @@ impl SimulationTestBed {
 
     pub fn contains_key(&self, name: &str) -> bool {
         self.reader_writer.contains_key(name)
+    }
+}
+impl Default for SimulationTestBed {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

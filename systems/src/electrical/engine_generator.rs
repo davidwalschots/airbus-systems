@@ -318,7 +318,7 @@ mod tests {
             fn new(running: bool) -> Self {
                 Self {
                     engine_gen: EngineGenerator::new(1),
-                    running: running,
+                    running,
                     idg_push_button_released: false,
                     consumer: PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1)),
                 }
