@@ -90,11 +90,8 @@ impl A320AlternatingCurrentElectrical {
         self.ac_ess_bus
             .powered_by(&self.ac_ess_feed_contactors.electric_sources());
 
-        self.emergency_gen_contactor.close_when(
-            self.ac_bus_1.is_unpowered()
-                && self.ac_bus_2.is_unpowered()
-                && self.emergency_gen.is_powered(),
-        );
+        self.emergency_gen_contactor
+            .close_when(self.main_ac_buses_unpowered() && self.emergency_gen.is_powered());
         self.emergency_gen_contactor.powered_by(&self.emergency_gen);
 
         self.ac_ess_to_tr_ess_contactor.powered_by(&self.ac_ess_bus);
@@ -285,6 +282,10 @@ impl AlternatingCurrentState for A320AlternatingCurrentElectrical {
 
     fn tr_ess(&self) -> &TransformerRectifier {
         &self.tr_ess
+    }
+
+    fn emergency_generator_available(&self) -> bool {
+        self.emergency_gen.is_powered()
     }
 }
 impl SimulationElement for A320AlternatingCurrentElectrical {

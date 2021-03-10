@@ -17,6 +17,7 @@ pub struct BatteryChargeLimiterArguments {
     apu_available: bool,
     battery_push_button_is_auto: bool,
     landing_gear_is_up_and_locked: bool,
+    emergency_generator_available: bool,
 }
 impl BatteryChargeLimiterArguments {
     pub fn new<TBat: PotentialSource + ProvideCurrent, TBatBus: PotentialSource>(
@@ -28,6 +29,7 @@ impl BatteryChargeLimiterArguments {
         apu_available: bool,
         battery_push_button_is_auto: bool,
         landing_gear_is_up_and_locked: bool,
+        emergency_generator_available: bool,
     ) -> Self {
         Self {
             both_ac_buses_unpowered: ac_buses_unpowered,
@@ -39,6 +41,7 @@ impl BatteryChargeLimiterArguments {
             apu_available,
             battery_push_button_is_auto,
             landing_gear_is_up_and_locked,
+            emergency_generator_available,
         }
     }
 
@@ -76,6 +79,10 @@ impl BatteryChargeLimiterArguments {
 
     fn landing_gear_is_up_and_locked(&self) -> bool {
         self.landing_gear_is_up_and_locked
+    }
+
+    fn emergency_generator_available(&self) -> bool {
+        self.emergency_generator_available
     }
 }
 
@@ -119,18 +126,12 @@ impl SimulationElement for BatteryChargeLimiter {
     }
 }
 
-fn is_emergency_elec_config(ac_buses_unpowered: bool, ias: Velocity) -> bool {
-    ac_buses_unpowered && ias > Velocity::new::<knot>(100.)
-}
-
-fn in_emergency_elec_config_with_gear_down(
+fn in_emergency_elec_config(
     context: &UpdateContext,
     arguments: &BatteryChargeLimiterArguments,
 ) -> bool {
-    is_emergency_elec_config(
-        arguments.both_ac_buses_unpowered(),
-        context.indicated_airspeed(),
-    ) && !arguments.landing_gear_is_up_and_locked()
+    arguments.both_ac_buses_unpowered()
+        && context.indicated_airspeed() > Velocity::new::<knot>(100.)
 }
 
 /// Observes the battery, battery contactor and related systems
@@ -175,18 +176,21 @@ impl BatteryStateObserver for OffPushButtonObserver {
 /// to determine if the battery contactor should be closed.
 struct OpenContactorObserver {
     begin_charging_cycle_delay: DelayedTrueLogicGate,
+    emergency_elec_duration: Duration,
     open_due_to_discharge_protection: bool,
 }
 impl OpenContactorObserver {
     const CHARGE_BATTERY_BELOW_VOLTAGE: f64 = 26.5;
     const BATTERY_BUS_BELOW_CHARGING_VOLTAGE: f64 = 27.;
     const BATTERY_CHARGING_CLOSE_DELAY_MILLISECONDS: u64 = 225;
+    const EMERGENCY_ELEC_APU_START_CLOSE_DELAY_SECONDS: u64 = 45;
 
     fn new(open_due_to_discharge_protection: bool) -> Self {
         Self {
             begin_charging_cycle_delay: DelayedTrueLogicGate::new(Duration::from_millis(
                 OpenContactorObserver::BATTERY_CHARGING_CLOSE_DELAY_MILLISECONDS,
             )),
+            emergency_elec_duration: Duration::from_secs(0),
             open_due_to_discharge_protection,
         }
     }
@@ -196,6 +200,12 @@ impl OpenContactorObserver {
         context: &UpdateContext,
         arguments: &BatteryChargeLimiterArguments,
     ) {
+        if in_emergency_elec_config(context, arguments) {
+            self.emergency_elec_duration += context.delta();
+        } else {
+            self.emergency_elec_duration = Duration::from_secs(0);
+        }
+
         self.update_begin_charging_cycle_delay(context, arguments);
         self.when_battery_push_button_off_reset_discharge_protection(arguments);
     }
@@ -205,7 +215,7 @@ impl OpenContactorObserver {
         context: &UpdateContext,
         arguments: &BatteryChargeLimiterArguments,
     ) -> bool {
-        !in_emergency_elec_config_with_gear_down(context, arguments)
+        !self.emergency_elec_inhibited(context, arguments)
             && !self.open_due_to_discharge_protection
             && (self.should_get_ready_for_apu_start(arguments)
                 || on_ground_at_low_speed_with_unpowered_ac_buses(context, arguments)
@@ -218,6 +228,20 @@ impl OpenContactorObserver {
 
     fn should_charge_battery(&self) -> bool {
         self.begin_charging_cycle_delay.output()
+    }
+
+    fn emergency_elec_inhibited(
+        &self,
+        context: &UpdateContext,
+        arguments: &BatteryChargeLimiterArguments,
+    ) -> bool {
+        in_emergency_elec_config(context, arguments)
+            && (!arguments.landing_gear_is_up_and_locked()
+                || (self.emergency_elec_duration
+                    < Duration::from_secs(
+                        OpenContactorObserver::EMERGENCY_ELEC_APU_START_CLOSE_DELAY_SECONDS,
+                    )
+                    && !arguments.emergency_generator_available()))
     }
 
     fn update_begin_charging_cycle_delay(
@@ -262,7 +286,9 @@ impl BatteryStateObserver for OpenContactorObserver {
         if !arguments.battery_push_button_is_auto() {
             Box::new(OffPushButtonObserver::new())
         } else if self.should_close(context, arguments) {
-            Box::new(ClosedContactorObserver::new())
+            Box::new(ClosedContactorObserver::new(in_emergency_elec_config(
+                context, arguments,
+            )))
         } else {
             self
         }
@@ -275,17 +301,19 @@ struct ClosedContactorObserver {
     below_4_ampere_charging_duration: Duration,
     below_23_volt_duration: Duration,
     had_apu_start: bool,
+    entered_in_emergency_elec: bool,
 }
 impl ClosedContactorObserver {
     const BATTERY_CHARGING_OPEN_DELAY_ON_GROUND_SECONDS: u64 = 10;
     const BATTERY_CHARGING_OPEN_DELAY_100_KNOTS_OR_AFTER_APU_START_SECONDS: u64 = 1800;
     const BATTERY_DISCHARGE_PROTECTION_DELAY_SECONDS: u64 = 15;
 
-    fn new() -> Self {
+    fn new(entered_in_emergency_elec: bool) -> Self {
         Self {
             below_4_ampere_charging_duration: Duration::from_secs(0),
             below_23_volt_duration: Duration::from_secs(0),
             had_apu_start: false,
+            entered_in_emergency_elec,
         }
     }
 
@@ -324,11 +352,20 @@ impl ClosedContactorObserver {
         context: &UpdateContext,
         arguments: &BatteryChargeLimiterArguments,
     ) -> bool {
-        in_emergency_elec_config_with_gear_down(context, arguments)
+        self.emergency_elec_inhibited(context, arguments)
             || (!self.awaiting_apu_start(arguments)
                 && !on_ground_at_low_speed_with_unpowered_ac_buses(context, arguments)
                 && (self.beyond_charge_duration_on_ground_without_apu_start(context)
                     || self.beyond_charge_duration_above_100_knots_or_after_apu_start(context)))
+    }
+
+    fn emergency_elec_inhibited(
+        &self,
+        context: &UpdateContext,
+        arguments: &BatteryChargeLimiterArguments,
+    ) -> bool {
+        in_emergency_elec_config(context, arguments)
+            && (!self.entered_in_emergency_elec || !arguments.landing_gear_is_up_and_locked())
     }
 
     fn awaiting_apu_start(&self, arguments: &BatteryChargeLimiterArguments) -> bool {
@@ -492,6 +529,14 @@ mod tests {
                 self
             }
 
+            fn wait_for_emergency_elec_apu_no_longer_inhibited(mut self) -> Self {
+                self = self.emergency_elec().run(Duration::from_secs(
+                    OpenContactorObserver::EMERGENCY_ELEC_APU_START_CLOSE_DELAY_SECONDS,
+                ));
+
+                self
+            }
+
             fn pre_discharge_protection_state(mut self) -> Self {
                 self = self
                     .indicated_airspeed_of(Velocity::new::<knot>(0.))
@@ -524,6 +569,11 @@ mod tests {
                 self.aircraft.set_battery_push_button_auto();
                 self = self.run(Duration::from_secs(0));
 
+                self
+            }
+
+            fn available_emergency_generator(mut self) -> Self {
+                self.aircraft.set_emergency_generator_available();
                 self
             }
 
@@ -603,11 +653,6 @@ mod tests {
                 self
             }
 
-            fn apu_start_pb_on(mut self) -> Self {
-                self.aircraft.set_apu_start_pb_on();
-                self
-            }
-
             fn should_show_arrow_when_contactor_closed(&mut self) -> bool {
                 self.test_bed
                     .read_bool("ELEC_CONTACTOR_TEST_SHOW_ARROW_WHEN_CLOSED")
@@ -640,6 +685,7 @@ mod tests {
             apu_available: bool,
             battery_push_button_auto: bool,
             gear_is_down: bool,
+            emergency_generator_available: bool,
         }
         impl TestAircraft {
             fn new(battery: Battery) -> Self {
@@ -655,6 +701,7 @@ mod tests {
                     apu_available: false,
                     battery_push_button_auto: true,
                     gear_is_down: false,
+                    emergency_generator_available: false,
                 }
             }
 
@@ -735,6 +782,10 @@ mod tests {
             fn set_gear_down(&mut self) {
                 self.gear_is_down = true;
             }
+
+            fn set_emergency_generator_available(&mut self) {
+                self.emergency_generator_available = true;
+            }
         }
         impl Aircraft for TestAircraft {
             fn update_before_power_distribution(&mut self, context: &UpdateContext) {
@@ -749,6 +800,7 @@ mod tests {
                         self.apu_available,
                         self.battery_push_button_auto,
                         !self.gear_is_down,
+                        self.emergency_generator_available,
                     ),
                 );
 
@@ -834,11 +886,11 @@ mod tests {
         fn should_show_arrow_when_contactor_closed_while_15_seconds_have_passed_discharging_above_1_a(
         ) {
             let mut test_bed = test_bed()
-                .wait_for_closed_contactor(true)
+                .wait_for_emergency_elec_apu_no_longer_inhibited()
                 .then_continue_with()
-                .no_power_outside_of_battery()
-                .and()
                 .power_demand_of(Power::new::<watt>(50.))
+                .and()
+                .apu_master_sw_pb_on()
                 .run(Duration::from_secs(
                     BatteryChargeLimiter::CHARGE_DISCHARGE_ARROW_DISPLAYED_AFTER_SECONDS,
                 ));
@@ -1207,8 +1259,6 @@ mod tests {
                 .wait_for_closed_contactor(true)
                 .then_continue_with()
                 .nearly_empty_battery_charge()
-                .and()
-                .no_power_outside_of_battery()
                 .run(Duration::from_secs(
                     ClosedContactorObserver::BATTERY_DISCHARGE_PROTECTION_DELAY_SECONDS,
                 ));
@@ -1257,8 +1307,8 @@ mod tests {
         }
 
         #[test]
-        fn contactor_doesnt_close_while_trying_to_start_apu_in_emergency_configuration_with_landing_gear_down(
-        ) {
+        fn contactor_doesnt_close_for_apu_start_in_emergency_configuration_with_landing_gear_down()
+        {
             let test_bed = test_bed_with()
                 .emergency_elec()
                 .gear_down()
@@ -1273,13 +1323,12 @@ mod tests {
         fn contactor_opens_when_gear_goes_down_during_apu_start_in_emergency_configuration() {
             let mut test_bed = test_bed_with()
                 .apu_master_sw_pb_on()
-                .apu_start_pb_on()
                 .run(Duration::from_millis(1));
 
             assert!(
                 test_bed.battery_contactor_is_closed(),
                 "The test assumes the contactor closed
-                at this point due to the APU start kicking in."
+                at this point due to the APU master kicking in."
             );
 
             test_bed = test_bed
@@ -1291,7 +1340,7 @@ mod tests {
         }
 
         #[test]
-        fn contactor_does_close_while_trying_to_start_apu_outside_of_emergency_configuration_with_landing_gear_down(
+        fn contactor_does_close_for_apu_start_outside_of_emergency_configuration_with_landing_gear_down(
         ) {
             let test_bed = test_bed_with()
                 .gear_down()
@@ -1302,27 +1351,58 @@ mod tests {
             assert!(test_bed.battery_contactor_is_closed());
         }
 
-        //     #[test]
-        //     fn in_emer_elec_config_contactor_closing_for_apu_start_inhibited_for_first_45_seconds() {
-        //         // EMER ELEC CONFIG + 45s AND emergency generator not available.
-        //     }
+        #[test]
+        fn contactor_does_close_for_apu_start_within_first_45_seconds_of_emergency_elec_when_emergency_generator_available(
+        ) {
+            let test_bed = test_bed_with()
+                .emergency_elec()
+                .available_emergency_generator()
+                .and()
+                .apu_master_sw_pb_on()
+                .run(Duration::from_millis(44999));
 
-        //     #[test]
-        //     fn in_emer_elec_config_contactor_closing_for_apu_start_no_longer_inhibited_after_45_seconds(
-        //     ) {
-        //         // EMER ELEC CONFIG + 45s AND emergency generator not available.
-        //     }
+            assert!(test_bed.battery_contactor_is_closed());
+        }
 
-        //     #[test]
-        //     fn in_emer_elec_config_contactor_closing_for_apu_start_no_longer_inhibited_once_emer_gen_available(
-        //     ) {
-        //         // EMER ELEC CONFIG + 45s AND emergency generator not available.
-        //     }
+        #[test]
+        fn contactor_does_close_for_apu_start_after_45_seconds_of_emergency_elec_when_emergency_generator_unavailable(
+        ) {
+            let test_bed = test_bed_with()
+                .emergency_elec()
+                .and()
+                .apu_master_sw_pb_on()
+                .run(Duration::from_millis(45000));
 
-        //     #[test]
-        //     fn in_emer_elec_config_contactor_closing_for_charging_inhibited() {
-        //         // When in emergency electrical configuration, the emergency generator supplies the ESS busses. Batteries are disconnected.
-        //     }
-        // }
+            assert!(test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn contactor_does_not_close_for_apu_start_within_first_45_seconds_of_emergency_elec_when_emergency_generator_unavailable(
+        ) {
+            let test_bed = test_bed_with()
+                .emergency_elec()
+                .and()
+                .apu_master_sw_pb_on()
+                .run(Duration::from_millis(44999));
+
+            assert!(!test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn contactor_opens_when_aircraft_enters_emer_elec() {
+            let mut test_bed = test_bed_with()
+                .apu_master_sw_pb_on()
+                .run(Duration::from_millis(1));
+
+            assert!(
+                test_bed.battery_contactor_is_closed(),
+                "The test assumes the contactor closed
+                at this point due to the APU master kicking in."
+            );
+
+            test_bed = test_bed.emergency_elec().run(Duration::from_millis(1));
+
+            assert!(!test_bed.battery_contactor_is_closed());
+        }
     }
 }

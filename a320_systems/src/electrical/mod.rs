@@ -293,6 +293,7 @@ trait AlternatingCurrentState {
         &self,
         context: &UpdateContext,
     ) -> bool;
+    fn emergency_generator_available(&self) -> bool;
     fn tr_1(&self) -> &TransformerRectifier;
     fn tr_2(&self) -> &TransformerRectifier;
     fn tr_ess(&self) -> &TransformerRectifier;
