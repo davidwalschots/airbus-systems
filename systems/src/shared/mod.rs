@@ -1,10 +1,23 @@
-use crate::simulation::UpdateContext;
+use crate::{
+    electrical::{Potential, PotentialSource},
+    simulation::UpdateContext,
+};
 use num_derive::FromPrimitive;
 use std::time::Duration;
 use uom::si::{f64::*, thermodynamic_temperature::degree_celsius};
 
 mod random;
 pub use random::*;
+
+/// Signals to the APU start contactor what position it should be in.
+pub trait ApuStartContactorsController {
+    fn should_close_start_contactors(&self) -> bool;
+}
+
+pub trait AuxiliaryPowerUnitElectrical: PotentialSource + ApuStartContactorsController {
+    fn start_motor_powered_by(&mut self, source: Potential);
+    fn is_available(&self) -> bool;
+}
 
 #[derive(FromPrimitive)]
 pub(crate) enum FwcFlightPhase {

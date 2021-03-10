@@ -59,7 +59,7 @@ impl A320AlternatingCurrentElectrical {
         context: &UpdateContext,
         ext_pwr: &ExternalPowerSource,
         overhead: &A320ElectricalOverheadPanel,
-        arguments: &A320ElectricalUpdateArguments<'a>,
+        arguments: &mut A320ElectricalUpdateArguments<'a>,
     ) {
         self.emergency_gen.update(
             context,
@@ -341,7 +341,7 @@ impl A320MainPowerSources {
         context: &UpdateContext,
         ext_pwr: &ExternalPowerSource,
         overhead: &A320ElectricalOverheadPanel,
-        arguments: &A320ElectricalUpdateArguments<'a>,
+        arguments: &mut A320ElectricalUpdateArguments<'a>,
     ) {
         self.engine_1_gen.update(context, arguments);
         self.engine_2_gen.update(context, arguments);

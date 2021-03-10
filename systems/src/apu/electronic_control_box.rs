@@ -1,11 +1,11 @@
 use super::{
-    AirIntakeFlap, AirIntakeFlapController, ApuStartContactorController,
-    AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel, FuelPressureSwitch,
-    Turbine, TurbineController, TurbineState,
+    AirIntakeFlap, AirIntakeFlapController, AuxiliaryPowerUnitFireOverheadPanel,
+    AuxiliaryPowerUnitOverheadPanel, FuelPressureSwitch, Turbine, TurbineController, TurbineState,
 };
 use crate::{
     electrical::PotentialSource,
     pneumatic::{BleedAirValveController, Valve},
+    shared::ApuStartContactorsController,
     simulation::UpdateContext,
 };
 use std::time::Duration;
@@ -18,7 +18,7 @@ pub struct ElectronicControlBox {
     turbine_state: TurbineState,
     master_is_on: bool,
     start_is_on: bool,
-    start_contactor_is_energized: bool,
+    start_motor_is_powered: bool,
     n: Ratio,
     bleed_is_on: bool,
     bleed_air_valve_last_open_time_ago: Duration,
@@ -38,7 +38,7 @@ impl ElectronicControlBox {
             turbine_state: TurbineState::Shutdown,
             master_is_on: false,
             start_is_on: false,
-            start_contactor_is_energized: false,
+            start_motor_is_powered: false,
             n: Ratio::new::<percent>(0.),
             bleed_is_on: false,
             bleed_air_valve_last_open_time_ago: Duration::from_secs(1000),
@@ -72,8 +72,14 @@ impl ElectronicControlBox {
         self.air_intake_flap_fully_open = air_intake_flap.is_fully_open();
     }
 
-    pub fn update_start_contactor_state<T: PotentialSource>(&mut self, start_contactor: &T) {
-        self.start_contactor_is_energized = start_contactor.is_powered()
+    pub fn update_start_motor_state<T: PotentialSource>(&mut self, start_motor: &T) {
+        self.start_motor_is_powered = start_motor.is_powered();
+
+        if self.start_motor_should_be_powered_at_this_point_if_starting()
+            && !self.start_motor_is_powered
+        {
+            self.fault = Some(ApuFault::StartMotorPowerLoss);
+        }
     }
 
     pub fn update(&mut self, context: &UpdateContext, turbine: &mut dyn Turbine) {
@@ -204,20 +210,24 @@ impl ElectronicControlBox {
     pub fn is_starting(&self) -> bool {
         self.turbine_state == TurbineState::Starting
     }
+
+    fn start_motor_should_be_powered_at_this_point_if_starting(&self) -> bool {
+        const START_MOTOR_POWERED_UNTIL_N: f64 = 55.;
+        self.turbine_state == TurbineState::Starting
+            && self.n.get::<percent>() < START_MOTOR_POWERED_UNTIL_N
+    }
 }
-impl ApuStartContactorController for ElectronicControlBox {
+impl ApuStartContactorsController for ElectronicControlBox {
     /// Indicates if the APU start contactor should be closed.
-    fn should_close_start_contactor(&self) -> bool {
+    fn should_close_start_contactors(&self) -> bool {
         if self.is_inoperable() {
             false
         } else {
-            match self.turbine_state {
-                TurbineState::Shutdown => {
-                    self.master_is_on && self.start_is_on && self.air_intake_flap_fully_open
-                }
-                TurbineState::Starting => self.n.get::<percent>() < 55.,
-                _ => false,
-            }
+            (self.turbine_state == TurbineState::Shutdown
+                && self.master_is_on
+                && self.start_is_on
+                && self.air_intake_flap_fully_open)
+                || self.start_motor_should_be_powered_at_this_point_if_starting()
         }
     }
 }
@@ -237,7 +247,7 @@ impl AirIntakeFlapController for ElectronicControlBox {
 impl TurbineController for ElectronicControlBox {
     /// Indicates if the start sequence should be started.
     fn should_start(&self) -> bool {
-        self.start_contactor_is_energized
+        self.start_motor_is_powered
     }
 
     fn should_stop(&self) -> bool {
@@ -263,4 +273,5 @@ impl BleedAirValveController for ElectronicControlBox {
 enum ApuFault {
     ApuFire,
     FuelLowPressure,
+    StartMotorPowerLoss,
 }

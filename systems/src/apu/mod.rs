@@ -3,16 +3,18 @@ use self::{
     electronic_control_box::ElectronicControlBox,
 };
 use crate::{
-    electrical::{Potential, PotentialOrigin, PotentialSource, ProvideFrequency, ProvidePotential},
+    electrical::{
+        consumption::PowerConsumption, Potential, PotentialSource, PotentialTarget,
+        ProvideFrequency, ProvidePotential,
+    },
     overhead::{FirePushButton, OnOffAvailablePushButton, OnOffFaultPushButton},
     pneumatic::{BleedAirValve, BleedAirValveState, Valve},
+    shared::{ApuStartContactorsController, AuxiliaryPowerUnitElectrical},
     simulation::{SimulationElement, SimulationElementVisitor, SimulatorWriter, UpdateContext},
 };
 #[cfg(test)]
 use std::time::Duration;
-use uom::si::{
-    electric_potential::volt, f64::*, ratio::percent, thermodynamic_temperature::degree_celsius,
-};
+use uom::si::{f64::*, power::watt, ratio::percent, thermodynamic_temperature::degree_celsius};
 
 mod air_intake_flap;
 mod aps3200;
@@ -29,31 +31,25 @@ impl AuxiliaryPowerUnitFactory {
     }
 }
 
-/// The APU start contactor is closed when the APU should start. This type exists because we
-/// don't have a full electrical implementation yet. Once we do, we will probably move this
-/// type or the logic to there.
-struct ApuStartContactor {
-    closed: bool,
+struct StartMotor {
+    input_potential: Potential,
 }
-impl ApuStartContactor {
+impl StartMotor {
     fn new() -> Self {
-        ApuStartContactor { closed: false }
-    }
-
-    fn update<T: ApuStartContactorController>(&mut self, controller: &T) {
-        self.closed = controller.should_close_start_contactor();
+        StartMotor {
+            input_potential: Potential::none(),
+        }
     }
 }
-impl PotentialSource for ApuStartContactor {
+impl SimulationElement for StartMotor {
+    fn consume_power(&mut self, consumption: &mut PowerConsumption) {
+        consumption.add(&self.input_potential, Power::new::<watt>(5000.));
+    }
+}
+potential_target!(StartMotor);
+impl PotentialSource for StartMotor {
     fn output(&self) -> Potential {
-        if self.closed {
-            Potential::single(
-                PotentialOrigin::Battery(10),
-                ElectricPotential::new::<volt>(28.),
-            )
-        } else {
-            Potential::none()
-        }
+        self.input_potential
     }
 }
 
@@ -81,11 +77,6 @@ impl FuelPressureSwitch {
     }
 }
 
-/// Signals to the APU start contactor what position it should be in.
-trait ApuStartContactorController {
-    fn should_close_start_contactor(&self) -> bool;
-}
-
 /// Signals to the APU air intake flap what position it should move towards.
 pub trait AirIntakeFlapController {
     fn should_open_air_intake_flap(&self) -> bool;
@@ -101,7 +92,7 @@ pub struct AuxiliaryPowerUnit<T: ApuGenerator> {
     turbine: Option<Box<dyn Turbine>>,
     generator: T,
     ecb: ElectronicControlBox,
-    start_contactor: ApuStartContactor,
+    start_motor: StartMotor,
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: BleedAirValve,
     fuel_pressure_switch: FuelPressureSwitch,
@@ -112,7 +103,7 @@ impl<T: ApuGenerator> AuxiliaryPowerUnit<T> {
             turbine: Some(turbine),
             generator,
             ecb: ElectronicControlBox::new(),
-            start_contactor: ApuStartContactor::new(),
+            start_motor: StartMotor::new(),
             air_intake_flap: AirIntakeFlap::new(),
             bleed_air_valve: BleedAirValve::new(),
             fuel_pressure_switch: FuelPressureSwitch::new(),
@@ -130,8 +121,7 @@ impl<T: ApuGenerator> AuxiliaryPowerUnit<T> {
     ) {
         self.ecb
             .update_overhead_panel_state(overhead, fire_overhead, apu_bleed_is_on);
-        self.start_contactor.update(&self.ecb);
-        self.ecb.update_start_contactor_state(&self.start_contactor);
+        self.ecb.update_start_motor_state(&self.start_motor);
         self.fuel_pressure_switch.update(has_fuel_remaining);
         self.ecb
             .update_fuel_pressure_switch_state(&self.fuel_pressure_switch);
@@ -188,6 +178,20 @@ impl<T: ApuGenerator> AuxiliaryPowerUnit<T> {
         self.air_intake_flap.set_delay(duration);
     }
 }
+impl<T: ApuGenerator> AuxiliaryPowerUnitElectrical for AuxiliaryPowerUnit<T> {
+    fn start_motor_powered_by(&mut self, source: Potential) {
+        self.start_motor.powered_by(&source);
+    }
+
+    fn is_available(&self) -> bool {
+        self.ecb.is_available()
+    }
+}
+impl<T: ApuGenerator> ApuStartContactorsController for AuxiliaryPowerUnit<T> {
+    fn should_close_start_contactors(&self) -> bool {
+        self.ecb.should_close_start_contactors()
+    }
+}
 impl<T: ApuGenerator> PotentialSource for AuxiliaryPowerUnit<T> {
     fn output(&self) -> Potential {
         self.generator.output()
@@ -196,6 +200,7 @@ impl<T: ApuGenerator> PotentialSource for AuxiliaryPowerUnit<T> {
 impl<T: ApuGenerator> SimulationElement for AuxiliaryPowerUnit<T> {
     fn accept<V: SimulationElementVisitor>(&mut self, visitor: &mut V) {
         self.generator.accept(visitor);
+        self.start_motor.accept(visitor);
         visitor.visit(self);
     }
 
@@ -220,7 +225,7 @@ impl<T: ApuGenerator> SimulationElement for AuxiliaryPowerUnit<T> {
         writer.write_f64("APU_N", self.n().get::<percent>());
         writer.write_bool(
             "APU_START_CONTACTOR_ENERGIZED",
-            self.start_contactor.is_powered(),
+            self.start_motor.is_powered(),
         );
         writer.write_f64(
             "APU_EGT_WARNING",
@@ -400,6 +405,7 @@ pub mod tests {
         apu_gen_is_used: bool,
         has_fuel_remaining: bool,
         power_consumer: PowerConsumer,
+        cut_start_motor_power: bool,
     }
     impl AuxiliaryPowerUnitTestAircraft {
         fn new() -> Self {
@@ -411,6 +417,7 @@ pub mod tests {
                 apu_gen_is_used: true,
                 has_fuel_remaining: true,
                 power_consumer: PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1)),
+                cut_start_motor_power: false,
             }
         }
 
@@ -438,6 +445,14 @@ pub mod tests {
         fn set_power_demand(&mut self, power: Power) {
             self.power_consumer.demand(power);
         }
+
+        fn should_close_start_contactors_commanded(&self) -> bool {
+            self.apu.should_close_start_contactors()
+        }
+
+        fn cut_start_motor_power(&mut self) {
+            self.cut_start_motor_power = true;
+        }
     }
     impl Aircraft for AuxiliaryPowerUnitTestAircraft {
         fn update_before_power_distribution(&mut self, context: &UpdateContext) {
@@ -451,6 +466,17 @@ pub mod tests {
             );
 
             self.apu_overhead.update_after_apu(&self.apu);
+
+            self.apu.start_motor_powered_by(
+                if self.apu.should_close_start_contactors() && !self.cut_start_motor_power {
+                    Potential::single(
+                        PotentialOrigin::External,
+                        ElectricPotential::new::<volt>(115.),
+                    )
+                } else {
+                    Potential::none()
+                },
+            );
         }
 
         fn get_supplied_power(&mut self) -> SuppliedPower {
@@ -546,6 +572,10 @@ pub mod tests {
             self.apu_ready_to_start()
                 .then_continue_with()
                 .start_on()
+                // We run twice, as the APU start motor powering happens
+                // after the first run, and thus we need two ticks before
+                // transitioning to the starting APU state.
+                .run(Duration::from_secs(0))
                 .run(Duration::from_secs(0))
         }
 
@@ -635,6 +665,11 @@ pub mod tests {
 
         fn indicated_altitude(mut self, indicated_altitute: Length) -> Self {
             self.indicated_altitude = indicated_altitute;
+            self
+        }
+
+        fn unpower_start_motor(mut self) -> Self {
+            self.aircraft.cut_start_motor_power();
             self
         }
 
@@ -767,9 +802,8 @@ pub mod tests {
                 .read_bool("ELEC_APU_GEN_1_LOAD_NORMAL")
         }
 
-        fn start_contactor_energized(&mut self) -> bool {
-            self.simulation_test_bed
-                .read_bool("APU_START_CONTACTOR_ENERGIZED")
+        fn should_close_start_contactors_commanded(&self) -> bool {
+            self.aircraft.should_close_start_contactors_commanded()
         }
 
         fn has_fuel_low_pressure_fault(&mut self) -> bool {
@@ -1282,24 +1316,24 @@ pub mod tests {
         }
 
         #[test]
-        fn start_contactor_is_energised_when_starting_until_n_55() {
+        fn should_close_start_contactors_commanded_when_starting_until_n_55() {
             let mut test_bed = test_bed_with()
                 .starting_apu()
                 .run(Duration::from_millis(50));
 
-            assert!(test_bed.start_contactor_energized());
+            assert!(test_bed.should_close_start_contactors_commanded());
             loop {
                 test_bed = test_bed.run(Duration::from_millis(50));
                 let n = test_bed.n().get::<percent>();
 
                 if n < 55. {
-                    assert!(test_bed.start_contactor_energized());
+                    assert!(test_bed.should_close_start_contactors_commanded());
                 } else {
                     // The start contactor state is set before the turbine is updated,
                     // thus this needs another run to update the start contactor after the
                     // turbine reaches n >= 55.
                     test_bed = test_bed.run(Duration::from_millis(0));
-                    assert!(!test_bed.start_contactor_energized());
+                    assert!(!test_bed.should_close_start_contactors_commanded());
                 }
 
                 if (n - 100.).abs() < f64::EPSILON {
@@ -1309,7 +1343,8 @@ pub mod tests {
         }
 
         #[test]
-        fn start_contactor_is_energised_when_starting_until_n_55_even_if_master_sw_turned_off() {
+        fn should_close_start_contactors_commanded_when_starting_until_n_55_even_if_master_sw_turned_off(
+        ) {
             let mut test_bed = test_bed_with().starting_apu();
 
             loop {
@@ -1321,13 +1356,13 @@ pub mod tests {
                 }
 
                 if n < 55. {
-                    assert_eq!(test_bed.start_contactor_energized(), true);
+                    assert_eq!(test_bed.should_close_start_contactors_commanded(), true);
                 } else {
                     // The start contactor state is set before the turbine is updated,
                     // thus this needs another run to update the start contactor after the
                     // turbine reaches n >= 55.
                     test_bed = test_bed.run(Duration::from_millis(0));
-                    assert_eq!(test_bed.start_contactor_energized(), false);
+                    assert_eq!(test_bed.should_close_start_contactors_commanded(), false);
                 }
 
                 if (n - 100.).abs() < f64::EPSILON {
@@ -1337,18 +1372,18 @@ pub mod tests {
         }
 
         #[test]
-        fn start_contactor_is_not_energised_when_shutdown() {
-            let mut test_bed = test_bed().run(Duration::from_secs(1_000));
-            assert_eq!(test_bed.start_contactor_energized(), false);
+        fn should_close_start_contactors_not_commanded_when_shutdown() {
+            let test_bed = test_bed().run(Duration::from_secs(1_000));
+            assert_eq!(test_bed.should_close_start_contactors_commanded(), false);
         }
 
         #[test]
-        fn start_contactor_is_not_energised_when_shutting_down() {
+        fn should_close_start_contactors_not_commanded_when_shutting_down() {
             let mut test_bed = test_bed_with().running_apu().and().master_off();
 
             loop {
                 test_bed = test_bed.run(Duration::from_millis(50));
-                assert_eq!(test_bed.start_contactor_energized(), false);
+                assert_eq!(test_bed.should_close_start_contactors_commanded(), false);
 
                 if test_bed.n().get::<percent>() == 0. {
                     break;
@@ -1357,15 +1392,16 @@ pub mod tests {
         }
 
         #[test]
-        fn start_contactor_is_not_energised_when_running() {
-            let mut test_bed = test_bed_with()
+        fn should_close_start_contactors_not_commanded_when_running() {
+            let test_bed = test_bed_with()
                 .running_apu()
                 .run(Duration::from_secs(1_000));
-            assert_eq!(test_bed.start_contactor_energized(), false);
+            assert_eq!(test_bed.should_close_start_contactors_commanded(), false);
         }
 
         #[test]
-        fn start_contactor_is_not_energised_when_shutting_down_with_master_on_and_start_on() {
+        fn should_close_start_contactors_not_commanded_when_shutting_down_with_master_on_and_start_on(
+        ) {
             let mut test_bed = test_bed_with()
                 .running_apu_without_bleed_air()
                 .and()
@@ -1383,7 +1419,7 @@ pub mod tests {
             while n > 0. {
                 // Assert before running, because otherwise we capture the Starting state which begins when at n = 0
                 // with the master and start switches on.
-                assert_eq!(test_bed.start_contactor_energized(), false);
+                assert_eq!(test_bed.should_close_start_contactors_commanded(), false);
 
                 test_bed = test_bed.run(Duration::from_secs(1));
                 n = test_bed.n().get::<percent>();
@@ -1471,6 +1507,30 @@ pub mod tests {
 
             assert_eq!(test_bed.apu_is_available(), false);
             assert_eq!(test_bed.has_fuel_low_pressure_fault(), true);
+            assert!(test_bed.master_has_fault());
+            assert!(!test_bed.start_is_on());
+        }
+
+        #[test]
+        #[timeout(500)]
+        fn starting_apu_shuts_down_with_fault_when_starter_motor_unpowered_below_n_55() {
+            let mut test_bed = test_bed_with().starting_apu();
+
+            loop {
+                test_bed = test_bed.run(Duration::from_millis(50));
+                let n = test_bed.n().get::<percent>();
+
+                if 20. < n && n < 55. {
+                    test_bed = test_bed.unpower_start_motor();
+                    break;
+                }
+            }
+
+            for _ in 0..10 {
+                test_bed = test_bed.run(Duration::from_secs(10));
+            }
+
+            assert_eq!(test_bed.apu_is_available(), false);
             assert!(test_bed.master_has_fault());
             assert!(!test_bed.start_is_on());
         }

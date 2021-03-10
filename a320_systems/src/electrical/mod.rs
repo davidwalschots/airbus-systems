@@ -2,9 +2,6 @@ mod alternating_current;
 mod direct_current;
 mod galley;
 
-#[cfg(test)]
-use systems::electrical::Potential;
-
 use self::{
     alternating_current::A320AlternatingCurrentElectrical,
     direct_current::A320DirectCurrentElectrical,
@@ -13,13 +10,14 @@ use self::{
 use systems::{
     electrical::{
         consumption::SuppliedPower, ElectricalBus, ElectricalSystem,
-        EngineGeneratorUpdateArguments, ExternalPowerSource, PotentialSource, StaticInverter,
-        TransformerRectifier,
+        EngineGeneratorUpdateArguments, ExternalPowerSource, Potential, PotentialSource,
+        StaticInverter, TransformerRectifier,
     },
     overhead::{
         AutoOffFaultPushButton, FaultReleasePushButton, NormalAltnFaultPushButton,
         OnOffAvailablePushButton, OnOffFaultPushButton,
     },
+    shared::AuxiliaryPowerUnitElectrical,
     simulation::{SimulationElement, SimulationElementVisitor, SimulatorWriter, UpdateContext},
 };
 use uom::si::f64::*;
@@ -27,23 +25,20 @@ use uom::si::f64::*;
 pub(super) struct A320ElectricalUpdateArguments<'a> {
     engine_corrected_n2: [Ratio; 2],
     idg_push_buttons_released: [bool; 2],
-    apu: &'a dyn PotentialSource,
+    apu: &'a mut dyn AuxiliaryPowerUnitElectrical,
     is_blue_hydraulic_circuit_pressurised: bool,
     apu_master_sw_pb_on: bool,
     apu_start_pb_on: bool,
-    apu_is_available: bool,
     landing_gear_is_up_and_locked: bool,
 }
 impl<'a> A320ElectricalUpdateArguments<'a> {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         engine_corrected_n2: [Ratio; 2],
         idg_push_buttons_released: [bool; 2],
-        apu: &'a dyn PotentialSource,
+        apu: &'a mut dyn AuxiliaryPowerUnitElectrical,
         is_blue_hydraulic_circuit_pressurised: bool,
         apu_master_sw_pb_on: bool,
         apu_start_pb_on: bool,
-        apu_is_available: bool,
         landing_gear_is_up_and_locked: bool,
     ) -> Self {
         Self {
@@ -53,13 +48,20 @@ impl<'a> A320ElectricalUpdateArguments<'a> {
             is_blue_hydraulic_circuit_pressurised,
             apu_master_sw_pb_on,
             apu_start_pb_on,
-            apu_is_available,
             landing_gear_is_up_and_locked,
         }
     }
 
-    fn apu(&self) -> &dyn PotentialSource {
+    fn apu(&mut self) -> &mut dyn AuxiliaryPowerUnitElectrical {
         self.apu
+    }
+
+    fn should_close_apu_start_contactors(&self) -> bool {
+        self.apu.should_close_start_contactors()
+    }
+
+    fn apu_start_motor_powered_by(&mut self, source: Potential) {
+        self.apu.start_motor_powered_by(source);
     }
 
     fn apu_master_sw_pb_on(&self) -> bool {
@@ -70,12 +72,12 @@ impl<'a> A320ElectricalUpdateArguments<'a> {
         self.apu_start_pb_on
     }
 
-    fn is_blue_hydraulic_circuit_pressurised(&self) -> bool {
-        self.is_blue_hydraulic_circuit_pressurised
+    fn apu_is_available(&self) -> bool {
+        self.apu.is_available()
     }
 
-    fn apu_available(&self) -> bool {
-        self.apu_is_available
+    fn is_blue_hydraulic_circuit_pressurised(&self) -> bool {
+        self.is_blue_hydraulic_circuit_pressurised
     }
 
     fn landing_gear_is_up_and_locked(&self) -> bool {
@@ -113,7 +115,7 @@ impl A320Electrical {
         context: &UpdateContext,
         ext_pwr: &ExternalPowerSource,
         overhead: &A320ElectricalOverheadPanel,
-        arguments: &A320ElectricalUpdateArguments<'a>,
+        arguments: &mut A320ElectricalUpdateArguments<'a>,
     ) {
         self.alternating_current
             .update(context, ext_pwr, overhead, arguments);
@@ -122,7 +124,7 @@ impl A320Electrical {
             context,
             overhead,
             &self.alternating_current,
-            &arguments,
+            arguments,
         );
 
         self.alternating_current
@@ -440,8 +442,9 @@ mod a320_electrical_circuit_tests {
     use super::alternating_current::A320AcEssFeedContactors;
     use super::*;
     use systems::{
-        electrical::{ElectricalBusType, ExternalPowerSource, Potential, PotentialOrigin},
+        electrical::{ElectricalBusType, ExternalPowerSource, PotentialOrigin},
         simulation::{test::SimulationTestBed, Aircraft},
+        shared::ApuStartContactorsController
     };
     use uom::si::{length::foot, velocity::knot};
 
@@ -1761,6 +1764,57 @@ mod a320_electrical_circuit_tests {
         assert!(!test_bed.gen_2_has_fault());
     }
 
+    #[test]
+    fn when_apu_start_with_battery_1_off_start_contactors_remain_open_and_motor_unpowered() {
+        let mut test_bed = test_bed_with()
+            .bat_1_off()
+            .command_closing_of_start_contactors()
+            .and()
+            .run_for_start_contactor_test();
+
+        assert!(!test_bed.apu_start_contactors_closed());
+        assert!(!test_bed.apu_start_motor_is_powered());
+    }
+
+    #[test]
+    fn when_apu_start_with_battery_2_off_start_contactors_remain_open_and_motor_unpowered() {
+        let mut test_bed = test_bed_with()
+            .bat_2_off()
+            .command_closing_of_start_contactors()
+            .and()
+            .run_for_start_contactor_test();
+
+        assert!(!test_bed.apu_start_contactors_closed());
+        assert!(!test_bed.apu_start_motor_is_powered());
+    }
+
+    #[test]
+    fn when_apu_start_with_both_batteries_auto_and_closing_commanded_start_contactors_close_and_motor_is_powered(
+    ) {
+        let mut test_bed = test_bed_with()
+            .bat_1_auto()
+            .bat_2_auto()
+            .command_closing_of_start_contactors()
+            .and()
+            .run_for_start_contactor_test();
+
+        assert!(test_bed.apu_start_contactors_closed());
+        assert!(test_bed.apu_start_motor_is_powered());
+    }
+
+    #[test]
+    fn when_apu_start_with_both_batteries_auto_and_closing_not_commanded_start_contactors_remain_open_and_motor_unpowered(
+    ) {
+        let mut test_bed = test_bed_with()
+            .bat_1_auto()
+            .bat_2_auto()
+            .and()
+            .run_for_start_contactor_test();
+
+        assert!(!test_bed.apu_start_contactors_closed());
+        assert!(!test_bed.apu_start_motor_is_powered());
+    }
+
     fn test_bed_with() -> A320ElectricalTestBed {
         test_bed()
     }
@@ -1770,16 +1824,34 @@ mod a320_electrical_circuit_tests {
     }
 
     struct TestApu {
-        running: bool,
+        is_available: bool,
+        start_motor_powered_by: Potential,
+        should_close_start_contactor: bool,
     }
     impl TestApu {
-        fn new(running: bool) -> Self {
-            Self { running }
+        fn new() -> Self {
+            Self {
+                is_available: false,
+                start_motor_powered_by: Potential::none(),
+                should_close_start_contactor: false,
+            }
+        }
+
+        fn set_apu_available(&mut self) {
+            self.is_available = true;
+        }
+
+        fn command_closing_of_start_contactors(&mut self) {
+            self.should_close_start_contactor = true;
+        }
+
+        fn start_motor_is_powered(&self) -> bool {
+            self.start_motor_powered_by.is_powered()
         }
     }
     impl PotentialSource for TestApu {
         fn output(&self) -> Potential {
-            if self.running {
+            if self.is_available {
                 Potential::single(
                     PotentialOrigin::ApuGenerator(1),
                     ElectricPotential::new::<volt>(115.),
@@ -1789,24 +1861,43 @@ mod a320_electrical_circuit_tests {
             }
         }
     }
+    impl AuxiliaryPowerUnitElectrical for TestApu {
+        fn start_motor_powered_by(&mut self, source: Potential) {
+            self.start_motor_powered_by = source;
+        }
+
+        fn is_available(&self) -> bool {
+            self.is_available
+        }
+    }
+    impl ApuStartContactorsController for TestApu {
+        fn should_close_start_contactors(&self) -> bool {
+            self.should_close_start_contactor
+        }
+    }
 
     struct A320ElectricalTestAircraft {
         engine_1_running: bool,
         engine_2_running: bool,
-        apu_running: bool,
         ext_pwr: ExternalPowerSource,
         elec: A320Electrical,
         overhead: A320ElectricalOverheadPanel,
+        apu_master_sw_pb_on: bool,
+        apu_start_pb_on: bool,
+        apu: TestApu,
     }
     impl A320ElectricalTestAircraft {
         fn new() -> Self {
             Self {
                 engine_1_running: false,
                 engine_2_running: false,
-                apu_running: false,
+
                 ext_pwr: ExternalPowerSource::new(),
                 elec: A320Electrical::new(),
                 overhead: A320ElectricalOverheadPanel::new(),
+                apu_master_sw_pb_on: false,
+                apu_start_pb_on: false,
+                apu: TestApu::new(),
             }
         }
 
@@ -1819,7 +1910,23 @@ mod a320_electrical_circuit_tests {
         }
 
         fn running_apu(&mut self) {
-            self.apu_running = true;
+            self.apu.set_apu_available();
+        }
+
+        fn set_apu_master_sw_pb_on(&mut self) {
+            self.apu_master_sw_pb_on = true;
+        }
+
+        fn set_apu_start_pb_on(&mut self) {
+            self.apu_start_pb_on = true;
+        }
+
+        fn command_closing_of_start_contactors(&mut self) {
+            self.apu.command_closing_of_start_contactors();
+        }
+
+        fn apu_start_motor_is_powered(&self) -> bool {
+            self.apu.start_motor_is_powered()
         }
 
         fn empty_battery_1(&mut self) {
@@ -1872,7 +1979,7 @@ mod a320_electrical_circuit_tests {
                 context,
                 &self.ext_pwr,
                 &self.overhead,
-                &A320ElectricalUpdateArguments::new(
+                &mut A320ElectricalUpdateArguments::new(
                     [
                         Ratio::new::<percent>(if self.engine_1_running { 80. } else { 0. }),
                         Ratio::new::<percent>(if self.engine_2_running { 80. } else { 0. }),
@@ -1881,11 +1988,10 @@ mod a320_electrical_circuit_tests {
                         self.overhead.idg_1_push_button_released(),
                         self.overhead.idg_2_push_button_released(),
                     ],
-                    &TestApu::new(self.apu_running),
+                    &mut self.apu,
                     true,
-                    false,
-                    false,
-                    false,
+                    self.apu_master_sw_pb_on,
+                    self.apu_start_pb_on,
                     true,
                 ),
             );
@@ -1964,6 +2070,15 @@ mod a320_electrical_circuit_tests {
                 .set_indicated_altitude(Length::new::<foot>(0.));
             self.simulation_test_bed.set_on_ground(true);
             self
+        }
+
+        fn run_for_start_contactor_test(self) -> Self {
+            self.airspeed(Velocity::new::<knot>(0.))
+                .on_the_ground()
+                .apu_master_sw_pb_on()
+                .and()
+                .apu_start_pb_on()
+                .run()
         }
 
         fn and(self) -> Self {
@@ -2071,6 +2186,30 @@ mod a320_electrical_circuit_tests {
             self.simulation_test_bed
                 .write_bool("OVHD_ELEC_GALY_AND_CAB_PB_IS_AUTO", false);
             self
+        }
+
+        fn apu_master_sw_pb_on(mut self) -> Self {
+            self.aircraft.set_apu_master_sw_pb_on();
+            self
+        }
+
+        fn apu_start_pb_on(mut self) -> Self {
+            self.aircraft.set_apu_start_pb_on();
+            self
+        }
+
+        fn command_closing_of_start_contactors(mut self) -> Self {
+            self.aircraft.command_closing_of_start_contactors();
+            self
+        }
+
+        fn apu_start_contactors_closed(&mut self) -> bool {
+            self.simulation_test_bed
+                .read_bool("ELEC_CONTACTOR_10KA_AND_5KA_IS_CLOSED")
+        }
+
+        fn apu_start_motor_is_powered(&self) -> bool {
+            self.aircraft.apu_start_motor_is_powered()
         }
 
         fn ac_bus_1_output(&mut self) -> Potential {

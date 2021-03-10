@@ -79,17 +79,16 @@ impl Aircraft for A320 {
             context,
             &self.ext_pwr,
             &self.electrical_overhead,
-            &A320ElectricalUpdateArguments::new(
+            &mut A320ElectricalUpdateArguments::new(
                 [self.engine_1.corrected_n2(), self.engine_2.corrected_n2()],
                 [
                     self.electrical_overhead.idg_1_push_button_released(),
                     self.electrical_overhead.idg_2_push_button_released(),
                 ],
-                &self.apu,
+                &mut self.apu,
                 self.hydraulic.is_blue_pressurised(),
                 self.apu_overhead.master_is_on(),
                 self.apu_overhead.start_is_on(),
-                self.apu.is_available(),
                 self.landing_gear.is_up_and_locked(),
             ),
         );

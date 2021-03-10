@@ -37,6 +37,7 @@ pub(super) struct A320DirectCurrentElectrical {
     tr_1_contactor: Contactor,
     tr_2_contactor: Contactor,
     tr_ess_contactor: Contactor,
+    apu_start_contactors: Contactor,
 }
 impl A320DirectCurrentElectrical {
     pub fn new() -> Self {
@@ -64,6 +65,7 @@ impl A320DirectCurrentElectrical {
             tr_1_contactor: Contactor::new("5PU1"),
             tr_2_contactor: Contactor::new("5PU2"),
             tr_ess_contactor: Contactor::new("3PE"),
+            apu_start_contactors: Contactor::new("10KA_AND_5KA"),
         }
     }
 
@@ -72,7 +74,7 @@ impl A320DirectCurrentElectrical {
         context: &UpdateContext,
         overhead: &A320ElectricalOverheadPanel,
         ac_state: &T,
-        arguments: &A320ElectricalUpdateArguments<'a>,
+        arguments: &mut A320ElectricalUpdateArguments<'a>,
     ) {
         self.tr_1_contactor.close_when(ac_state.tr_1().is_powered());
         self.tr_1_contactor.powered_by(ac_state.tr_1());
@@ -116,7 +118,7 @@ impl A320DirectCurrentElectrical {
                 &self.dc_bat_bus,
                 arguments.apu_master_sw_pb_on(),
                 arguments.apu_start_pb_on(),
-                arguments.apu_available(),
+                arguments.apu_is_available(),
                 overhead.bat_1_is_auto(),
                 arguments.landing_gear_is_up_and_locked(),
                 ac_state.emergency_generator_available(),
@@ -133,7 +135,7 @@ impl A320DirectCurrentElectrical {
                 &self.dc_bat_bus,
                 arguments.apu_master_sw_pb_on(),
                 arguments.apu_start_pb_on(),
-                arguments.apu_available(),
+                arguments.apu_is_available(),
                 overhead.bat_2_is_auto(),
                 arguments.landing_gear_is_up_and_locked(),
                 ac_state.emergency_generator_available(),
@@ -162,6 +164,15 @@ impl A320DirectCurrentElectrical {
         self.hot_bus_1.or_powered_by(&self.battery_1);
         self.hot_bus_2.powered_by(&self.battery_2_contactor);
         self.hot_bus_2.or_powered_by(&self.battery_2);
+
+        self.apu_start_contactors.powered_by(&self.dc_bat_bus);
+        self.apu_start_contactors.close_when(
+            self.battery_1_contactor.is_closed()
+                && self.battery_2_contactor.is_closed()
+                && arguments.should_close_apu_start_contactors(),
+        );
+
+        arguments.apu_start_motor_powered_by(self.apu_start_contactors.output());
 
         let should_close_2xb_contactor =
             A320DirectCurrentElectrical::should_close_2xb_contactors(context, ac_state, overhead);
@@ -324,6 +335,8 @@ impl SimulationElement for A320DirectCurrentElectrical {
         self.dc_ess_shed_bus.accept(visitor);
         self.hot_bus_1.accept(visitor);
         self.hot_bus_2.accept(visitor);
+
+        self.apu_start_contactors.accept(visitor);
 
         visitor.visit(self);
     }

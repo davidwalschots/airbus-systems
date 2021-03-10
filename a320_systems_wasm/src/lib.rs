@@ -87,7 +87,7 @@ impl SimulatorReaderWriter for A320SimulatorReaderWriter {
             "OVHD_ELEC_ENG_GEN_2_PB_IS_ON" => self.engine_generator_2_pb_on.get(),
             "AMBIENT TEMPERATURE" => self.ambient_temperature.get(),
             "EXTERNAL POWER AVAILABLE:1" => self.external_power_available.get(),
-            "GEAR CENTER POSITION" => self.gear_position.get(),
+            "GEAR CENTER POSITION" => self.gear_center_position.get(),
             "TURB ENG CORRECTED N2:1" => self.turb_eng_corrected_n2_1.get(),
             "TURB ENG CORRECTED N2:2" => self.turb_eng_corrected_n2_2.get(),
             "FUEL TANK LEFT MAIN QUANTITY" => self.fuel_tank_left_main_quantity.get(),
