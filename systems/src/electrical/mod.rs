@@ -365,6 +365,13 @@ impl SimulationElement for ElectricalBus {
     fn write(&self, writer: &mut SimulatorWriter) {
         writer.write_bool(&self.bus_powered_id, self.is_powered());
         if self.bus_type == ElectricalBusType::DirectCurrentBattery {
+            // It's good to note that in the real aircraft, the battery charge limiters (BCLs) are
+            // responsible for supplying this information to the SDAC. When the battery push
+            // button is off the associated BCL is unpowered and thus not sending a signal to the SDAC.
+            // If neither BCL sends signals to the SDAC this is translated into the amber XX you see
+            // on the ECAM screen. For now we just always emit this information here and within
+            // the ECAM code check the BAT push button position to see if XX should be presented or not.
+            // Once the SDAC is implemented it can be moved there and read this value from the BCLs.
             writer.write_bool(&self.bus_potential_normal_id, self.potential_normal())
         }
     }
