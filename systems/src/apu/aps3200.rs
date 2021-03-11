@@ -392,6 +392,16 @@ impl Turbine for Running {
 struct Stopping {
     since: Duration,
     base_temperature: ThermodynamicTemperature,
+    // When the APU start is unsuccessful the stopping state
+    // is entered with N < 100%. This factor ensures that we damped
+    // the resulting N calculated by this state, to ensure N doesn't
+    // suddenly go from 30 to 100.
+    n_factor: f64,
+    // When the APU start is unsuccessful the stopping state
+    // is entered with N < 100%. As EGT in this state is a function of N,
+    // we need to adapt the EGT calculation to this. This ensures EGT
+    // doesn't just suddenly drop by e.g. 80 degrees due to the low N.
+    egt_delta_at_entry: TemperatureInterval,
     n: Ratio,
     egt: ThermodynamicTemperature,
 }
@@ -400,12 +410,14 @@ impl Stopping {
         Stopping {
             since: Duration::from_secs(0),
             base_temperature: egt,
+            n_factor: n.get::<percent>() / 100.,
+            egt_delta_at_entry: Stopping::calculate_egt_delta(n),
             n,
             egt,
         }
     }
 
-    fn calculate_egt_delta(&self) -> TemperatureInterval {
+    fn calculate_egt_delta(n: Ratio) -> TemperatureInterval {
         // Refer to APS3200.md for details on the values below and source data.
         const APU_N_TEMP_DELTA_CONST: f64 = -125.73137672208446;
         const APU_N_TEMP_DELTA_X: f64 = 2.7141683591219037;
@@ -421,7 +433,7 @@ impl Stopping {
         const APU_N_TEMP_DELTA_X11: f64 = -0.00000000000000253354;
         const APU_N_TEMP_DELTA_X12: f64 = 0.00000000000000000451;
 
-        let n = self.n.get::<percent>();
+        let n = n.get::<percent>();
         TemperatureInterval::new::<temperature_interval::degree_celsius>(
             APU_N_TEMP_DELTA_CONST
                 + (APU_N_TEMP_DELTA_X * n)
@@ -439,7 +451,7 @@ impl Stopping {
         )
     }
 
-    fn calculate_n(&self) -> Ratio {
+    fn calculate_n(since: Duration) -> Ratio {
         // Refer to APS3200.md for details on the values below and source data.
         const APU_N_CONST: f64 = 100.22975364965701;
         const APU_N_X: f64 = -24.692008355859773;
@@ -456,7 +468,7 @@ impl Stopping {
 
         // Protect against the formula returning increasing results after this value.
         const TIME_LIMIT: f64 = 49.411;
-        let since = self.since.as_secs_f64().min(TIME_LIMIT);
+        let since = since.as_secs_f64().min(TIME_LIMIT);
 
         let n = (APU_N_CONST
             + (APU_N_X * since)
@@ -485,8 +497,9 @@ impl Turbine for Stopping {
         _: &dyn TurbineController,
     ) -> Box<dyn Turbine> {
         self.since += context.delta();
-        self.n = self.calculate_n();
-        self.egt = self.base_temperature + self.calculate_egt_delta();
+        self.n = Stopping::calculate_n(self.since) * self.n_factor;
+        self.egt =
+            self.base_temperature + Stopping::calculate_egt_delta(self.n) - self.egt_delta_at_entry;
 
         if self.n.get::<percent>() == 0. {
             Box::new(ShutdownAps3200Turbine::new_with_egt(self.egt))

@@ -697,6 +697,20 @@ pub mod tests {
             self
         }
 
+        pub fn cut_out_start_between(mut self, start: Ratio, end: Ratio) -> Self {
+            loop {
+                self = self.run(Duration::from_millis(50));
+                let n = self.n();
+
+                if start < n && n < end {
+                    self = self.then_continue_with().unpowered_start_motor();
+                    break;
+                }
+            }
+
+            self
+        }
+
         fn run_until_n_decreases(mut self, delta_per_run: Duration) -> Self {
             let mut previous_n = 0.;
             loop {
@@ -1518,17 +1532,9 @@ pub mod tests {
         #[test]
         #[timeout(500)]
         fn starting_apu_shuts_down_with_fault_when_starter_motor_unpowered_below_n_55() {
-            let mut test_bed = test_bed_with().starting_apu();
-
-            loop {
-                test_bed = test_bed.run(Duration::from_millis(50));
-                let n = test_bed.n().get::<percent>();
-
-                if 20. < n && n < 55. {
-                    test_bed = test_bed.then_continue_with().unpowered_start_motor();
-                    break;
-                }
-            }
+            let mut test_bed = test_bed_with()
+                .starting_apu()
+                .cut_out_start_between(Ratio::new::<percent>(20.), Ratio::new::<percent>(55.));
 
             for _ in 0..10 {
                 test_bed = test_bed.run(Duration::from_secs(10));
@@ -1537,6 +1543,21 @@ pub mod tests {
             assert_eq!(test_bed.apu_is_available(), false);
             assert!(test_bed.master_has_fault());
             assert!(!test_bed.start_is_on());
+        }
+
+        #[test]
+        #[timeout(500)]
+        fn starting_apu_shutting_down_early_doesnt_decrease_egt_below_ambient() {
+            let ambient_temperature = ThermodynamicTemperature::new::<degree_celsius>(20.);
+            let mut test_bed = test_bed_with()
+                .ambient_temperature(ambient_temperature)
+                .starting_apu()
+                .cut_out_start_between(Ratio::new::<percent>(10.), Ratio::new::<percent>(20.));
+
+            for _ in 0..20 {
+                test_bed = test_bed.run(Duration::from_secs(5));
+                assert!(test_bed.egt() >= ambient_temperature)
+            }
         }
 
         #[test]
