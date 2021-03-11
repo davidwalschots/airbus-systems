@@ -8,7 +8,7 @@ use crate::{
 use uom::si::{electric_current::ampere, electric_potential::volt, f64::*, velocity::knot};
 
 pub struct BatteryChargeLimiterArguments {
-    both_ac_buses_unpowered: bool,
+    ac_buses_unpowered: bool,
     battery_potential: ElectricPotential,
     battery_current: ElectricCurrent,
     battery_bus_potential: ElectricPotential,
@@ -33,7 +33,7 @@ impl BatteryChargeLimiterArguments {
         emergency_generator_available: bool,
     ) -> Self {
         Self {
-            both_ac_buses_unpowered: ac_buses_unpowered,
+            ac_buses_unpowered,
             battery_potential: battery.output().raw(),
             battery_current: battery.current(),
             battery_bus_potential: battery_bus.output().raw(),
@@ -46,8 +46,8 @@ impl BatteryChargeLimiterArguments {
         }
     }
 
-    fn both_ac_buses_unpowered(&self) -> bool {
-        self.both_ac_buses_unpowered
+    fn ac_buses_unpowered(&self) -> bool {
+        self.ac_buses_unpowered
     }
 
     fn battery_potential(&self) -> ElectricPotential {
@@ -131,8 +131,7 @@ fn in_emergency_elec_config(
     context: &UpdateContext,
     arguments: &BatteryChargeLimiterArguments,
 ) -> bool {
-    arguments.both_ac_buses_unpowered()
-        && context.indicated_airspeed() > Velocity::new::<knot>(100.)
+    arguments.ac_buses_unpowered() && context.indicated_airspeed() > Velocity::new::<knot>(100.)
 }
 
 /// Observes the battery, battery contactor and related systems
@@ -208,7 +207,6 @@ impl OpenContactorObserver {
         }
 
         self.update_begin_charging_cycle_delay(context, arguments);
-        self.when_battery_push_button_off_reset_discharge_protection(arguments);
     }
 
     fn should_close(
@@ -261,15 +259,6 @@ impl OpenContactorObserver {
                         OpenContactorObserver::BATTERY_BUS_BELOW_CHARGING_VOLTAGE,
                     ),
         );
-    }
-
-    fn when_battery_push_button_off_reset_discharge_protection(
-        &mut self,
-        arguments: &BatteryChargeLimiterArguments,
-    ) {
-        if self.open_due_to_discharge_protection && !arguments.battery_push_button_is_auto() {
-            self.open_due_to_discharge_protection = false;
-        }
     }
 }
 impl BatteryStateObserver for OpenContactorObserver {
@@ -420,7 +409,7 @@ fn on_ground_at_low_speed_with_unpowered_ac_buses(
     context: &UpdateContext,
     arguments: &BatteryChargeLimiterArguments,
 ) -> bool {
-    arguments.both_ac_buses_unpowered()
+    arguments.ac_buses_unpowered()
         && context.is_on_ground()
         && context.indicated_airspeed() < Velocity::new::<knot>(100.)
 }
