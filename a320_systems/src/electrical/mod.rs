@@ -2357,18 +2357,22 @@ mod a320_electrical_circuit_tests {
                 .read_bool("ELEC_CONTACTOR_1PC2_IS_CLOSED")
         }
 
-        fn run(mut self) -> Self {
-            self.simulation_test_bed.set_delta(Duration::from_secs(1));
-            self.simulation_test_bed.run_aircraft(&mut self.aircraft);
-            self.simulation_test_bed.set_delta(Duration::from_secs(0));
-            self.simulation_test_bed.run_aircraft(&mut self.aircraft);
-
-            self
+        fn run(self) -> Self {
+            self.run_waiting_for(Duration::from_secs(1))
         }
 
         fn run_waiting_for(mut self, delta: Duration) -> Self {
             self.simulation_test_bed.set_delta(delta);
             self.simulation_test_bed.run_aircraft(&mut self.aircraft);
+
+            // Sadly it's impossible for some electrical origins such as
+            // the generators to know their output potential before a single
+            // simulation tick has passed, as the output potential among other
+            // things depends on electrical load which is only known near the
+            // end of a tick. As the electrical system disallows e.g. an engine
+            // generator contactor to close when its electrical parameters are
+            // outside of normal parameters, we have to run a second tick before
+            // the potential has flown through the system in the way we expected.
             self.simulation_test_bed.set_delta(Duration::from_secs(0));
             self.simulation_test_bed.run_aircraft(&mut self.aircraft);
 
