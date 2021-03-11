@@ -189,6 +189,10 @@ impl<T: ApuGenerator> AuxiliaryPowerUnitElectrical for AuxiliaryPowerUnit<T> {
     fn is_available(&self) -> bool {
         self.ecb.is_available()
     }
+
+    fn output_within_normal_parameters(&self) -> bool {
+        self.generator.output_within_normal_parameters()
+    }
 }
 impl<T: ApuGenerator> ApuStartContactorsController for AuxiliaryPowerUnit<T> {
     fn should_close_start_contactors(&self) -> bool {
@@ -267,6 +271,7 @@ pub trait ApuGenerator:
     PotentialSource + SimulationElement + ProvidePotential + ProvideFrequency
 {
     fn update(&mut self, n: Ratio, is_emergency_shutdown: bool);
+    fn output_within_normal_parameters(&self) -> bool;
 }
 
 pub struct AuxiliaryPowerUnitFireOverheadPanel {
@@ -455,6 +460,10 @@ pub mod tests {
 
         fn cut_start_motor_power(&mut self) {
             self.cut_start_motor_power = true;
+        }
+
+        fn apu_electric_output_within_normal_parameters(&self) -> bool {
+            self.apu.output_within_normal_parameters()
         }
     }
     impl Aircraft for AuxiliaryPowerUnitTestAircraft {
@@ -845,6 +854,10 @@ pub mod tests {
         fn bleed_air_valve_is_open(&mut self) -> bool {
             self.simulation_test_bed
                 .read_bool("APU_BLEED_AIR_VALVE_OPEN")
+        }
+
+        fn apu_generator_output_within_normal_parameters(&self) -> bool {
+            self.aircraft.apu_electric_output_within_normal_parameters()
         }
     }
 
@@ -1672,6 +1685,31 @@ pub mod tests {
                 .run(Duration::from_secs(60));
 
             assert!((test_bed.n().get::<percent>() - 0.).abs() < f64::EPSILON);
+        }
+
+        #[test]
+        fn output_within_normal_parameters_when_running() {
+            let test_bed = test_bed_with().running_apu();
+
+            assert!(test_bed.apu_generator_output_within_normal_parameters());
+        }
+
+        #[test]
+        fn output_not_within_normal_parameters_when_shutdown() {
+            let test_bed = test_bed();
+
+            assert!(!test_bed.apu_generator_output_within_normal_parameters());
+        }
+
+        #[test]
+        fn output_not_within_normal_parameters_when_not_yet_available() {
+            let test_bed = test_bed_with()
+                .starting_apu()
+                .and()
+                .turbine_infinitely_running_at(Ratio::new::<percent>(94.))
+                .run(Duration::from_secs(0));
+
+            assert!(!test_bed.apu_generator_output_within_normal_parameters());
         }
     }
 }

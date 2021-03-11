@@ -624,6 +624,16 @@ impl ApuGenerator for Aps3200ApuGenerator {
         self.n = n;
         self.is_emergency_shutdown = is_emergency_shutdown;
     }
+
+    /// Indicates if the provided electricity's potential and frequency
+    /// are within normal parameters. Use this to decide if the
+    /// generator contactor should close.
+    /// Load shouldn't be taken into account, as overloading causes an
+    /// overtemperature which over time will trigger a mechanical
+    /// disconnect of the generator.
+    fn output_within_normal_parameters(&self) -> bool {
+        self.potential_normal() && self.frequency_normal()
+    }
 }
 provide_potential!(Aps3200ApuGenerator, (110.0..=120.0));
 provide_frequency!(Aps3200ApuGenerator, (390.0..=410.0));

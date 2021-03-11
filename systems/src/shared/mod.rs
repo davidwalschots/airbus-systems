@@ -17,6 +17,7 @@ pub trait ApuStartContactorsController {
 pub trait AuxiliaryPowerUnitElectrical: PotentialSource + ApuStartContactorsController {
     fn start_motor_powered_by(&mut self, source: Potential);
     fn is_available(&self) -> bool;
+    fn output_within_normal_parameters(&self) -> bool;
 }
 
 #[derive(FromPrimitive)]

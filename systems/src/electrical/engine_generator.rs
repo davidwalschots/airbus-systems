@@ -17,6 +17,8 @@ pub trait EngineGeneratorUpdateArguments {
     fn idg_push_button_released(&self, number: usize) -> bool;
 }
 
+pub const INTEGRATED_DRIVE_GENERATOR_STABILIZATION_TIME_IN_MILLISECONDS: u64 = 500;
+
 pub struct EngineGenerator {
     writer: ElectricalStateWriter,
     number: usize,
@@ -43,6 +45,16 @@ impl EngineGenerator {
         arguments: &T,
     ) {
         self.idg.update(context, arguments);
+    }
+
+    /// Indicates if the provided electricity's potential and frequency
+    /// are within normal parameters. Use this to decide if the
+    /// generator contactor should close.
+    /// Load shouldn't be taken into account, as overloading causes an
+    /// overtemperature which over time will trigger a mechanical
+    /// disconnect of the generator.
+    pub fn output_within_normal_parameters(&self) -> bool {
+        self.frequency_normal() && self.potential_normal()
     }
 
     fn should_provide_output(&self) -> bool {
@@ -111,7 +123,6 @@ struct IntegratedDriveGenerator {
 impl IntegratedDriveGenerator {
     pub const ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD: f64 = 58.;
     pub const ENGINE_N2_POWER_DOWN_OUTPUT_THRESHOLD: f64 = 56.;
-    const STABILIZATION_TIME_IN_MILLISECONDS: u64 = 500;
 
     fn new(number: usize) -> IntegratedDriveGenerator {
         IntegratedDriveGenerator {
@@ -147,7 +158,7 @@ impl IntegratedDriveGenerator {
 
     fn provides_stable_power_output(&self) -> bool {
         self.time_above_threshold_in_milliseconds
-            == IntegratedDriveGenerator::STABILIZATION_TIME_IN_MILLISECONDS
+            == INTEGRATED_DRIVE_GENERATOR_STABILIZATION_TIME_IN_MILLISECONDS
     }
 
     fn update_stable_time(&mut self, context: &UpdateContext, corrected_n2: Ratio) {
@@ -160,7 +171,7 @@ impl IntegratedDriveGenerator {
         if corrected_n2
             >= Ratio::new::<percent>(IntegratedDriveGenerator::ENGINE_N2_POWER_UP_OUTPUT_THRESHOLD)
             && self.time_above_threshold_in_milliseconds
-                < IntegratedDriveGenerator::STABILIZATION_TIME_IN_MILLISECONDS
+                < INTEGRATED_DRIVE_GENERATOR_STABILIZATION_TIME_IN_MILLISECONDS
         {
             new_time =
                 self.time_above_threshold_in_milliseconds + context.delta().as_millis() as u64;
@@ -180,7 +191,7 @@ impl IntegratedDriveGenerator {
         self.time_above_threshold_in_milliseconds = clamp(
             new_time,
             0,
-            IntegratedDriveGenerator::STABILIZATION_TIME_IN_MILLISECONDS,
+            INTEGRATED_DRIVE_GENERATOR_STABILIZATION_TIME_IN_MILLISECONDS,
         );
     }
 
@@ -343,6 +354,10 @@ mod tests {
             fn power_demand(&mut self, power: Power) {
                 self.consumer.demand(power);
             }
+
+            fn generator_output_within_normal_parameters(&self) -> bool {
+                self.engine_gen.output_within_normal_parameters()
+            }
         }
         impl Aircraft for TestAircraft {
             fn update_before_power_distribution(&mut self, context: &UpdateContext) {
@@ -501,6 +516,37 @@ mod tests {
             test_bed.run_aircraft(&mut aircraft);
 
             assert!(!test_bed.load_is_normal());
+        }
+
+        #[test]
+        fn output_within_normal_parameters_when_load_exceeds_maximum() {
+            let mut aircraft = TestAircraft::with_running_engine();
+            let mut test_bed = EngineGeneratorTestBed::new();
+
+            aircraft.power_demand(Power::new::<watt>((90000. / 0.8) + 1.));
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(aircraft.generator_output_within_normal_parameters());
+        }
+
+        #[test]
+        fn output_not_within_normal_parameters_when_engine_not_running() {
+            let mut aircraft = TestAircraft::with_shutdown_engine();
+            let mut test_bed = EngineGeneratorTestBed::new();
+
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(!aircraft.generator_output_within_normal_parameters());
+        }
+
+        #[test]
+        fn output_within_normal_parameters_when_engine_running() {
+            let mut aircraft = TestAircraft::with_running_engine();
+            let mut test_bed = EngineGeneratorTestBed::new();
+
+            test_bed.run_aircraft(&mut aircraft);
+
+            assert!(aircraft.generator_output_within_normal_parameters());
         }
 
         #[test]

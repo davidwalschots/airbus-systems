@@ -442,7 +442,10 @@ mod a320_electrical_circuit_tests {
     use super::alternating_current::A320AcEssFeedContactors;
     use super::*;
     use systems::{
-        electrical::{ElectricalBusType, ExternalPowerSource, PotentialOrigin},
+        electrical::{
+            ElectricalBusType, ExternalPowerSource, PotentialOrigin,
+            INTEGRATED_DRIVE_GENERATOR_STABILIZATION_TIME_IN_MILLISECONDS,
+        },
         shared::ApuStartContactorsController,
         simulation::{test::SimulationTestBed, Aircraft},
     };
@@ -1869,6 +1872,10 @@ mod a320_electrical_circuit_tests {
         fn is_available(&self) -> bool {
             self.is_available
         }
+
+        fn output_within_normal_parameters(&self) -> bool {
+            self.is_available
+        }
     }
     impl ApuStartContactorsController for TestApu {
         fn should_close_start_contactors(&self) -> bool {
@@ -2027,12 +2034,16 @@ mod a320_electrical_circuit_tests {
 
         fn running_engine_1(mut self) -> Self {
             self.aircraft.running_engine_1();
-            self
+            self.run_waiting_for(Duration::from_millis(
+                INTEGRATED_DRIVE_GENERATOR_STABILIZATION_TIME_IN_MILLISECONDS,
+            ))
         }
 
         fn running_engine_2(mut self) -> Self {
             self.aircraft.running_engine_2();
-            self
+            self.run_waiting_for(Duration::from_millis(
+                INTEGRATED_DRIVE_GENERATOR_STABILIZATION_TIME_IN_MILLISECONDS,
+            ))
         }
 
         fn running_engines(self) -> Self {
@@ -2349,12 +2360,16 @@ mod a320_electrical_circuit_tests {
         fn run(mut self) -> Self {
             self.simulation_test_bed.set_delta(Duration::from_secs(1));
             self.simulation_test_bed.run_aircraft(&mut self.aircraft);
+            self.simulation_test_bed.set_delta(Duration::from_secs(0));
+            self.simulation_test_bed.run_aircraft(&mut self.aircraft);
 
             self
         }
 
         fn run_waiting_for(mut self, delta: Duration) -> Self {
             self.simulation_test_bed.set_delta(delta);
+            self.simulation_test_bed.run_aircraft(&mut self.aircraft);
+            self.simulation_test_bed.set_delta(Duration::from_secs(0));
             self.simulation_test_bed.run_aircraft(&mut self.aircraft);
 
             self

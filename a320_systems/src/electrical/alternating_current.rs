@@ -90,8 +90,9 @@ impl A320AlternatingCurrentElectrical {
         self.ac_ess_bus
             .powered_by(&self.ac_ess_feed_contactors.electric_sources());
 
-        self.emergency_gen_contactor
-            .close_when(self.main_ac_buses_unpowered() && self.emergency_gen.is_powered());
+        self.emergency_gen_contactor.close_when(
+            self.main_ac_buses_unpowered() && self.emergency_gen.output_within_normal_parameters(),
+        );
         self.emergency_gen_contactor.powered_by(&self.emergency_gen);
 
         self.ac_ess_to_tr_ess_contactor.powered_by(&self.ac_ess_bus);
@@ -346,15 +347,17 @@ impl A320MainPowerSources {
         self.engine_1_gen.update(context, arguments);
         self.engine_2_gen.update(context, arguments);
 
-        let gen_1_provides_power = overhead.generator_1_is_on() && self.engine_1_gen.is_powered();
-        let gen_2_provides_power = overhead.generator_2_is_on() && self.engine_2_gen.is_powered();
+        let gen_1_provides_power =
+            overhead.generator_1_is_on() && self.engine_1_gen.output_within_normal_parameters();
+        let gen_2_provides_power =
+            overhead.generator_2_is_on() && self.engine_2_gen.output_within_normal_parameters();
         let only_one_engine_gen_is_powered = gen_1_provides_power ^ gen_2_provides_power;
         let both_engine_gens_provide_power = gen_1_provides_power && gen_2_provides_power;
         let ext_pwr_provides_power = overhead.external_power_is_on()
-            && ext_pwr.is_powered()
+            && ext_pwr.output_within_normal_parameters()
             && !both_engine_gens_provide_power;
         let apu_gen_provides_power = overhead.apu_generator_is_on()
-            && arguments.apu().is_powered()
+            && arguments.apu().output_within_normal_parameters()
             && !ext_pwr_provides_power
             && !both_engine_gens_provide_power;
 

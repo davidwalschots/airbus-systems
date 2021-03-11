@@ -43,7 +43,14 @@ impl EmergencyGenerator {
         self.starting_or_started = true;
     }
 
-    pub fn should_provide_output(&self) -> bool {
+    /// Indicates if the provided electricity's potential and frequency
+    /// are within normal parameters. Use this to decide if the
+    /// generator contactor should close.
+    pub fn output_within_normal_parameters(&self) -> bool {
+        self.frequency_normal() && self.potential_normal()
+    }
+
+    fn should_provide_output(&self) -> bool {
         self.supplying
     }
 }
@@ -137,6 +144,10 @@ mod emergency_generator_tests {
         fn set_blue_pressurisation(&mut self, pressurised: bool) {
             self.is_blue_pressurised = pressurised;
         }
+
+        fn generator_output_within_normal_parameters(&self) -> bool {
+            self.emer_gen.output_within_normal_parameters()
+        }
     }
     impl Aircraft for TestAircraft {
         fn update_before_power_distribution(&mut self, context: &UpdateContext) {
@@ -224,6 +235,27 @@ mod emergency_generator_tests {
         test_bed.run_aircraft(&mut aircraft, Duration::from_secs(100));
 
         assert!(test_bed.potential_is_normal());
+    }
+
+    #[test]
+    fn output_not_within_normal_parameters_when_shutdown() {
+        let mut aircraft = TestAircraft::new();
+        let mut test_bed = EmergencyGeneratorTestBed::new();
+
+        test_bed.run_aircraft(&mut aircraft, Duration::from_secs(100));
+
+        assert!(!aircraft.generator_output_within_normal_parameters());
+    }
+
+    #[test]
+    fn output_within_normal_parameters_when_started() {
+        let mut aircraft = TestAircraft::new();
+        let mut test_bed = EmergencyGeneratorTestBed::new();
+
+        aircraft.attempt_emer_gen_start();
+        test_bed.run_aircraft(&mut aircraft, Duration::from_secs(100));
+
+        assert!(aircraft.generator_output_within_normal_parameters());
     }
 
     #[test]

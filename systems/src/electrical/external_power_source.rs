@@ -24,6 +24,13 @@ impl ExternalPowerSource {
 
     pub fn update(&mut self, _: &UpdateContext) {}
 
+    /// Indicates if the provided electricity's potential and frequency
+    /// are within normal parameters. Use this to decide if the
+    /// external power contactor should close.
+    pub fn output_within_normal_parameters(&self) -> bool {
+        self.potential_normal() && self.frequency_normal()
+    }
+
     fn should_provide_output(&self) -> bool {
         self.is_connected
     }
@@ -123,6 +130,10 @@ mod external_power_source_tests {
         fn ext_pwr_is_powered(&self) -> bool {
             self.ext_pwr.is_powered()
         }
+
+        fn ext_pwr_output_within_normal_parameters(&self) -> bool {
+            self.ext_pwr.output_within_normal_parameters()
+        }
     }
     impl Aircraft for TestAircraft {}
     impl SimulationElement for TestAircraft {
@@ -183,13 +194,33 @@ mod external_power_source_tests {
     }
 
     #[test]
-    fn when_engine_running_potential_normal() {
+    fn when_connected_potential_normal() {
         let mut aircraft = TestAircraft::new();
         let mut test_bed = ExternalPowerTestBed::new().with_connected_external_power();
 
         test_bed.run_aircraft(&mut aircraft);
 
         assert!(test_bed.potential_is_normal());
+    }
+
+    #[test]
+    fn output_not_within_normal_parameters_when_disconnected() {
+        let mut aircraft = TestAircraft::new();
+        let mut test_bed = ExternalPowerTestBed::new().with_disconnected_external_power();
+
+        test_bed.run_aircraft(&mut aircraft);
+
+        assert!(!aircraft.ext_pwr_output_within_normal_parameters());
+    }
+
+    #[test]
+    fn output_within_normal_parameters_when_connected() {
+        let mut aircraft = TestAircraft::new();
+        let mut test_bed = ExternalPowerTestBed::new().with_connected_external_power();
+
+        test_bed.run_aircraft(&mut aircraft);
+
+        assert!(aircraft.ext_pwr_output_within_normal_parameters());
     }
 
     #[test]
