@@ -1,8 +1,9 @@
-use super::{ApuGenerator, Turbine, TurbineController, TurbineState};
+use super::{ApuGenerator, ApuStartMotor, Turbine, TurbineController, TurbineState};
 use crate::{
     electrical::{
-        consumption::PowerConsumptionReport, ElectricalStateWriter, Potential, PotentialOrigin,
-        PotentialSource, ProvideFrequency, ProvideLoad, ProvidePotential,
+        consumption::{PowerConsumption, PowerConsumptionReport},
+        ElectricalStateWriter, Potential, PotentialOrigin, PotentialSource, PotentialTarget,
+        ProvideFrequency, ProvideLoad, ProvidePotential,
     },
     shared::{calculate_towards_target_temperature, random_number},
     simulation::{SimulationElement, SimulatorWriter, UpdateContext},
@@ -676,6 +677,58 @@ impl SimulationElement for Aps3200ApuGenerator {
         self.load = Ratio::new::<percent>(
             (power_consumption * power_factor_correction / maximum_load) * 100.,
         );
+    }
+}
+
+pub struct Aps3200StartMotor {
+    input_potential: Potential,
+    powered_since: Duration,
+}
+impl Aps3200StartMotor {
+    pub fn new() -> Self {
+        Aps3200StartMotor {
+            input_potential: Potential::none(),
+            powered_since: Duration::from_secs(0),
+        }
+    }
+}
+impl ApuStartMotor for Aps3200StartMotor {}
+impl SimulationElement for Aps3200StartMotor {
+    fn consume_power(&mut self, consumption: &mut PowerConsumption) {
+        if self.input_potential.is_unpowered() {
+            self.powered_since = Duration::from_secs(0);
+        } else {
+            self.powered_since += consumption.delta();
+
+            const APU_W_CONST: f64 = 9933.45316867122252237659;
+            const APU_W_X: f64 = -1319.1431831932327;
+            const APU_W_X2: f64 = 236.32171392861937;
+            const APU_W_X3: f64 = -34.01201082369166;
+            const APU_W_X4: f64 = 3.168505536233231;
+            const APU_W_X5: f64 = -0.17850758460976182;
+            const APU_W_X6: f64 = 0.005403593330801297;
+            const APU_W_X7: f64 = -0.0000663926018728314;
+
+            let since = self.powered_since.as_secs_f64();
+
+            let w = (APU_W_CONST
+                + (APU_W_X * since)
+                + (APU_W_X2 * since.powi(2))
+                + (APU_W_X3 * since.powi(3))
+                + (APU_W_X4 * since.powi(4))
+                + (APU_W_X5 * since.powi(5))
+                + (APU_W_X6 * since.powi(6))
+                + (APU_W_X7 * since.powi(7)))
+            .max(0.);
+
+            consumption.add(&self.input_potential, Power::new::<watt>(w));
+        }
+    }
+}
+potential_target!(Aps3200StartMotor);
+impl PotentialSource for Aps3200StartMotor {
+    fn output(&self) -> Potential {
+        self.input_potential
     }
 }
 

@@ -3,10 +3,7 @@ use self::{
     electronic_control_box::ElectronicControlBox,
 };
 use crate::{
-    electrical::{
-        consumption::PowerConsumption, Potential, PotentialSource, PotentialTarget,
-        ProvideFrequency, ProvidePotential,
-    },
+    electrical::{Potential, PotentialSource, PotentialTarget, ProvideFrequency, ProvidePotential},
     overhead::{FirePushButton, OnOffAvailablePushButton, OnOffFaultPushButton},
     pneumatic::{BleedAirValve, BleedAirValveState, Valve},
     shared::{ApuStartContactorsController, AuxiliaryPowerUnitElectrical},
@@ -14,44 +11,27 @@ use crate::{
 };
 #[cfg(test)]
 use std::time::Duration;
-use uom::si::{f64::*, power::watt, ratio::percent, thermodynamic_temperature::degree_celsius};
+use uom::si::{f64::*, ratio::percent, thermodynamic_temperature::degree_celsius};
 
 mod air_intake_flap;
 mod aps3200;
-pub use aps3200::Aps3200ApuGenerator;
+pub use aps3200::{Aps3200ApuGenerator, Aps3200StartMotor};
 mod electronic_control_box;
 
 pub struct AuxiliaryPowerUnitFactory {}
 impl AuxiliaryPowerUnitFactory {
-    pub fn new_aps3200(number: usize) -> AuxiliaryPowerUnit<Aps3200ApuGenerator> {
+    pub fn new_aps3200(
+        number: usize,
+    ) -> AuxiliaryPowerUnit<Aps3200ApuGenerator, Aps3200StartMotor> {
         AuxiliaryPowerUnit::new(
             Box::new(ShutdownAps3200Turbine::new()),
             Aps3200ApuGenerator::new(number),
+            Aps3200StartMotor::new(),
         )
     }
 }
 
-struct StartMotor {
-    input_potential: Potential,
-}
-impl StartMotor {
-    fn new() -> Self {
-        StartMotor {
-            input_potential: Potential::none(),
-        }
-    }
-}
-impl SimulationElement for StartMotor {
-    fn consume_power(&mut self, consumption: &mut PowerConsumption) {
-        consumption.add(&self.input_potential, Power::new::<watt>(5000.));
-    }
-}
-potential_target!(StartMotor);
-impl PotentialSource for StartMotor {
-    fn output(&self) -> Potential {
-        self.input_potential
-    }
-}
+pub trait ApuStartMotor: PotentialTarget + PotentialSource + SimulationElement {}
 
 /// Komp: There is a pressure switch between the fuel valve and the APU.
 /// It switches from 0 to 1 when the pressure is >=17 PSI and the signal is received by the ECB
@@ -88,22 +68,22 @@ pub trait TurbineController {
     fn should_stop(&self) -> bool;
 }
 
-pub struct AuxiliaryPowerUnit<T: ApuGenerator> {
+pub struct AuxiliaryPowerUnit<T: ApuGenerator, U: ApuStartMotor> {
     turbine: Option<Box<dyn Turbine>>,
     generator: T,
     ecb: ElectronicControlBox,
-    start_motor: StartMotor,
+    start_motor: U,
     air_intake_flap: AirIntakeFlap,
     bleed_air_valve: BleedAirValve,
     fuel_pressure_switch: FuelPressureSwitch,
 }
-impl<T: ApuGenerator> AuxiliaryPowerUnit<T> {
-    pub fn new(turbine: Box<dyn Turbine>, generator: T) -> Self {
+impl<T: ApuGenerator, U: ApuStartMotor> AuxiliaryPowerUnit<T, U> {
+    pub fn new(turbine: Box<dyn Turbine>, generator: T, start_motor: U) -> Self {
         AuxiliaryPowerUnit {
             turbine: Some(turbine),
             generator,
             ecb: ElectronicControlBox::new(),
-            start_motor: StartMotor::new(),
+            start_motor,
             air_intake_flap: AirIntakeFlap::new(),
             bleed_air_valve: BleedAirValve::new(),
             fuel_pressure_switch: FuelPressureSwitch::new(),
@@ -181,7 +161,7 @@ impl<T: ApuGenerator> AuxiliaryPowerUnit<T> {
         self.air_intake_flap.set_delay(duration);
     }
 }
-impl<T: ApuGenerator> AuxiliaryPowerUnitElectrical for AuxiliaryPowerUnit<T> {
+impl<T: ApuGenerator, U: ApuStartMotor> AuxiliaryPowerUnitElectrical for AuxiliaryPowerUnit<T, U> {
     fn start_motor_powered_by(&mut self, source: Potential) {
         self.start_motor.powered_by(&source);
     }
@@ -194,17 +174,17 @@ impl<T: ApuGenerator> AuxiliaryPowerUnitElectrical for AuxiliaryPowerUnit<T> {
         self.generator.output_within_normal_parameters()
     }
 }
-impl<T: ApuGenerator> ApuStartContactorsController for AuxiliaryPowerUnit<T> {
+impl<T: ApuGenerator, U: ApuStartMotor> ApuStartContactorsController for AuxiliaryPowerUnit<T, U> {
     fn should_close_start_contactors(&self) -> bool {
         self.ecb.should_close_start_contactors()
     }
 }
-impl<T: ApuGenerator> PotentialSource for AuxiliaryPowerUnit<T> {
+impl<T: ApuGenerator, U: ApuStartMotor> PotentialSource for AuxiliaryPowerUnit<T, U> {
     fn output(&self) -> Potential {
         self.generator.output()
     }
 }
-impl<T: ApuGenerator> SimulationElement for AuxiliaryPowerUnit<T> {
+impl<T: ApuGenerator, U: ApuStartMotor> SimulationElement for AuxiliaryPowerUnit<T, U> {
     fn accept<V: SimulationElementVisitor>(&mut self, visitor: &mut V) {
         self.generator.accept(visitor);
         self.start_motor.accept(visitor);
@@ -240,7 +220,7 @@ impl<T: ApuGenerator> SimulationElement for AuxiliaryPowerUnit<T> {
         );
     }
 }
-impl<T: ApuGenerator> BleedAirValveState for AuxiliaryPowerUnit<T> {
+impl<T: ApuGenerator, U: ApuStartMotor> BleedAirValveState for AuxiliaryPowerUnit<T, U> {
     fn bleed_air_valve_is_open(&self) -> bool {
         self.bleed_air_valve.is_open()
     }
@@ -313,7 +293,10 @@ impl AuxiliaryPowerUnitOverheadPanel {
         }
     }
 
-    pub fn update_after_apu<T: ApuGenerator>(&mut self, apu: &AuxiliaryPowerUnit<T>) {
+    pub fn update_after_apu<T: ApuGenerator, U: ApuStartMotor>(
+        &mut self,
+        apu: &AuxiliaryPowerUnit<T, U>,
+    ) {
         self.start.set_available(apu.is_available());
         if self.start_is_on()
             && (apu.is_available()
@@ -361,7 +344,7 @@ pub mod tests {
     use super::*;
     use std::time::Duration;
     use uom::si::{
-        electric_potential::volt, frequency::hertz, length::foot, ratio::percent,
+        electric_potential::volt, frequency::hertz, length::foot, power::watt, ratio::percent,
         thermodynamic_temperature::degree_celsius,
     };
 
@@ -406,7 +389,7 @@ pub mod tests {
     }
 
     struct AuxiliaryPowerUnitTestAircraft {
-        apu: AuxiliaryPowerUnit<Aps3200ApuGenerator>,
+        apu: AuxiliaryPowerUnit<Aps3200ApuGenerator, Aps3200StartMotor>,
         apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel,
         apu_overhead: AuxiliaryPowerUnitOverheadPanel,
         apu_bleed: OnOffFaultPushButton,
@@ -414,6 +397,7 @@ pub mod tests {
         has_fuel_remaining: bool,
         power_consumer: PowerConsumer,
         cut_start_motor_power: bool,
+        power_consumption: Power,
     }
     impl AuxiliaryPowerUnitTestAircraft {
         fn new() -> Self {
@@ -426,6 +410,7 @@ pub mod tests {
                 has_fuel_remaining: true,
                 power_consumer: PowerConsumer::from(ElectricalBusType::AlternatingCurrent(1)),
                 cut_start_motor_power: false,
+                power_consumption: Power::new::<watt>(0.),
             }
         }
 
@@ -464,6 +449,10 @@ pub mod tests {
 
         fn apu_electric_output_within_normal_parameters(&self) -> bool {
             self.apu.output_within_normal_parameters()
+        }
+
+        fn power_consumption(&self) -> Power {
+            self.power_consumption
         }
     }
     impl Aircraft for AuxiliaryPowerUnitTestAircraft {
@@ -516,6 +505,17 @@ pub mod tests {
             self.power_consumer.accept(visitor);
 
             visitor.visit(self);
+        }
+
+        fn process_power_consumption_report<
+            T: crate::electrical::consumption::PowerConsumptionReport,
+        >(
+            &mut self,
+            report: &T,
+        ) where
+            Self: Sized,
+        {
+            self.power_consumption = report.total_consumption_of(PotentialOrigin::External);
         }
     }
 
@@ -859,12 +859,17 @@ pub mod tests {
         fn apu_generator_output_within_normal_parameters(&self) -> bool {
             self.aircraft.apu_electric_output_within_normal_parameters()
         }
+
+        fn power_consumption(&self) -> Power {
+            self.aircraft.power_consumption()
+        }
     }
 
     #[cfg(test)]
     mod apu_tests {
         use super::*;
         use ntest::{assert_about_eq, timeout};
+        use uom::si::power::watt;
 
         const APPROXIMATE_STARTUP_TIME: u64 = 49;
 
@@ -1710,6 +1715,24 @@ pub mod tests {
                 .run(Duration::from_secs(0));
 
             assert!(!test_bed.apu_generator_output_within_normal_parameters());
+        }
+
+        #[test]
+        fn start_motor_uses_power() {
+            let mut test_bed = test_bed_with().apu_ready_to_start().and().start_on();
+            let mut maximum_power = Power::new::<watt>(0.);
+            loop {
+                test_bed = test_bed.run(Duration::from_secs(1));
+
+                maximum_power = maximum_power.max(test_bed.power_consumption());
+                assert!(test_bed.power_consumption() >= Power::new::<watt>(0.));
+
+                if test_bed.apu_is_available() {
+                    break;
+                }
+            }
+
+            assert!(maximum_power < Power::new::<watt>(10000.));
         }
     }
 }

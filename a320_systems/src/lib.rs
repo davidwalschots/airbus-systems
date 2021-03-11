@@ -10,7 +10,7 @@ use hydraulic::A320Hydraulic;
 use power_consumption::A320PowerConsumption;
 use systems::{
     apu::{
-        Aps3200ApuGenerator, AuxiliaryPowerUnit, AuxiliaryPowerUnitFactory,
+        Aps3200ApuGenerator, Aps3200StartMotor, AuxiliaryPowerUnit, AuxiliaryPowerUnitFactory,
         AuxiliaryPowerUnitFireOverheadPanel, AuxiliaryPowerUnitOverheadPanel,
     },
     electrical::{consumption::SuppliedPower, ElectricalSystem, ExternalPowerSource},
@@ -20,7 +20,7 @@ use systems::{
 };
 
 pub struct A320 {
-    apu: AuxiliaryPowerUnit<Aps3200ApuGenerator>,
+    apu: AuxiliaryPowerUnit<Aps3200ApuGenerator, Aps3200StartMotor>,
     apu_fire_overhead: AuxiliaryPowerUnitFireOverheadPanel,
     apu_overhead: AuxiliaryPowerUnitOverheadPanel,
     pneumatic_overhead: A320PneumaticOverheadPanel,
