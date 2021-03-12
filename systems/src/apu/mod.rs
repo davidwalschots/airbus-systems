@@ -210,10 +210,6 @@ impl<T: ApuGenerator, U: ApuStartMotor> SimulationElement for AuxiliaryPowerUnit
             self.ecb.has_fuel_low_pressure_fault(),
         );
         writer.write_f64("APU_N", self.n().get::<percent>());
-        writer.write_bool(
-            "APU_START_CONTACTOR_ENERGIZED",
-            self.start_motor.is_powered(),
-        );
         writer.write_f64(
             "APU_EGT_WARNING",
             self.ecb.egt_warning_temperature().get::<degree_celsius>(),
