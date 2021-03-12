@@ -200,7 +200,7 @@ impl SimulationElement for FlightPhasePowerConsumer {
 
     fn read(&mut self, reader: &mut SimulatorReader) {
         let flight_phase: Option<FwcFlightPhase> =
-            FromPrimitive::from_f64(reader.read_f64("A32NX_FWC_FLIGHT_PHASE"));
+            FromPrimitive::from_f64(reader.read_f64("FWC_FLIGHT_PHASE"));
         if let Some(phase) = flight_phase {
             self.current_flight_phase = PowerConsumerFlightPhase::from(phase);
         }
@@ -551,7 +551,7 @@ mod tests {
         }
 
         fn apply_flight_phase(test_bed: &mut SimulationTestBed, phase: FwcFlightPhase) {
-            test_bed.write_f64("A32NX_FWC_FLIGHT_PHASE", phase as i32 as f64);
+            test_bed.write_f64("FWC_FLIGHT_PHASE", phase as i32 as f64);
         }
 
         #[test]
