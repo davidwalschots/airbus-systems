@@ -700,7 +700,7 @@ impl SimulationElement for Aps3200StartMotor {
         } else {
             self.powered_since += consumption.delta();
 
-            const APU_W_CONST: f64 = 9933.45316867122252237659;
+            const APU_W_CONST: f64 = 9933.453168671222;
             const APU_W_X: f64 = -1319.1431831932327;
             const APU_W_X2: f64 = 236.32171392861937;
             const APU_W_X3: f64 = -34.01201082369166;
@@ -729,6 +729,11 @@ potential_target!(Aps3200StartMotor);
 impl PotentialSource for Aps3200StartMotor {
     fn output(&self) -> Potential {
         self.input_potential
+    }
+}
+impl Default for Aps3200StartMotor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
