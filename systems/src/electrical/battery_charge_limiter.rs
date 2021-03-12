@@ -102,7 +102,7 @@ impl BatteryChargeLimiter {
                 contactor_id
             ),
             arrow: ArrowBetweenBatteryAndBatBus::new(),
-            observer: Some(Box::new(OpenContactorObserver::new(false))),
+            observer: Some(Box::new(OpenContactorObserver::from_off())),
         }
     }
 
@@ -165,7 +165,7 @@ impl BatteryStateObserver for OffPushButtonObserver {
         arguments: &BatteryChargeLimiterArguments,
     ) -> Box<dyn BatteryStateObserver> {
         if arguments.battery_push_button_is_auto() {
-            Box::new(OpenContactorObserver::new(false))
+            Box::new(OpenContactorObserver::from_off())
         } else {
             self
         }
@@ -178,6 +178,7 @@ struct OpenContactorObserver {
     begin_charging_cycle_delay: DelayedTrueLogicGate,
     emergency_elec_duration: Duration,
     open_due_to_discharge_protection: bool,
+    open_due_to_exceeding_emergency_elec_closing_time_allowance: bool,
 }
 impl OpenContactorObserver {
     const CHARGE_BATTERY_BELOW_VOLTAGE: f64 = 26.5;
@@ -185,14 +186,34 @@ impl OpenContactorObserver {
     const BATTERY_CHARGING_CLOSE_DELAY_MILLISECONDS: u64 = 225;
     const EMERGENCY_ELEC_APU_START_CLOSE_DELAY_SECONDS: u64 = 45;
 
-    fn new(open_due_to_discharge_protection: bool) -> Self {
+    fn new(
+        open_due_to_discharge_protection: bool,
+        open_due_to_exceeding_emergency_elec_closing_time_allowance: bool,
+    ) -> Self {
         Self {
             begin_charging_cycle_delay: DelayedTrueLogicGate::new(Duration::from_millis(
                 OpenContactorObserver::BATTERY_CHARGING_CLOSE_DELAY_MILLISECONDS,
             )),
             emergency_elec_duration: Duration::from_secs(0),
             open_due_to_discharge_protection,
+            open_due_to_exceeding_emergency_elec_closing_time_allowance,
         }
+    }
+
+    fn from_off() -> Self {
+        Self::new(false, false)
+    }
+
+    fn from_closed() -> Self {
+        Self::new(false, false)
+    }
+
+    fn with_discharge_protection() -> Self {
+        Self::new(true, false)
+    }
+
+    fn after_exceeding_emergency_elec_closing_time_allowance() -> Self {
+        Self::new(false, true)
     }
 
     fn observe_system_state(
@@ -207,6 +228,12 @@ impl OpenContactorObserver {
         }
 
         self.update_begin_charging_cycle_delay(context, arguments);
+
+        if self.open_due_to_exceeding_emergency_elec_closing_time_allowance
+            && !arguments.apu_master_sw_pb_on()
+        {
+            self.open_due_to_exceeding_emergency_elec_closing_time_allowance = false;
+        }
     }
 
     fn should_close(
@@ -214,7 +241,8 @@ impl OpenContactorObserver {
         context: &UpdateContext,
         arguments: &BatteryChargeLimiterArguments,
     ) -> bool {
-        !self.emergency_elec_inhibited(context, arguments)
+        !self.open_due_to_exceeding_emergency_elec_closing_time_allowance
+            && !self.emergency_elec_inhibited(context, arguments)
             && !self.open_due_to_discharge_protection
             && (self.should_get_ready_for_apu_start(arguments)
                 || on_ground_at_low_speed_with_unpowered_ac_buses(context, arguments)
@@ -276,9 +304,9 @@ impl BatteryStateObserver for OpenContactorObserver {
         if !arguments.battery_push_button_is_auto() {
             Box::new(OffPushButtonObserver::new())
         } else if self.should_close(context, arguments) {
-            Box::new(ClosedContactorObserver::new(in_emergency_elec_config(
-                context, arguments,
-            )))
+            Box::new(ClosedContactorObserver::from_open(
+                in_emergency_elec_config(context, arguments),
+            ))
         } else {
             self
         }
@@ -300,7 +328,7 @@ impl ClosedContactorObserver {
     const BATTERY_DISCHARGE_PROTECTION_DELAY_SECONDS: u64 = 15;
     const EMER_ELEC_APU_MASTER_MAXIMUM_CLOSED_SECONDS: u64 = 180;
 
-    fn new(entered_in_emergency_elec: bool) -> Self {
+    fn from_open(entered_in_emergency_elec: bool) -> Self {
         Self {
             below_4_ampere_charging_duration: Duration::from_secs(0),
             below_23_volt_duration: Duration::from_secs(0),
@@ -346,15 +374,22 @@ impl ClosedContactorObserver {
                 )
     }
 
+    fn should_open_due_to_exceeding_emergency_elec_closed_time_allowance(
+        &self,
+        context: &UpdateContext,
+        arguments: &BatteryChargeLimiterArguments,
+    ) -> bool {
+        in_emergency_elec_config(context, arguments)
+            && self.beyond_emergency_elec_closed_time_allowance()
+    }
+
     fn should_open(
         &self,
         context: &UpdateContext,
         arguments: &BatteryChargeLimiterArguments,
     ) -> bool {
         if in_emergency_elec_config(context, arguments) {
-            !arguments.apu_master_sw_pb_on()
-                || self.emergency_elec_inhibited(arguments)
-                || self.beyond_emergency_elec_closed_time_allowance()
+            !arguments.apu_master_sw_pb_on() || self.emergency_elec_inhibited(arguments)
         } else {
             !self.awaiting_apu_start(arguments)
                 && !on_ground_at_low_speed_with_unpowered_ac_buses(context, arguments)
@@ -413,9 +448,13 @@ impl BatteryStateObserver for ClosedContactorObserver {
         if !arguments.battery_push_button_is_auto() {
             Box::new(OffPushButtonObserver::new())
         } else if self.should_open_due_to_discharge_protection(context) {
-            Box::new(OpenContactorObserver::new(true))
+            Box::new(OpenContactorObserver::with_discharge_protection())
+        } else if self
+            .should_open_due_to_exceeding_emergency_elec_closed_time_allowance(context, arguments)
+        {
+            Box::new(OpenContactorObserver::after_exceeding_emergency_elec_closing_time_allowance())
         } else if self.should_open(context, arguments) {
-            Box::new(OpenContactorObserver::new(false))
+            Box::new(OpenContactorObserver::from_closed())
         } else {
             self
         }
@@ -514,6 +553,12 @@ mod tests {
                 self.test_bed.run_aircraft(&mut self.aircraft);
 
                 self.test_bed.set_delta(delta);
+                self.test_bed.run_aircraft(&mut self.aircraft);
+
+                // Run once more to detect programming errors where the state goes from
+                // open to closed (or vice versa) and then back to the other state within
+                // the next tick while this shouldn't happen.
+                self.test_bed.set_delta(Duration::from_secs(0));
                 self.test_bed.run_aircraft(&mut self.aircraft);
 
                 self
@@ -1460,7 +1505,10 @@ mod tests {
                 .apu_master_sw_pb_on()
                 .run(Duration::from_secs(0));
 
-            assert!(test_bed.battery_contactor_is_closed());
+            assert!(
+                test_bed.battery_contactor_is_closed(),
+                "A precondition of this test is that the contactor is closed at this point."
+            );
 
             test_bed = test_bed
                 .then_continue_with()
