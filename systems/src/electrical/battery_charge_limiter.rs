@@ -290,6 +290,7 @@ impl BatteryStateObserver for OpenContactorObserver {
 struct ClosedContactorObserver {
     below_4_ampere_charging_duration: Duration,
     below_23_volt_duration: Duration,
+    apu_master_sw_pb_on_duration: Duration,
     had_apu_start: bool,
     entered_in_emergency_elec: bool,
 }
@@ -297,11 +298,13 @@ impl ClosedContactorObserver {
     const BATTERY_CHARGING_OPEN_DELAY_ON_GROUND_SECONDS: u64 = 10;
     const BATTERY_CHARGING_OPEN_DELAY_100_KNOTS_OR_AFTER_APU_START_SECONDS: u64 = 1800;
     const BATTERY_DISCHARGE_PROTECTION_DELAY_SECONDS: u64 = 15;
+    const EMER_ELEC_APU_MASTER_MAXIMUM_CLOSED_SECONDS: u64 = 180;
 
     fn new(entered_in_emergency_elec: bool) -> Self {
         Self {
             below_4_ampere_charging_duration: Duration::from_secs(0),
             below_23_volt_duration: Duration::from_secs(0),
+            apu_master_sw_pb_on_duration: Duration::from_secs(0),
             had_apu_start: false,
             entered_in_emergency_elec,
         }
@@ -327,6 +330,12 @@ impl ClosedContactorObserver {
         } else {
             self.below_23_volt_duration = Duration::from_secs(0);
         }
+
+        if arguments.apu_master_sw_pb_on() {
+            self.apu_master_sw_pb_on_duration += context.delta();
+        } else {
+            self.apu_master_sw_pb_on_duration = Duration::from_secs(0);
+        }
     }
 
     fn should_open_due_to_discharge_protection(&self, context: &UpdateContext) -> bool {
@@ -342,24 +351,32 @@ impl ClosedContactorObserver {
         context: &UpdateContext,
         arguments: &BatteryChargeLimiterArguments,
     ) -> bool {
-        self.emergency_elec_inhibited(context, arguments)
-            || (!self.awaiting_apu_start(arguments)
+        if in_emergency_elec_config(context, arguments) {
+            !arguments.apu_master_sw_pb_on()
+                || self.emergency_elec_inhibited(arguments)
+                || self.beyond_emergency_elec_closed_time_allowance()
+        } else {
+            !self.awaiting_apu_start(arguments)
                 && !on_ground_at_low_speed_with_unpowered_ac_buses(context, arguments)
                 && (self.beyond_charge_duration_on_ground_without_apu_start(context)
-                    || self.beyond_charge_duration_above_100_knots_or_after_apu_start(context)))
+                    || self
+                        .beyond_charge_duration_above_100_knots_or_after_apu_start_attempt(context))
+        }
     }
 
-    fn emergency_elec_inhibited(
-        &self,
-        context: &UpdateContext,
-        arguments: &BatteryChargeLimiterArguments,
-    ) -> bool {
-        in_emergency_elec_config(context, arguments)
-            && (!self.entered_in_emergency_elec || !arguments.landing_gear_is_up_and_locked())
+    fn emergency_elec_inhibited(&self, arguments: &BatteryChargeLimiterArguments) -> bool {
+        !self.entered_in_emergency_elec || !arguments.landing_gear_is_up_and_locked()
+    }
+
+    fn beyond_emergency_elec_closed_time_allowance(&self) -> bool {
+        self.apu_master_sw_pb_on_duration
+            >= Duration::from_secs(
+                ClosedContactorObserver::EMER_ELEC_APU_MASTER_MAXIMUM_CLOSED_SECONDS,
+            )
     }
 
     fn awaiting_apu_start(&self, arguments: &BatteryChargeLimiterArguments) -> bool {
-        arguments.apu_master_sw_pb_on && !arguments.apu_available()
+        arguments.apu_master_sw_pb_on() && !arguments.apu_available()
     }
 
     fn beyond_charge_duration_on_ground_without_apu_start(&self, context: &UpdateContext) -> bool {
@@ -370,7 +387,7 @@ impl ClosedContactorObserver {
                 )
     }
 
-    fn beyond_charge_duration_above_100_knots_or_after_apu_start(
+    fn beyond_charge_duration_above_100_knots_or_after_apu_start_attempt(
         &self,
         context: &UpdateContext,
     ) -> bool {
@@ -640,6 +657,11 @@ mod tests {
 
             fn apu_master_sw_pb_on(mut self) -> Self {
                 self.aircraft.set_apu_master_sw_pb_on();
+                self
+            }
+
+            fn apu_master_sw_pb_off(mut self) -> Self {
+                self.aircraft.set_apu_master_sw_pb_off();
                 self
             }
 
@@ -1349,7 +1371,11 @@ mod tests {
                 .available_emergency_generator()
                 .and()
                 .apu_master_sw_pb_on()
-                .run(Duration::from_millis(44999));
+                .run(
+                    Duration::from_secs(
+                        OpenContactorObserver::EMERGENCY_ELEC_APU_START_CLOSE_DELAY_SECONDS,
+                    ) - Duration::from_millis(1),
+                );
 
             assert!(test_bed.battery_contactor_is_closed());
         }
@@ -1361,7 +1387,9 @@ mod tests {
                 .emergency_elec()
                 .and()
                 .apu_master_sw_pb_on()
-                .run(Duration::from_millis(45000));
+                .run(Duration::from_secs(
+                    OpenContactorObserver::EMERGENCY_ELEC_APU_START_CLOSE_DELAY_SECONDS,
+                ));
 
             assert!(test_bed.battery_contactor_is_closed());
         }
@@ -1391,6 +1419,55 @@ mod tests {
             );
 
             test_bed = test_bed.emergency_elec().run(Duration::from_millis(1));
+
+            assert!(!test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn contactor_closes_for_a_maximum_of_three_minutes_for_apu_start_in_emergency_elec() {
+            let test_bed = test_bed_with()
+                .emergency_elec()
+                .available_emergency_generator()
+                .and()
+                .apu_master_sw_pb_on()
+                .run(
+                    Duration::from_secs(
+                        ClosedContactorObserver::EMER_ELEC_APU_MASTER_MAXIMUM_CLOSED_SECONDS,
+                    ) - Duration::from_millis(1),
+                );
+
+            assert!(test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn contactor_opens_after_three_minutes_of_being_closed_for_apu_start_in_emergency_elec() {
+            let test_bed = test_bed_with()
+                .emergency_elec()
+                .available_emergency_generator()
+                .and()
+                .apu_master_sw_pb_on()
+                .run(Duration::from_secs(
+                    ClosedContactorObserver::EMER_ELEC_APU_MASTER_MAXIMUM_CLOSED_SECONDS,
+                ));
+
+            assert!(!test_bed.battery_contactor_is_closed());
+        }
+
+        #[test]
+        fn contactor_opens_immediately_when_apu_master_sw_pb_pushed_off_in_emergency_elec() {
+            let mut test_bed = test_bed_with()
+                .emergency_elec()
+                .available_emergency_generator()
+                .and()
+                .apu_master_sw_pb_on()
+                .run(Duration::from_secs(0));
+
+            assert!(test_bed.battery_contactor_is_closed());
+
+            test_bed = test_bed
+                .then_continue_with()
+                .apu_master_sw_pb_off()
+                .run(Duration::from_secs(0));
 
             assert!(!test_bed.battery_contactor_is_closed());
         }
