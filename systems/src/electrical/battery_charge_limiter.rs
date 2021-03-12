@@ -870,13 +870,11 @@ mod tests {
         #[test]
         fn should_not_show_arrow_when_contactor_closed_while_almost_15_seconds_have_passed_charging_above_1_a(
         ) {
-            let mut test_bed =
-                test_bed()
-                    .wait_for_closed_contactor(true)
-                    .run(Duration::from_secs_f64(
-                        BatteryChargeLimiter::CHARGE_DISCHARGE_ARROW_DISPLAYED_AFTER_SECONDS as f64
-                            - 0.0001,
-                    ));
+            let mut test_bed = test_bed().wait_for_closed_contactor(true).run(
+                Duration::from_secs(
+                    BatteryChargeLimiter::CHARGE_DISCHARGE_ARROW_DISPLAYED_AFTER_SECONDS,
+                ) - Duration::from_millis(1),
+            );
 
             assert!(!test_bed.should_show_arrow_when_contactor_closed())
         }
@@ -919,10 +917,11 @@ mod tests {
                 .no_power_outside_of_battery()
                 .and()
                 .power_demand_of(Power::new::<watt>(30.))
-                .run(Duration::from_secs_f64(
-                    BatteryChargeLimiter::CHARGE_DISCHARGE_ARROW_DISPLAYED_AFTER_SECONDS as f64
-                        - 0.0001,
-                ));
+                .run(
+                    Duration::from_secs(
+                        BatteryChargeLimiter::CHARGE_DISCHARGE_ARROW_DISPLAYED_AFTER_SECONDS,
+                    ) - Duration::from_millis(1),
+                );
 
             assert!(!test_bed.should_show_arrow_when_contactor_closed())
         }
@@ -976,9 +975,11 @@ mod tests {
         ) {
             let test_bed = test_bed_with()
                 .battery_bus_at_minimum_charging_voltage()
-                .run(Duration::from_millis(
-                    OpenContactorObserver::BATTERY_CHARGING_CLOSE_DELAY_MILLISECONDS - 1,
-                ));
+                .run(
+                    Duration::from_millis(
+                        OpenContactorObserver::BATTERY_CHARGING_CLOSE_DELAY_MILLISECONDS,
+                    ) - Duration::from_millis(1),
+                );
 
             assert!(!test_bed.battery_contactor_is_closed());
         }
@@ -1084,15 +1085,11 @@ mod tests {
 
             assert!(test_bed.current() >= ElectricCurrent::new::<ampere>(4.), "The test assumes that charging current is equal to or greater than 4 at this point.");
 
-            test_bed =
-                test_bed
-                    .then_continue_with()
-                    .full_battery_charge()
-                    .run(Duration::from_secs_f64(
-                        ClosedContactorObserver::BATTERY_CHARGING_OPEN_DELAY_ON_GROUND_SECONDS
-                            as f64
-                            - 0.001,
-                    ));
+            test_bed = test_bed.then_continue_with().full_battery_charge().run(
+                Duration::from_secs(
+                    ClosedContactorObserver::BATTERY_CHARGING_OPEN_DELAY_ON_GROUND_SECONDS,
+                ) - Duration::from_millis(1),
+            );
 
             assert!(test_bed.battery_contactor_is_closed());
         }
@@ -1145,10 +1142,9 @@ mod tests {
                 test_bed
                     .then_continue_with()
                     .full_battery_charge()
-                    .run(Duration::from_secs_f64(
-                        ClosedContactorObserver::BATTERY_CHARGING_OPEN_DELAY_100_KNOTS_OR_AFTER_APU_START_SECONDS as f64
-                            - 0.0001,
-                    ));
+                    .run(Duration::from_secs(
+                        ClosedContactorObserver::BATTERY_CHARGING_OPEN_DELAY_100_KNOTS_OR_AFTER_APU_START_SECONDS
+                    ) - Duration::from_millis(1));
 
             assert!(test_bed.battery_contactor_is_closed());
         }
@@ -1181,9 +1177,9 @@ mod tests {
             .started_apu()
             .then_continue_with()
             .stopped_apu()
-            .run(Duration::from_secs_f64(
-                ClosedContactorObserver::BATTERY_CHARGING_OPEN_DELAY_100_KNOTS_OR_AFTER_APU_START_SECONDS as f64 - 0.0001,
-            ));
+            .run(Duration::from_secs(
+                ClosedContactorObserver::BATTERY_CHARGING_OPEN_DELAY_100_KNOTS_OR_AFTER_APU_START_SECONDS
+            ) - Duration::from_millis(1));
 
             assert!(test_bed.battery_contactor_is_closed());
         }
@@ -1254,13 +1250,11 @@ mod tests {
 
         #[test]
         fn complete_discharge_protection_doesnt_trigger_too_early() {
-            let test_bed =
-                test_bed_with()
-                    .pre_discharge_protection_state()
-                    .run(Duration::from_secs_f64(
-                        ClosedContactorObserver::BATTERY_DISCHARGE_PROTECTION_DELAY_SECONDS as f64
-                            - 0.0001,
-                    ));
+            let test_bed = test_bed_with().pre_discharge_protection_state().run(
+                Duration::from_secs(
+                    ClosedContactorObserver::BATTERY_DISCHARGE_PROTECTION_DELAY_SECONDS,
+                ) - Duration::from_millis(1),
+            );
 
             assert!(test_bed.battery_contactor_is_closed());
         }
@@ -1401,7 +1395,11 @@ mod tests {
                 .emergency_elec()
                 .and()
                 .apu_master_sw_pb_on()
-                .run(Duration::from_millis(44999));
+                .run(
+                    Duration::from_secs(
+                        OpenContactorObserver::EMERGENCY_ELEC_APU_START_CLOSE_DELAY_SECONDS,
+                    ) - Duration::from_millis(1),
+                );
 
             assert!(!test_bed.battery_contactor_is_closed());
         }
